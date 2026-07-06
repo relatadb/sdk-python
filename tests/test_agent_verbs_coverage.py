@@ -98,7 +98,7 @@ def test_mcp_typed_wrappers_match_server_names() -> None:
     c.lookup_identity("alice@example.com")
     c.get_entity_profile("e-1", purpose="x")
     c.get_timeline("e-1", purpose="x")
-    c.find_connections("a", "b", purpose="x")
+    c.find_connections("entity-1", purpose="x")
     c.get_relationships("e-1", purpose="x")
     c.add_case_note("c-1", "note")
     c.get_audit_trail(case_id="c-1")

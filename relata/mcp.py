@@ -185,16 +185,22 @@ class McpClient:
 
     def find_connections(
         self,
-        entity_a: str,
-        entity_b: str,
+        entity: str,
         *,
         purpose: str,
-        max_hops: int = 4,
+        limit: int = 50,
     ) -> dict[str, Any]:
-        """``find_connections`` — graph path search between two entities."""
+        """``find_connections`` — surface entities connected to a target via
+        relationships or shared attributes.
+
+        Args:
+            entity: The target entity ID to find connections for.
+            purpose: Declared purpose token.
+            limit: Max results (default 50, max 200).
+        """
         return self.call_tool(
             "find_connections",
-            {"entity_a": entity_a, "entity_b": entity_b, "max_hops": max_hops, "purpose": purpose},
+            {"entity": entity, "limit": limit, "purpose": purpose},
         )
 
     def get_relationships(
