@@ -37,7 +37,7 @@ governed `/memory/*` verbs — governance (purpose + ACL) stays on by default:
 ```python
 from relata import Memory
 
-with Memory("http://localhost:8080", purpose="agent-notes") as m:
+with Memory("http://localhost:9090", purpose="agent-notes") as m:
     mem_id = m.add("Alice prefers dark mode")     # store
     hits = m.search("ui preferences", top_k=5)    # recall (confidence × recency × relevance)
     m.forget(mem_id)                              # governed retract, not a hard delete
@@ -63,7 +63,7 @@ framework's memory/storage interface onto Relata, and none imports its framework
 ```python
 from relata_adapters.langchain import RelataMemory
 
-mem = RelataMemory(base_url="http://localhost:8080", purpose="agent")
+mem = RelataMemory(base_url="http://localhost:9090", purpose="agent")
 # chain = ConversationChain(llm=..., memory=mem)
 ```
 
@@ -261,6 +261,33 @@ Each has an async mirror (`Async*`).
 - **Typed exceptions** — `ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409), `ValidationError` (422), `RateLimitedError` (429, with `retry_after`).
 - **Retry** — `RelataClient(..., max_retries=3, retry_backoff_secs=0.5)`.
 - **X-Request-ID** — auto-generated per request; caller-supplied IDs respected; server's response ID stamped on exceptions.
+
+### Custom object types
+
+RelataDB is ontology-governed — unknown types are rejected on both ingest and
+read. Register custom types at runtime via `POST /types` (persisted across
+restart):
+
+```python
+# Register a custom type
+client._sync.post("/types", {
+    "name": "AgentTask",
+    "fields": [
+        {"name": "task_id", "type": "string"},
+        {"name": "status", "type": "string"},
+    ]
+})
+
+# Now ingest + query work
+client._sync.post("/ingest?object_type=AgentTask", {"task_id": "t-1", "status": "done"})
+```
+
+For ACL access in strict mode, grant via env var:
+```bash
+RELATA_ACL_GRANT=AgentTask:read+write
+```
+
+Unknown types return `400` on both ingest and read — fail-closed by design.
 
 ### v1.1 QueryBuilder extensions (#76)
 
