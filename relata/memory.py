@@ -48,6 +48,39 @@ def _unwrap(resp: dict[str, Any]) -> dict[str, Any]:
     return resp
 
 
+def _batch_items(
+    items: list[str | dict[str, Any]],
+    default_session: str,
+) -> list[dict[str, Any]]:
+    """Normalise ``add_batch`` inputs into ``remember_batch`` item dicts.
+
+    Each input is either a plain ``str`` (content) or a dict with ``content``
+    and optional ``confidence`` / ``memory_class`` / ``session_id`` /
+    ``purpose``. A missing ``session_id`` inherits ``default_session``.
+    """
+    out: list[dict[str, Any]] = []
+    for it in items:
+        if isinstance(it, str):
+            out.append({"content": it, "session_id": default_session})
+        else:
+            d = dict(it)
+            d.setdefault("session_id", default_session)
+            out.append(d)
+    return out
+
+
+def _batch_ids(result: dict[str, Any]) -> list[str]:
+    """Pull the per-item ids out of a ``remember_batch`` response.
+
+    Positions that failed validation carry no ``id`` and yield ``""`` so the
+    returned list stays index-aligned with the submitted items.
+    """
+    rows = result.get("results")
+    if not isinstance(rows, list):
+        return []
+    return [str(r.get("id", "")) if isinstance(r, dict) else "" for r in rows]
+
+
 class Memory:
     """High-level memory client — ``add`` / ``search`` / ``forget``.
 
@@ -104,6 +137,28 @@ class Memory:
         }
         result = _unwrap(self._t.post("/memory/remember", payload))
         return str(result.get("id", ""))
+
+    def add_batch(
+        self,
+        items: list[str | dict[str, Any]],
+        *,
+        session_id: str | None = None,
+    ) -> list[str]:
+        """Store many memories in one request; return their ids in order.
+
+        Each item is either a ``str`` (content) or a dict with ``content`` and
+        optional ``confidence`` / ``memory_class`` / ``session_id`` /
+        ``purpose``. This is the high-throughput write path: the server
+        amortises the full-text index flush across the whole batch instead of
+        once per record. Items that fail validation yield ``""`` at their
+        position; valid items still commit.
+        """
+        default_session = session_id if session_id is not None else self._session_id
+        payload = {
+            "purpose": self._purpose,
+            "items": _batch_items(items, default_session),
+        }
+        return _batch_ids(_unwrap(self._t.post("/memory/remember/batch", payload)))
 
     def search(
         self,
@@ -297,6 +352,21 @@ class AsyncMemory:
         }
         result = _unwrap(await self._t.post("/memory/remember", payload))
         return str(result.get("id", ""))
+
+    async def add_batch(
+        self,
+        items: list[str | dict[str, Any]],
+        *,
+        session_id: str | None = None,
+    ) -> list[str]:
+        """Store many memories in one request; return their ids (see
+        :meth:`Memory.add_batch`)."""
+        default_session = session_id if session_id is not None else self._session_id
+        payload = {
+            "purpose": self._purpose,
+            "items": _batch_items(items, default_session),
+        }
+        return _batch_ids(_unwrap(await self._t.post("/memory/remember/batch", payload)))
 
     async def search(
         self,

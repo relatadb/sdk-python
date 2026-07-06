@@ -47,6 +47,44 @@ def test_add_returns_id_and_sends_governed_payload() -> None:
     assert str(seen["request"].url).endswith("/memory/remember")
 
 
+def test_add_batch_sends_items_and_returns_ids() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["request"] = request
+        # Server echoes per-item results; middle item failed validation.
+        return httpx.Response(
+            200,
+            json=_mcp(
+                {
+                    "stored": 2,
+                    "submitted": 3,
+                    "results": [
+                        {"stored": "MemoryItem", "id": "m1"},
+                        {"error": "missing required argument: content"},
+                        {"stored": "MemoryItem", "id": "m3"},
+                    ],
+                }
+            ),
+        )
+
+    with _memory(handler) as m:
+        ids = m.add_batch(
+            ["alpha", {"content": "gamma", "confidence": 0.7}, {"session_id": "s"}],
+            session_id="default-sess",
+        )
+
+    # Index-aligned: the failed middle item yields "".
+    assert ids == ["m1", "", "m3"]
+    sent = json.loads(seen["request"].content)
+    assert sent["purpose"] == "agent-notes"  # governance: purpose always sent
+    assert str(seen["request"].url).endswith("/memory/remember/batch")
+    assert sent["items"][0] == {"content": "alpha", "session_id": "default-sess"}
+    assert sent["items"][1]["confidence"] == 0.7
+    # A str item and a dict without session_id both inherit the default session.
+    assert sent["items"][1]["session_id"] == "default-sess"
+
+
 def test_search_unwraps_rows() -> None:
     rows = [
         {
