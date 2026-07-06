@@ -21,6 +21,10 @@ from pydantic import BaseModel, Field, model_validator
 class QueryResult(BaseModel):
     """Result of a ``POST /query`` call.
 
+    The server returns ``{"rows": <int count>, "columns": [...], "data": [...],
+    "query_id": "...", "elapsed_ms": N}``. The SDK normalises this so callers
+    always see ``rows`` as a list of dicts, regardless of the wire shape.
+
     Attributes:
         rows: List of result rows, each row is a ``dict`` mapping column name
             to value.  Values use Python-native types (int, float, str, bool,
@@ -31,16 +35,32 @@ class QueryResult(BaseModel):
             include network round-trip time.
         row_count: Number of rows returned.  Always equals ``len(rows)``; the
             field exists as a convenience to avoid ``len()`` calls.
+        columns: Column names in projection order (when the server provides them).
     """
 
     rows: list[dict[str, Any]] = Field(default_factory=list)
-    query_id: str = Field(..., description="Server-assigned query execution ID")
-    elapsed_ms: int = Field(..., description="Server-side execution time in ms", ge=0)
+    query_id: str = Field("", description="Server-assigned query execution ID")
+    elapsed_ms: int = Field(0, description="Server-side execution time in ms", ge=0)
     row_count: int = Field(0, description="Number of rows returned")
+    columns: list[str] = Field(default_factory=list, description="Column names in order")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_wire_shape(cls, data: Any) -> Any:  # noqa: ANN401
+        """The server sends ``rows`` as an int count and the actual row data
+        in ``data``. Normalise so ``rows`` is always a list."""
+        if isinstance(data, dict):
+            if "data" in data and isinstance(data["data"], list):
+                data["rows"] = data["data"]
+            elif "rows" in data and isinstance(data["rows"], int):
+                data["rows"] = []
+            # Populate columns if the server sent them
+            if "columns" not in data:
+                data["columns"] = []
+        return data
 
     @model_validator(mode="after")
     def _sync_row_count(self) -> QueryResult:
-        # Always keep row_count consistent with the actual rows list.
         self.row_count = len(self.rows)
         return self
 
