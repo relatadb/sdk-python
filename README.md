@@ -100,6 +100,20 @@ client = RelataClient(
 )
 ```
 
+> **What identity does my SDK client use by default?**
+>
+> Without a bearer token, every request runs as the **`api-user`** principal —
+> a built-in identity with read access to all domain types and write access
+> in open (lite) mode. Audit entries, quota charges, and ACL decisions all
+> attribute to `api-user`.
+>
+> MCP requests (`McpClient`) run as **`mcp-client`** — a different principal
+> with separate audit and quota accounting.
+>
+> For multi-tenant production: set a bearer token + `tenant=` on every
+> request. See `docs/src/end-users/defaults.md` for the full default-behavior
+> reference.
+
 ### Fluent query builder
 
 ```python
