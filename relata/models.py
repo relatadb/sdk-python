@@ -8,10 +8,10 @@ remain compatible.
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
-
 
 # ---------------------------------------------------------------------------
 # Query
@@ -39,7 +39,7 @@ class QueryResult(BaseModel):
     row_count: int = Field(0, description="Number of rows returned")
 
     @model_validator(mode="after")
-    def _sync_row_count(self) -> "QueryResult":
+    def _sync_row_count(self) -> QueryResult:
         # Always keep row_count consistent with the actual rows list.
         self.row_count = len(self.rows)
         return self
@@ -211,4 +211,124 @@ class ClusterNode(BaseModel):
             f"node_id={self.node_id!r}, "
             f"role={self.role!r}, "
             f"url={self.url!r})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Introspection — Version / Stats / ReadyReport (pairs with #86)
+# ---------------------------------------------------------------------------
+
+
+class VersionInfo(BaseModel):
+    """Response from ``GET /version``.
+
+    Attributes:
+        version: Relata server version (e.g. ``"1.1.0"``).
+        commit: Git commit hash the binary was built from.
+        profile: Deployment profile — ``lite`` / ``server`` / ``cluster``.
+        schema_version: Ontology / row-model schema version, useful for
+            migration gating.
+        features: Optional list of compiled-in feature flags.
+    """
+
+    version: str = Field(..., description="Relata server version")
+    commit: str | None = Field(None, description="Git commit hash")
+    profile: str | None = Field(None, description="Deployment profile")
+    schema_version: str | None = Field(None, description="Ontology schema version")
+    features: list[str] = Field(default_factory=list, description="Compiled-in feature flags")
+
+    def __repr__(self) -> str:
+        return (
+            f"VersionInfo("
+            f"version={self.version!r}, "
+            f"profile={self.profile!r}, "
+            f"schema_version={self.schema_version!r})"
+        )
+
+
+class Stats(BaseModel):
+    """Response from ``GET /debug/stats``.
+
+    The shape mirrors the partner storage-backend contract §9 — every field
+    the server populates is exposed; fields the server does not yet emit
+    (e.g. ``log_leaves`` pending #85, ``tokens`` pending #84) default to
+    ``None`` so the model is forward-compatible.
+
+    Attributes:
+        records: Total content-addressed blobs (partner §2).
+        states: Total live rows across all types (partner §3).
+        snapshot_rows: Total rows in incrementally-refreshed MVs (partner §4).
+        log_leaves: Current WAL write_seq (partner §5; pending #85).
+        tokens: Current dedup-token count (partner §7; pending #84).
+        raw: The full server response, in case the caller wants a field the
+            typed model does not surface.
+    """
+
+    records: int | None = Field(None, description="Total content-addressed blobs")
+    states: int | None = Field(None, description="Total live rows")
+    snapshot_rows: int | None = Field(None, description="Rows in MVs")
+    log_leaves: int | None = Field(None, description="WAL write_seq (pending #85)")
+    tokens: int | None = Field(None, description="Dedup token count (pending #84)")
+    raw: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Full server response for fields the typed model does not surface",
+    )
+
+    @model_validator(mode="after")
+    def _capture_raw(self) -> Stats:
+        # Pydantic v2 does not expose the input dict after validation; we use a
+        # separate constructor on the client side if the caller wants the raw
+        # payload. This validator is a no-op placeholder for forward-compat.
+        return self
+
+    def __repr__(self) -> str:
+        return (
+            f"Stats("
+            f"records={self.records}, "
+            f"states={self.states}, "
+            f"snapshot_rows={self.snapshot_rows}, "
+            f"log_leaves={self.log_leaves}, "
+            f"tokens={self.tokens})"
+        )
+
+
+class ReadyReport(BaseModel):
+    """Response from ``GET /health/ready``.
+
+    Attributes:
+        is_ready: ``True`` when the node is ready to serve (HTTP 200).
+            ``False`` when any of the 9 downstream conditions trips (HTTP 503).
+            Derived from the HTTP status / ``status`` field when the server
+            omits it.
+        status: Server-side status string (e.g. ``"ok"``, ``"shedding"``).
+        reason: Machine-friendly tag identifying which condition tripped
+            (``queue_backpressure`` / ``wal_failures`` / ``audit_drops`` /
+            ``dead_worker`` / ``remote_backend_unreachable`` /
+            ``kms_unreachable`` / ``replication_lag`` /
+            ``embedder_circuit_open`` / ``lease_renewal_failures``).
+        detail: Optional human-friendly explanation.
+    """
+
+    is_ready: bool | None = Field(None, description="True when the node is ready to serve")
+    status: str = Field(..., description="Server-side status string")
+    reason: str | None = Field(None, description="Machine-friendly shed reason")
+    detail: str | None = Field(None, description="Human-friendly explanation")
+
+    @model_validator(mode="after")
+    def _derive_is_ready(self) -> ReadyReport:
+        # The server returns 200 with status="ok" on the happy path and 503
+        # with status="shedding" on a trip. The SDK's _classify_error raises
+        # ServerError on 503, so if we got here we're on 200 — but be
+        # defensive: derive is_ready from the status string when the server
+        # omits the field.
+        if self.is_ready is None:
+            self.is_ready = self.status.lower() == "ok"
+        return self
+
+    def __repr__(self) -> str:
+        return (
+            f"ReadyReport("
+            f"is_ready={self.is_ready}, "
+            f"status={self.status!r}, "
+            f"reason={self.reason!r})"
         )

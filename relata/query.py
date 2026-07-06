@@ -24,11 +24,52 @@ All methods return ``self`` so calls can be chained.  Call :meth:`execute` or
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from relata.client import RelataClient
     from relata.models import QueryResult
+
+
+# Strict allowlist for identifiers (table names, column names). Anything outside
+# this is refused at builder time so the SQL the SDK emits cannot break out of
+# the identifier context.
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
+
+# Statement-break tokens that must never appear in a user-supplied WHERE
+# condition or operator argument. Case-insensitive.
+_FORBIDDEN_TOKENS = re.compile(
+    r"(?:;|--|/\*|\*/|drop\s+|truncate\s+|delete\s+from|update\s+|insert\s+into|"
+    r"alter\s+|create\s+|exec\s+|execute\s+|grant\s+|revoke\s+)",
+    re.IGNORECASE,
+)
+
+
+def _validate_identifier(name: str, *, kind: str = "identifier") -> str:
+    """Return ``name`` unchanged if it matches the identifier allowlist,
+    else raise ``ValueError``. Called on every table / column projection."""
+    if not name or not _IDENTIFIER_RE.match(name):
+        raise ValueError(
+            f"Invalid {kind}: {name!r}. Must match {_IDENTIFIER_RE.pattern}. "
+            "This is a SQL-injection defence — see #76."
+        )
+    return name
+
+
+def _validate_where_condition(condition: str) -> str:
+    """Refuse ``where()`` conditions that contain statement-break tokens.
+    This is a **stopgap** (not parameter binding) — it catches the common
+    attack vectors but is not a substitute for server-side parameter binding.
+    """
+    if _FORBIDDEN_TOKENS.search(condition):
+        raise ValueError(
+            f"WHERE condition contains a forbidden token: {condition!r}. "
+            "Refusing to emit SQL that could break the statement boundary. "
+            "Use parameter-bound predicates (coming in a future release) or "
+            "sanitise the input before passing it to .where(). See #76."
+        )
+    return condition
 
 
 class QueryBuilder:
@@ -51,7 +92,7 @@ class QueryBuilder:
     - ``HYBRID_SCORE(query_text)`` — BM25 + vector hybrid search
     """
 
-    def __init__(self, *, client: "RelataClient") -> None:
+    def __init__(self, *, client: RelataClient) -> None:
         self._client = client
         self._select_cols: list[str] = []
         self._from_table: str = ""
@@ -59,6 +100,8 @@ class QueryBuilder:
         self._as_of_ts: str | None = None
         self._with_provenance: bool = False
         self._limit_val: int | None = None
+        self._limit_after_cursor: str | None = None
+        self._since_cursor: str | None = None
         self._offset_val: int | None = None
         self._order_by_cols: list[str] = []
         self._purpose_override: str | None = None
@@ -73,7 +116,7 @@ class QueryBuilder:
     # Core clauses
     # ------------------------------------------------------------------
 
-    def select(self, *columns_or_table: str) -> "QueryBuilder":
+    def select(self, *columns_or_table: str) -> QueryBuilder:
         """Set the SELECT target or shorthand for ``SELECT * FROM <table>``.
 
         When called with a single argument that looks like a table name (no
@@ -93,26 +136,33 @@ class QueryBuilder:
             ``self``
         """
         if len(columns_or_table) == 1 and _looks_like_table(columns_or_table[0]):
-            # Shorthand: select("Person") → SELECT * FROM Person
+            # Shorthand: select("Person") → SELECT * FROM Person.
+            # Validate the identifier — _looks_like_table already rejects
+            # spaces / commas / parens, but a malicious caller can bypass
+            # _looks_like_table by passing a multi-arg form. The identifier
+            # regex is the authoritative check (#76).
+            _validate_identifier(columns_or_table[0], kind="table name")
             self._select_cols = ["*"]
             self._from_table = columns_or_table[0]
         else:
             self._select_cols = list(columns_or_table) if columns_or_table else ["*"]
         return self
 
-    def from_(self, table: str) -> "QueryBuilder":
+    def from_(self, table: str) -> QueryBuilder:
         """Set the FROM table.
 
         Args:
-            table: Table / object-type name.
+            table: Table / object-type name. Must match the identifier
+                allowlist as a SQL-injection defence (#76).
 
         Returns:
             ``self``
         """
+        _validate_identifier(table, kind="table name")
         self._from_table = table
         return self
 
-    def where(self, condition: str) -> "QueryBuilder":
+    def where(self, condition: str) -> QueryBuilder:
         """Add a WHERE condition.
 
         Multiple calls are joined with ``AND``::
@@ -120,20 +170,31 @@ class QueryBuilder:
             builder.where("age > 18").where("nationality = 'IN'")
             # → WHERE age > 18 AND nationality = 'IN'
 
+        .. warning::
+            This is a **raw-SQL** escape hatch. The SDK refuses conditions
+            that contain statement-break tokens as a stopgap (#76), but
+            this is not parameter binding. Never pass fully user-controlled
+            input without additional sanitisation.
+
         Args:
             condition: SQL predicate expression.
 
         Returns:
             ``self``
         """
+        _validate_where_condition(condition)
         self._where_clauses.append(condition)
         return self
 
-    def limit(self, n: int) -> "QueryBuilder":
-        """Set a LIMIT on result rows.
+    def limit(self, n: int, *, after: str | None = None) -> QueryBuilder:
+        """Set a LIMIT on result rows, optionally with a cursor for pagination.
 
         Args:
             n: Maximum number of rows to return.  Must be a positive integer.
+            after: Optional cursor for keyset pagination. Emits
+                ``LIMIT <n> AFTER '<cursor>'`` where cursor is the decimal
+                ``system_from`` ns of the last row from the previous page.
+                Cannot be combined with ``ORDER BY`` (server constraint).
 
         Returns:
             ``self``
@@ -141,9 +202,26 @@ class QueryBuilder:
         if n < 1:
             raise ValueError(f"limit must be a positive integer, got {n}")
         self._limit_val = n
+        self._limit_after_cursor = after
         return self
 
-    def offset(self, n: int) -> "QueryBuilder":
+    def since(self, cursor: str) -> QueryBuilder:
+        """Apply a since-cursor for incremental reads (partner §10).
+
+        Emits a ``WHERE system_from > '<cursor>'`` predicate so the query
+        returns only rows committed after the cursor. Compose with
+        :meth:`limit` for incremental tailing.
+
+        Args:
+            cursor: Decimal ``system_from`` ns from a prior result.
+
+        Returns:
+            ``self``
+        """
+        self._since_cursor = cursor
+        return self
+
+    def offset(self, n: int) -> QueryBuilder:
         """Set an OFFSET for result pagination.
 
         Args:
@@ -157,7 +235,7 @@ class QueryBuilder:
         self._offset_val = n
         return self
 
-    def order_by(self, *columns: str) -> "QueryBuilder":
+    def order_by(self, *columns: str) -> QueryBuilder:
         """Add ORDER BY columns.
 
         Args:
@@ -174,7 +252,7 @@ class QueryBuilder:
     # Relata extensions
     # ------------------------------------------------------------------
 
-    def as_of(self, timestamp: str) -> "QueryBuilder":
+    def as_of(self, timestamp: str) -> QueryBuilder:
         """Apply a bi-temporal ``AS OF`` clause.
 
         Restricts the query to rows whose bi-temporal validity interval
@@ -196,7 +274,7 @@ class QueryBuilder:
         self._as_of_ts = timestamp
         return self
 
-    def with_provenance(self) -> "QueryBuilder":
+    def with_provenance(self) -> QueryBuilder:
         """Append ``WITH PROVENANCE`` to include PROV-O columns.
 
         When set, each result row includes additional columns:
@@ -209,7 +287,7 @@ class QueryBuilder:
         self._with_provenance = True
         return self
 
-    def purpose(self, purpose: str) -> "QueryBuilder":
+    def purpose(self, purpose: str) -> QueryBuilder:
         """Override the query purpose for this specific query.
 
         Overrides the client-level default set in
@@ -231,7 +309,7 @@ class QueryBuilder:
 
     def paths_between(
         self, src: str, dst: str, max_hops: int = 4
-    ) -> "QueryBuilder":
+    ) -> QueryBuilder:
         """Use the ``PATHS_BETWEEN`` graph operator.
 
         Replaces the standard ``FROM`` clause with a graph traversal that
@@ -261,7 +339,7 @@ class QueryBuilder:
 
     def match_face(
         self, face_column: str, candidate_column: str, threshold: float = 0.92
-    ) -> "QueryBuilder":
+    ) -> QueryBuilder:
         """Add a ``MATCH_FACE`` filter for face-embedding similarity search.
 
         Args:
@@ -285,7 +363,7 @@ class QueryBuilder:
         self._match_face = (face_column, candidate_column, threshold)
         return self
 
-    def lookup_identity(self, value: str) -> "QueryBuilder":
+    def lookup_identity(self, value: str) -> QueryBuilder:
         """Resolve any identifier via the ``LOOKUP_IDENTITY`` operator.
 
         Queries the ``IdentityIndex`` using a universal lookup across all
@@ -310,7 +388,7 @@ class QueryBuilder:
         self._lookup_identity = value
         return self
 
-    def hybrid_score(self, query_text: str) -> "QueryBuilder":
+    def hybrid_score(self, query_text: str) -> QueryBuilder:
         """Add a ``HYBRID_SCORE`` (BM25 + vector) ranking clause.
 
         Args:
@@ -326,7 +404,7 @@ class QueryBuilder:
     # Raw SQL escape hatch
     # ------------------------------------------------------------------
 
-    def raw(self, sql: str) -> "QueryBuilder":
+    def raw(self, sql: str) -> QueryBuilder:
         """Set a completely raw SQL string, bypassing the builder.
 
         Use this escape hatch when the builder does not yet support a
@@ -393,6 +471,8 @@ class QueryBuilder:
         if self._match_face:
             fc, cc, th = self._match_face
             where_clauses.append(f"MATCH_FACE({fc}, {cc}, {th})")
+        if self._since_cursor:
+            where_clauses.append(f"system_from > {self._since_cursor}")
 
         # WHERE
         if where_clauses:
@@ -402,9 +482,13 @@ class QueryBuilder:
         if self._order_by_cols:
             parts.append("ORDER BY " + ", ".join(self._order_by_cols))
 
-        # LIMIT / OFFSET
+        # LIMIT / OFFSET — `LIMIT N AFTER 'cursor'` is the keyset form and
+        # cannot combine with ORDER BY (server constraint, limits.md §Query).
         if self._limit_val is not None:
-            parts.append(f"LIMIT {self._limit_val}")
+            if self._limit_after_cursor is not None:
+                parts.append(f"LIMIT {self._limit_val} AFTER '{self._limit_after_cursor}'")
+            else:
+                parts.append(f"LIMIT {self._limit_val}")
         if self._offset_val is not None:
             parts.append(f"OFFSET {self._offset_val}")
 
@@ -418,7 +502,7 @@ class QueryBuilder:
     # Execution
     # ------------------------------------------------------------------
 
-    def execute(self) -> "QueryResult":
+    def execute(self) -> QueryResult:
         """Execute the built query (synchronous).
 
         Returns:
@@ -433,7 +517,7 @@ class QueryBuilder:
         """
         return self._client.query(self.sql(), purpose=self._purpose_override)
 
-    async def aexecute(self) -> "QueryResult":
+    async def aexecute(self) -> QueryResult:
         """Execute the built query (asynchronous).
 
         Returns:

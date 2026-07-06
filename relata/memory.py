@@ -71,10 +71,14 @@ class Memory:
         session_id: str = "",
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         if not purpose:
             raise ValueError("purpose is required and must be non-empty (governance is on)")
-        self._t = HttpTransport(base_url, bearer_token, timeout, transport=transport)
+        self._t = HttpTransport(
+            base_url, bearer_token, timeout,
+            transport=transport, extra_headers=extra_headers,
+        )
         self._purpose = purpose
         self._session_id = session_id
 
@@ -148,6 +152,94 @@ class Memory:
         path = f"/memory/forget/{quote(memory_id)}?purpose={quote(self._purpose)}"
         return _unwrap(self._t.delete(path))
 
+    # ------------------------------------------------------------------
+    # v1.1 — five missing cognitive verbs (#77)
+    # ------------------------------------------------------------------
+
+    def associate(
+        self,
+        source_id: str,
+        target_id: str,
+        relation: str,
+        *,
+        confidence: float = 1.0,
+    ) -> dict[str, Any]:
+        """Link two memories with a typed relation.
+
+        Wraps ``POST /memory/associate``. Returns the association record
+        (``source_id``, ``target_id``, ``relation``, ``confidence``).
+        """
+        payload = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "relation": relation,
+            "confidence": confidence,
+            "purpose": self._purpose,
+        }
+        return _unwrap(self._t.post("/memory/associate", payload))
+
+    def episodes(
+        self,
+        *,
+        session_id: str | None = None,
+        as_of: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List episodes with full ``Episode`` detail.
+
+        Wraps ``GET /memory/episodes``. Optional ``session_id`` filters to one
+        session; ``as_of`` makes the lookup bi-temporal.
+        """
+        params: dict[str, str] = {"purpose": self._purpose}
+        sid = session_id if session_id is not None else self._session_id
+        if sid:
+            params["session_id"] = sid
+        if as_of:
+            params["as_of"] = as_of
+        result = _unwrap(self._t.get("/memory/episodes?" + urlencode(params)))
+        rows = result.get("rows") if isinstance(result, dict) else result
+        return rows if isinstance(rows, list) else []
+
+    def justify(self, memory_id: str) -> dict[str, Any]:
+        """Return the PROV-O assertion chain for ``memory_id``.
+
+        Wraps ``GET /memory/justify/<id>``. The chain explains how the memory
+        was derived — source session, tool call, prior belief, etc.
+        """
+        path = f"/memory/justify/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        return _unwrap(self._t.get(path))
+
+    def resolve(self, memory_id: str, *, policy: str = "latest_wins") -> dict[str, Any]:
+        """Resolve a contradiction between ``memory_id`` and a newer belief.
+
+        Wraps ``POST /memory/resolve/<id>``. The ``policy`` selects the
+        resolver (``latest_wins`` / ``highest_confidence`` / ``manual``).
+        Returns the resolution record.
+        """
+        payload = {"policy": policy, "purpose": self._purpose}
+        path = f"/memory/resolve/{quote(memory_id)}"
+        return _unwrap(self._t.post(path, payload))
+
+    def summarise(
+        self,
+        source_ids: list[str],
+        *,
+        summary_content: str | None = None,
+    ) -> dict[str, Any]:
+        """Produce a summary belief from a set of source memories.
+
+        Wraps ``POST /memory/summarise``. ``source_ids`` is the list of memory
+        ids to summarise; ``summary_content`` lets the caller supply the
+        summary text (the server otherwise derives one). Returns the new
+        summary memory.
+        """
+        payload: dict[str, Any] = {
+            "source_ids": source_ids,
+            "purpose": self._purpose,
+        }
+        if summary_content is not None:
+            payload["summary_content"] = summary_content
+        return _unwrap(self._t.post("/memory/summarise", payload))
+
     def close(self) -> None:
         """Close the underlying HTTP connection."""
         self._t.close()
@@ -176,10 +268,14 @@ class AsyncMemory:
         session_id: str = "",
         timeout: float = 30.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         if not purpose:
             raise ValueError("purpose is required and must be non-empty (governance is on)")
-        self._t = AsyncHttpTransport(base_url, bearer_token, timeout, transport=transport)
+        self._t = AsyncHttpTransport(
+            base_url, bearer_token, timeout,
+            transport=transport, extra_headers=extra_headers,
+        )
         self._purpose = purpose
         self._session_id = session_id
 
@@ -236,6 +332,71 @@ class AsyncMemory:
         """Schedule a governed retention-policy retract for ``memory_id``."""
         path = f"/memory/forget/{quote(memory_id)}?purpose={quote(self._purpose)}"
         return _unwrap(await self._t.delete(path))
+
+    # ------------------------------------------------------------------
+    # v1.1 — five missing cognitive verbs (async mirrors, #77)
+    # ------------------------------------------------------------------
+
+    async def associate(
+        self,
+        source_id: str,
+        target_id: str,
+        relation: str,
+        *,
+        confidence: float = 1.0,
+    ) -> dict[str, Any]:
+        """Link two memories with a typed relation (async)."""
+        payload = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "relation": relation,
+            "confidence": confidence,
+            "purpose": self._purpose,
+        }
+        return _unwrap(await self._t.post("/memory/associate", payload))
+
+    async def episodes(
+        self,
+        *,
+        session_id: str | None = None,
+        as_of: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List episodes with full ``Episode`` detail (async)."""
+        params: dict[str, str] = {"purpose": self._purpose}
+        sid = session_id if session_id is not None else self._session_id
+        if sid:
+            params["session_id"] = sid
+        if as_of:
+            params["as_of"] = as_of
+        result = _unwrap(await self._t.get("/memory/episodes?" + urlencode(params)))
+        rows = result.get("rows") if isinstance(result, dict) else result
+        return rows if isinstance(rows, list) else []
+
+    async def justify(self, memory_id: str) -> dict[str, Any]:
+        """Return the PROV-O assertion chain for ``memory_id`` (async)."""
+        path = f"/memory/justify/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        return _unwrap(await self._t.get(path))
+
+    async def resolve(self, memory_id: str, *, policy: str = "latest_wins") -> dict[str, Any]:
+        """Resolve a contradiction between ``memory_id`` and a newer belief (async)."""
+        payload = {"policy": policy, "purpose": self._purpose}
+        path = f"/memory/resolve/{quote(memory_id)}"
+        return _unwrap(await self._t.post(path, payload))
+
+    async def summarise(
+        self,
+        source_ids: list[str],
+        *,
+        summary_content: str | None = None,
+    ) -> dict[str, Any]:
+        """Produce a summary belief from a set of source memories (async)."""
+        payload: dict[str, Any] = {
+            "source_ids": source_ids,
+            "purpose": self._purpose,
+        }
+        if summary_content is not None:
+            payload["summary_content"] = summary_content
+        return _unwrap(await self._t.post("/memory/summarise", payload))
 
     async def close(self) -> None:
         """Close the underlying HTTP connection."""

@@ -1,0 +1,404 @@
+"""Tests for the v1.1 SDK-module wave (#74, #77, #78, #79, #82, #83, #88, #81).
+
+Uses httpx.MockTransport — no live server required. Every test asserts both
+the request shape (path / method / body / query-string) and the response shape
+so the SDK is locked against server contract drift.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from typing import Any
+
+import httpx
+import pytest
+
+BASE = "http://localhost:8080"
+
+Handler = Callable[[httpx.Request], httpx.Response]
+
+
+def _wrap(handler: Handler, **_client_kwargs: str) -> httpx.MockTransport:
+    """Build a MockTransport; ``_client_kwargs`` are accepted for API symmetry
+    with the other test modules but unused."""
+    return httpx.MockTransport(handler)
+
+
+# ---------------------------------------------------------------------------
+# #74 — Governance
+# ---------------------------------------------------------------------------
+
+
+def test_governance_create_rule_posts_to_rules() -> None:
+    from relata.governance import GovernanceClient
+
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        assert req.method == "POST"
+        assert req.url.path == "/rules"
+        body = json.loads(req.content)
+        assert body == {"name": "r1", "object_type": "Person", "condition": "age > 18"}
+        return httpx.Response(200, json={"id": "rule-1", "name": "r1"})
+
+    g = GovernanceClient(BASE, transport=_wrap(handler))
+    out = g.create_rule({"name": "r1", "object_type": "Person", "condition": "age > 18"})
+    assert out["id"] == "rule-1"
+
+
+def test_governance_place_legal_hold_posts_payload() -> None:
+    from relata.governance import GovernanceClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/retention/holds"
+        body = json.loads(req.content)
+        assert body == {
+            "case_id": "case-42",
+            "object_type": "Person",
+            "object_id": "p-1",
+            "reason": "investigation",
+        }
+        return httpx.Response(200, json={"case_id": "case-42", "status": "active"})
+
+    g = GovernanceClient(BASE, transport=_wrap(handler))
+    out = g.place_legal_hold("case-42", "Person", object_id="p-1", reason="investigation")
+    assert out["status"] == "active"
+
+
+def test_governance_request_and_approve_breakglass() -> None:
+    from relata.governance import GovernanceClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/humint/breakglass/request":
+            body = json.loads(req.content)
+            assert body["reason"] == "urgent"
+            return httpx.Response(200, json={"request_id": "bg-1", "status": "pending"})
+        if req.url.path == "/humint/breakglass/approve":
+            body = json.loads(req.content)
+            assert body["request_id"] == "bg-1"
+            return httpx.Response(200, json={"request_id": "bg-1", "approvals": 1})
+        return httpx.Response(404)
+
+    g = GovernanceClient(BASE, transport=_wrap(handler))
+    req = g.request_breakglass("urgent", duration_secs=3600)
+    assert req["request_id"] == "bg-1"
+    app = g.approve_breakglass("bg-1")
+    assert app["approvals"] == 1
+
+
+def test_governance_submit_dsar_uses_query_params() -> None:
+    from relata.governance import GovernanceClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.method == "GET"
+        assert req.url.path == "/gdpr/dsar"
+        # The query string carries subject_identity + reason.
+        qs = str(req.url)
+        assert "subject_identity=alice" in qs
+        assert "reason=gdpr-art-15" in qs
+        return httpx.Response(200, json={"dsar_id": "dsar-1"})
+
+    g = GovernanceClient(BASE, transport=_wrap(handler))
+    out = g.submit_dsar("alice", reason="gdpr-art-15")
+    assert out["dsar_id"] == "dsar-1"
+
+
+def test_governance_import_sigma_sends_yaml() -> None:
+    from relata.governance import GovernanceClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/rules/sigma"
+        body = json.loads(req.content)
+        assert "title: Suspicious" in body["sigma"]
+        return httpx.Response(200, json={"rules_imported": 1, "rules_skipped": 0})
+
+    g = GovernanceClient(BASE, transport=_wrap(handler))
+    out = g.import_sigma("title: Suspicious\nlogsource: ...")
+    assert out["rules_imported"] == 1
+
+
+# ---------------------------------------------------------------------------
+# #77 — MCP client
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_list_tools_unwraps_envelope() -> None:
+    from relata.mcp import McpClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/mcp/tools"
+        return httpx.Response(
+            200,
+            json={
+                "content": [
+                    {"type": "text", "text": json.dumps({"tools": [{"name": "query_knowledge"}]})}
+                ],
+                "isError": False,
+            },
+        )
+
+    c = McpClient(BASE, transport=_wrap(handler))
+    tools = c.list_tools()
+    assert tools == [{"name": "query_knowledge"}]
+
+
+def test_mcp_call_tool_sends_arguments() -> None:
+    from relata.mcp import McpClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/mcp/tools/call"
+        body = json.loads(req.content)
+        assert body == {"name": "query_knowledge", "arguments": {"sql": "SELECT 1", "purpose": "x"}}
+        return httpx.Response(
+            200,
+            json={
+                "content": [
+                    {"type": "text", "text": json.dumps({"rows": [{"x": 1}]})}
+                ],
+                "isError": False,
+            },
+        )
+
+    c = McpClient(BASE, transport=_wrap(handler))
+    out = c.query_knowledge("SELECT 1", purpose="x")
+    assert out["rows"] == [{"x": 1}]
+
+
+# ---------------------------------------------------------------------------
+# #77 — A2A client
+# ---------------------------------------------------------------------------
+
+
+def test_a2a_submit_and_get_task() -> None:
+    from relata.a2a import A2AClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST" and req.url.path == "/a2a/tasks":
+            return httpx.Response(200, json={"id": "task-1", "status": "pending"})
+        if req.method == "GET" and req.url.path == "/a2a/tasks/task-1":
+            return httpx.Response(200, json={"id": "task-1", "status": "completed"})
+        return httpx.Response(404)
+
+    c = A2AClient(BASE, transport=_wrap(handler))
+    submit = c.submit_task({"name": "analyse", "input": {}})
+    assert submit["id"] == "task-1"
+    status = c.get_task("task-1")
+    assert status["status"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# #78 — Audit entries + reports
+# ---------------------------------------------------------------------------
+
+
+def test_audit_entries_filters_in_query_string() -> None:
+    from relata.audit import AuditClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/audit/entries"
+        qs = str(req.url)
+        assert "principal=alice" in qs
+        assert "decision=Deny" in qs
+        assert "limit=50" in qs
+        return httpx.Response(
+            200,
+            json={"entries": [{"request_id": "r1"}], "next_cursor": None, "chain_valid": True},
+        )
+
+    c = AuditClient(BASE, transport=_wrap(handler))
+    page = c.entries(principal="alice", decision="Deny", limit=50)
+    assert page["entries"][0]["request_id"] == "r1"
+    assert page["chain_valid"] is True
+
+
+def test_audit_find_by_request_id_returns_first_match() -> None:
+    from relata.audit import AuditClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert "request_id=req-7" in str(req.url)
+        return httpx.Response(
+            200,
+            json={"entries": [{"request_id": "req-7", "principal": "alice"}], "next_cursor": None},
+        )
+
+    c = AuditClient(BASE, transport=_wrap(handler))
+    entry = c.find_by_request_id("req-7")
+    assert entry is not None
+    assert entry["principal"] == "alice"
+
+
+def test_audit_sign_receipt_posts_payload() -> None:
+    from relata.audit import AuditClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/report/sign"
+        body = json.loads(req.content)
+        assert body == {"case_id": "c-1"}
+        return httpx.Response(200, json={"signature": "abc", "signed_at_ns": 1760})
+
+    c = AuditClient(BASE, transport=_wrap(handler))
+    out = c.sign_receipt({"case_id": "c-1"})
+    assert out["signature"] == "abc"
+
+
+# ---------------------------------------------------------------------------
+# #79 — Identity / lookup / ERASE
+# ---------------------------------------------------------------------------
+
+
+def test_identity_label_posts_payload() -> None:
+    from relata.identity import IdentityClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/identity/label"
+        body = json.loads(req.content)
+        assert body == {"identity": "alice@example.com", "label": "Alice", "confidence": 0.9}
+        return httpx.Response(200, json={"identity": "alice@example.com", "label": "Alice"})
+
+    c = IdentityClient(BASE, transport=_wrap(handler))
+    out = c.label("alice@example.com", "Alice", confidence=0.9)
+    assert out["label"] == "Alice"
+
+
+def test_identity_register_lookup_posts_csv() -> None:
+    from relata.identity import IdentityClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/lookup/register"
+        body = json.loads(req.content)
+        assert body["name"] == "country_codes"
+        assert "KE,Kenya" in body["csv_data"]
+        return httpx.Response(200, json={"name": "country_codes", "rows": 1})
+
+    c = IdentityClient(BASE, transport=_wrap(handler))
+    out = c.register_lookup("country_codes", "code,name\nKE,Kenya", key_column="code")
+    assert out["rows"] == 1
+
+
+def test_identity_erase_subject_builds_sql() -> None:
+    from relata.identity import IdentityClient
+
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/query"
+        body = json.loads(req.content)
+        seen.append(body)
+        return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
+
+    c = IdentityClient(BASE, transport=_wrap(handler))
+    c.erase_subject("alice@example.com", "gdpr-art-17", certify=True, purpose="gdpr")
+    assert "ERASE SUBJECT 'alice@example.com'" in seen[0]["sql"]
+    assert "CERTIFY" in seen[0]["sql"]
+    assert seen[0]["purpose"] == "gdpr"
+
+
+# ---------------------------------------------------------------------------
+# #82 — ObjectClient upsert via /ingest
+# ---------------------------------------------------------------------------
+
+
+def test_object_upsert_sends_ndjson_to_ingest() -> None:
+    from relata.objects import ObjectClient
+
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/ingest"
+        assert "object_type=Person" in str(req.url)
+        # The body is NDJSON, one row per line.
+        body_text = req.content.decode()
+        rows = [json.loads(line) for line in body_text.strip().split("\n")]
+        seen.extend(rows)
+        return httpx.Response(200, json={"accepted": 1, "rejected": 0, "write_seq": 42})
+
+    c = ObjectClient(BASE, purpose="analytics", transport=_wrap(handler))
+    out = c.upsert("Person", "p-1", {"name": "Alice", "age": 30})
+    assert out["accepted"] == 1
+    assert seen[0] == {"name": "Alice", "age": 30, "id": "p-1"}
+
+
+# ---------------------------------------------------------------------------
+# #83 — Bulk ingest (NDJSON + CSV)
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_bulk_ndjson() -> None:
+    from relata.ingest import IngestClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.headers["content-type"] == "application/x-ndjson"
+        body_text = req.content.decode()
+        rows = [json.loads(line) for line in body_text.strip().split("\n")]
+        assert len(rows) == 3
+        return httpx.Response(200, json={"accepted": 3, "write_seq": 100})
+
+    c = IngestClient(BASE, purpose="ingest", transport=_wrap(handler))
+    out = c.bulk("Person", [{"id": f"p-{i}", "n": i} for i in range(3)])
+    assert out["accepted"] == 3
+
+
+def test_ingest_bulk_csv() -> None:
+    from relata.ingest import IngestClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.headers["content-type"] == "text/csv"
+        assert b"name,age" in req.content
+        return httpx.Response(200, json={"accepted": 2})
+
+    c = IngestClient(BASE, purpose="ingest", transport=_wrap(handler))
+    out = c.bulk_csv("Person", "name,age\nAlice,30\nBob,40")
+    assert out["accepted"] == 2
+
+
+# ---------------------------------------------------------------------------
+# #88 — Vector client (SQL-backed)
+# ---------------------------------------------------------------------------
+
+
+def test_vector_knn_search_builds_pgvector_sql() -> None:
+    """The KNN helper uses the cosine-distance form ``ORDER BY <slot> <=> '[...]'``."""
+    from relata import RelataClient
+    from relata.vectors import VectorClient
+
+    seen_sql: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/query"
+        body = json.loads(req.content)
+        seen_sql.append(body["sql"])
+        return httpx.Response(
+            200,
+            json={"rows": [{"id": "p-1"}], "query_id": "q1", "elapsed_ms": 1},
+        )
+
+    # Build a RelataClient whose transport is mocked.
+    client = RelataClient(BASE, purpose="analytics")
+    client._RelataClient__sync_transport = (  # type: ignore[attr-defined]
+        __import__("relata._http", fromlist=["HttpTransport"]).HttpTransport(
+            BASE, None, 30.0, transport=_wrap(handler), extra_headers=None,
+        )
+    )
+
+    v = VectorClient.from_client(client)
+    rows = v.knn_search("Person", "_embedding", [0.1, 0.2, 0.3], k=5)
+    assert rows == [{"id": "p-1"}]
+    assert "ORDER BY _embedding <=> '[0.1, 0.2, 0.3]'" in seen_sql[0]
+    assert "LIMIT 5" in seen_sql[0]
+
+
+# ---------------------------------------------------------------------------
+# #81 — S3Client returns a configured boto3 client (skip if boto3 not installed)
+# ---------------------------------------------------------------------------
+
+
+def test_s3_client_boto3_configured() -> None:
+    pytest.importorskip("boto3")
+    from relata.s3 import S3Client
+
+    s3 = S3Client("http://localhost:9090", bearer_token="tok", tenant="acme").boto3()
+    assert s3.meta.region_name == "us-east-1"
+    # endpoint_url is stored on the meta endpoint URL.
+    assert "localhost:9090" in s3.meta.endpoint_url

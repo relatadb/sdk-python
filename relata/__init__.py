@@ -36,6 +36,8 @@ Public API
 - :mod:`~relata.exceptions` — SDK exception hierarchy
 """
 
+from relata.a2a import A2AClient, AsyncA2AClient
+from relata.audit import AsyncAuditClient, AuditClient
 from relata.client import RelataClient
 from relata.exceptions import (
     AuthError,
@@ -45,6 +47,10 @@ from relata.exceptions import (
     RelataError,
     ServerError,
 )
+from relata.governance import AsyncGovernanceClient, GovernanceClient
+from relata.identity import AsyncIdentityClient, IdentityClient
+from relata.ingest import AsyncIngestClient, IngestClient
+from relata.mcp import AsyncMcpClient, McpClient
 from relata.memory import AsyncMemory, Memory
 from relata.models import (
     AuditCountResponse,
@@ -52,17 +58,52 @@ from relata.models import (
     HealthResponse,
     IngestDocumentResponse,
     QueryResult,
+    ReadyReport,
+    Stats,
     StatusResponse,
+    VersionInfo,
 )
+from relata.objects import AsyncObjectClient, ObjectClient
 from relata.query import QueryBuilder, select
+from relata.s3 import AsyncS3Client, S3Client
+from relata.streaming import AsyncStreamingClient, StreamingClient
+from relata.system import AsyncSystemClient, SystemClient
+from relata.tenants import AsyncTenantAdminClient, TenantAdminClient
+from relata.vectors import AsyncVectorClient, VectorClient
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
+
 __all__ = [
     # Client
     "RelataClient",
     # High-level memory client
     "Memory",
     "AsyncMemory",
+    # v1.1 SDK modules
+    "GovernanceClient",
+    "AsyncGovernanceClient",
+    "McpClient",
+    "AsyncMcpClient",
+    "A2AClient",
+    "AsyncA2AClient",
+    "AuditClient",
+    "AsyncAuditClient",
+    "IdentityClient",
+    "AsyncIdentityClient",
+    "ObjectClient",
+    "AsyncObjectClient",
+    "IngestClient",
+    "AsyncIngestClient",
+    "VectorClient",
+    "AsyncVectorClient",
+    "S3Client",
+    "AsyncS3Client",
+    "SystemClient",
+    "AsyncSystemClient",
+    "StreamingClient",
+    "AsyncStreamingClient",
+    "TenantAdminClient",
+    "AsyncTenantAdminClient",
     # Query builder
     "QueryBuilder",
     "select",
@@ -73,6 +114,9 @@ __all__ = [
     "AuditCountResponse",
     "ClusterNode",
     "IngestDocumentResponse",
+    "VersionInfo",
+    "Stats",
+    "ReadyReport",
     # Exceptions
     "RelataError",
     "PurposeError",

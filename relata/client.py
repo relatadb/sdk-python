@@ -37,7 +37,10 @@ from relata.models import (
     HealthResponse,
     IngestDocumentResponse,
     QueryResult,
+    ReadyReport,
+    Stats,
     StatusResponse,
+    VersionInfo,
 )
 
 if TYPE_CHECKING:
@@ -54,7 +57,7 @@ class RelataClient:
 
     Args:
         base_url: Base URL of the Relata server, e.g.
-            ``"http://localhost:8080"``.  Trailing slashes are stripped.
+            ``"http://localhost:8080"``. Trailing slashes are stripped.
         bearer_token: Optional Bearer token sent as
             ``Authorization: Bearer <token>``.  Required when the server is
             configured with ``RELATA_BEARER_TOKEN``.
@@ -63,6 +66,17 @@ class RelataClient:
             ``purpose=`` to every :meth:`query` call.  Common values:
             ``"analytics"``, ``"audit"``, ``"analysis"``.
         timeout: HTTP request timeout in seconds (default ``30.0``).
+        tenant: Optional tenant / organisation id sent as ``X-Organization-Id``
+            on every request.  Required for multi-tenant deployments; overrides
+            per-call via the ``tenant=`` argument on individual methods.
+        acting_as: Optional delegation principal sent as ``X-Acting-As`` — the
+            caller asserts membership and the server's ``wire_acting_as()``
+            parses it (#55).  Pairs with ``delegated_by``.
+        delegated_by: Optional delegation chain root sent as ``X-Delegated-By``.
+        headers: Optional dict of arbitrary HTTP headers overlaid on every
+            request (e.g. ``{"X-Request-ID": "..."}`` for correlation, or
+            ``{"X-Verified-Principal": "..."}`` for proxy-trust deployments).
+            Caller-supplied headers win over the SDK defaults.
 
     Raises:
         :class:`~relata.exceptions.AuthError`: When the server rejects the
@@ -101,11 +115,36 @@ class RelataClient:
         bearer_token: str | None = None,
         purpose: str | None = None,
         timeout: float = 30.0,
+        tenant: str | None = None,
+        acting_as: str | None = None,
+        delegated_by: str | None = None,
+        headers: dict[str, str] | None = None,
+        max_retries: int = 0,
+        retry_backoff_secs: float = 0.5,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._bearer_token = bearer_token
         self._default_purpose = purpose
         self._timeout = timeout
+        self._tenant = tenant
+        self._acting_as = acting_as
+        self._delegated_by = delegated_by
+        self._max_retries = max_retries
+        self._retry_backoff = retry_backoff_secs
+
+        # Compose the static extra-headers bag: tenant/delegation first, then
+        # caller-supplied headers win. Per-call overrides (tenant=, acting_as=,
+        # request_id=) are merged in transport-property accessors below.
+        extra: dict[str, str] = {}
+        if tenant is not None:
+            extra["X-Organization-Id"] = tenant
+        if acting_as is not None:
+            extra["X-Acting-As"] = acting_as
+        if delegated_by is not None:
+            extra["X-Delegated-By"] = delegated_by
+        if headers:
+            extra.update(headers)
+        self._extra_headers: dict[str, str] | None = extra or None
 
         # Lazily initialised transports — created on first use so the client
         # can be constructed without immediately opening a connection.
@@ -120,7 +159,12 @@ class RelataClient:
     def _sync(self) -> HttpTransport:
         if self.__sync_transport is None:
             self.__sync_transport = HttpTransport(
-                self._base_url, self._bearer_token, self._timeout
+                self._base_url,
+                self._bearer_token,
+                self._timeout,
+                extra_headers=self._extra_headers,
+                max_retries=self._max_retries,
+                retry_backoff=self._retry_backoff,
             )
         return self.__sync_transport
 
@@ -128,7 +172,12 @@ class RelataClient:
     def _async(self) -> AsyncHttpTransport:
         if self.__async_transport is None:
             self.__async_transport = AsyncHttpTransport(
-                self._base_url, self._bearer_token, self._timeout
+                self._base_url,
+                self._bearer_token,
+                self._timeout,
+                extra_headers=self._extra_headers,
+                max_retries=self._max_retries,
+                retry_backoff=self._retry_backoff,
             )
         return self.__async_transport
 
@@ -152,7 +201,7 @@ class RelataClient:
     # Context manager — sync
     # ------------------------------------------------------------------
 
-    def __enter__(self) -> "RelataClient":
+    def __enter__(self) -> RelataClient:
         return self
 
     def __exit__(
@@ -167,7 +216,7 @@ class RelataClient:
     # Context manager — async
     # ------------------------------------------------------------------
 
-    async def __aenter__(self) -> "RelataClient":
+    async def __aenter__(self) -> RelataClient:
         return self
 
     async def __aexit__(
@@ -308,6 +357,42 @@ class RelataClient:
         return [ClusterNode.model_validate(n) for n in nodes_raw]
 
     # ------------------------------------------------------------------
+    # Introspection (stats / version / ready) — pairs with #86
+    # ------------------------------------------------------------------
+
+    def stats(self) -> Stats:
+        """Return engine-wide counts for health dashboards (synchronous).
+
+        Wraps ``GET /debug/stats``. The shape mirrors the
+        ``storage-backend-requirements.md`` §9 contract — ``records``,
+        ``states``, ``snapshot_rows``, ``log_leaves``, ``tokens`` — to the
+        extent the server currently distinguishes them.
+        """
+        data = self._sync.get("/debug/stats")
+        return Stats.model_validate(data)
+
+    def version(self) -> VersionInfo:
+        """Return runtime build-info (synchronous).
+
+        Wraps ``GET /version``. Useful for migration checks and capability
+        negotiation.
+        """
+        data = self._sync.get("/version")
+        return VersionInfo.model_validate(data)
+
+    def ready(self) -> ReadyReport:
+        """Return the 9-condition readiness report (synchronous).
+
+        Wraps ``GET /health/ready``. Returns ``ReadyReport.is_ready == True``
+        on HTTP 200; on HTTP 503 the SDK raises
+        :class:`~relata.exceptions.ServerError` carrying the shed reason —
+        callers who want the typed model even on 503 should catch and inspect
+        ``ServerError.message``.
+        """
+        data = self._sync.get("/health/ready")
+        return ReadyReport.model_validate(data)
+
+    # ------------------------------------------------------------------
     # Async API
     # ------------------------------------------------------------------
 
@@ -380,10 +465,29 @@ class RelataClient:
         return [ClusterNode.model_validate(n) for n in nodes_raw]
 
     # ------------------------------------------------------------------
+    # Introspection — async mirrors
+    # ------------------------------------------------------------------
+
+    async def astats(self) -> Stats:
+        """Return engine-wide counts for health dashboards (asynchronous)."""
+        data = await self._async.get("/debug/stats")
+        return Stats.model_validate(data)
+
+    async def aversion(self) -> VersionInfo:
+        """Return runtime build-info (asynchronous)."""
+        data = await self._async.get("/version")
+        return VersionInfo.model_validate(data)
+
+    async def aready(self) -> ReadyReport:
+        """Return the 9-condition readiness report (asynchronous)."""
+        data = await self._async.get("/health/ready")
+        return ReadyReport.model_validate(data)
+
+    # ------------------------------------------------------------------
     # Fluent query builder entry point
     # ------------------------------------------------------------------
 
-    def select(self, *columns_or_table: str) -> "QueryBuilder":
+    def select(self, *columns_or_table: str) -> QueryBuilder:
         """Start a fluent :class:`~relata.query.QueryBuilder` chain.
 
         This is a convenience entry point.  The returned builder is bound to

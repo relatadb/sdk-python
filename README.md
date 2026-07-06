@@ -195,6 +195,12 @@ RelataClient(
     bearer_token: str | None = None,
     purpose: str | None = None,
     timeout: float = 30.0,
+    tenant: str | None = None,        # X-Organization-Id (multi-tenant)
+    acting_as: str | None = None,     # X-Acting-As (delegation)
+    delegated_by: str | None = None,  # X-Delegated-By
+    headers: dict[str, str] | None = None,  # arbitrary header overlay
+    max_retries: int = 0,             # retry on connection errors
+    retry_backoff_secs: float = 0.5,  # exponential backoff base
 )
 ```
 
@@ -203,16 +209,68 @@ RelataClient(
 | `query(sql, *, purpose)` | `QueryResult` | Execute a SQL query |
 | `health()` | `HealthResponse` | Check node health |
 | `status()` | `StatusResponse` | Node status + quota |
+| `stats()` | `Stats` | Engine-wide counts (records/states/snapshot_rows/log_leaves/tokens) |
+| `version()` | `VersionInfo` | Build info (version, commit, profile, schema_version) |
+| `ready()` | `ReadyReport` | 9-condition readiness report |
 | `audit_count()` | `AuditCountResponse` | Audit log entry count + chain validity |
 | `cluster_nodes()` | `list[ClusterNode]` | List cluster nodes |
 | `select(*cols)` | `QueryBuilder` | Start a fluent query |
 | `close()` | — | Close sync connections |
 | `aquery(...)` | `QueryResult` | Async query |
-| `ahealth()` | `HealthResponse` | Async health check |
-| `astatus()` | `StatusResponse` | Async status |
-| `aaudit_count()` | `AuditCountResponse` | Async audit count |
-| `acluster_nodes()` | `list[ClusterNode]` | Async cluster nodes |
+| `ahealth()` ... `astats()` ... `aready()` etc. | — | Async mirrors of every method above |
 | `aclose()` | — | Close async connections |
+
+### v1.1 typed clients (`from_client(client)`)
+
+Each module inherits the parent client's auth, tenant, and purpose context:
+
+| Module | Class | Surface |
+|---|---|---|
+| `relata.governance` | `GovernanceClient` | Rules, retention (holds + WORM), breakglass, alerts, DSAR |
+| `relata.mcp` | `McpClient` | 22 typed MCP tool wrappers + generic `call_tool` |
+| `relata.a2a` | `A2AClient` | A2A tasks + LangGraph checkpoints + agent card |
+| `relata.audit` | `AuditClient` | Audit entries (filtered/paginated) + signed receipts + PDF export |
+| `relata.identity` | `IdentityClient` | Identity label/uncertainty + lookup tables + ERASE SUBJECT |
+| `relata.objects` | `ObjectClient` | Typed upsert + batch via `/ingest?object_type=` |
+| `relata.ingest` | `IngestClient` | Bulk NDJSON + CSV + media status |
+| `relata.vectors` | `VectorClient` | KNN + hybrid search + similar-to (SQL-backed) |
+| `relata.s3` | `S3Client` | boto3 / httpx / aiobotocore wrapper for the S3 protocol door |
+| `relata.system` | `SystemClient` | LLM config + test + jobs status |
+| `relata.streaming` | `StreamingClient` | NDJSON row streams + SSE consumers (watch/alerts) + Arrow IPC |
+| `relata.tenants` | `TenantAdminClient` | Tenant CRUD + quota + sharing agreements + platform admin |
+
+Each has an async mirror (`Async*`).
+
+### v1.1 transport hardening (#79)
+
+- **RFC 7807 problem+json parsing** — every error carries `code`, `type_url`, `retryable`, `request_id`.
+- **Typed exceptions** — `ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409), `ValidationError` (422), `RateLimitedError` (429, with `retry_after`).
+- **Retry** — `RelataClient(..., max_retries=3, retry_backoff_secs=0.5)`.
+- **X-Request-ID** — auto-generated per request; caller-supplied IDs respected; server's response ID stamped on exceptions.
+
+### v1.1 QueryBuilder extensions (#76)
+
+| Method | Description |
+|---|---|
+| `.limit(n, after="cursor")` | Keyset pagination (`LIMIT n AFTER 'cursor'`) |
+| `.since(cursor)` | Incremental reads (`WHERE system_from > cursor`) |
+
+The builder also validates identifiers (`from_()`, `select()`) and refuses
+dangerous tokens in `where()` (SQL-injection stopgap).
+
+### Agent-framework adapters
+
+| Framework | Import | Shape |
+|---|---|---|
+| LangChain | `relata_adapters.langchain.RelataMemory` | `BaseMemory` |
+| LlamaIndex | `relata_adapters.llamaindex.RelataMemory` | `BaseMemory` |
+| CrewAI | `relata_adapters.crewai.RelataStorage` | `Storage` |
+| AutoGen v0.2 | `relata_adapters.autogen.RelataMemory` | `Memory` (async) |
+| LangGraph | `relata_langgraph.RelataCheckpointer` | checkpointer |
+| AG2 (v0.4+) | `relata_adapters.ag2.RelataAG2Memory` | `MemoryProtocol` |
+| Pydantic-AI | `relata_adapters.pydantic_ai.RelataMemoryBackend` | memory backend |
+| smolagents | `relata_adapters.smolagents.RelataTool` | tool callable |
+| Auto-detect | `relata_adapters.registry.get_memory_adapter()` | picks the right class |
 
 ### `QueryBuilder`
 
@@ -245,6 +303,9 @@ RelataClient(
 | `StatusResponse` | `profile`, `role`, `query_quota` |
 | `AuditCountResponse` | `entries`, `chain_valid` |
 | `ClusterNode` | `node_id`, `role`, `url` |
+| `VersionInfo` | `version`, `commit`, `profile`, `schema_version`, `features` |
+| `Stats` | `records`, `states`, `snapshot_rows`, `log_leaves`, `tokens` |
+| `ReadyReport` | `is_ready`, `status`, `reason`, `detail` |
 
 ## Examples
 
