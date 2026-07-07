@@ -40,8 +40,8 @@ dev = [
 [project.urls]
 Homepage = "https://relata.io"
 Documentation = "https://docs.relata.io/sdk/python"
-Repository = "https://github.com/relata/relata"
-Issues = "https://github.com/relata/relata/issues"
+Repository = "https://github.com/OpenWorkBench-Co/RelataDB"
+Issues = "https://github.com/OpenWorkBench-Co/RelataDB/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["relata", "relata_adapters", "relata_langgraph"]
