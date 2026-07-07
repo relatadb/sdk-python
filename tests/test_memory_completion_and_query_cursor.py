@@ -51,10 +51,10 @@ def test_associate_round_trip() -> None:
         seen.append(req)
         assert req.url.path == "/memory/associate"
         body = json.loads(req.content)
-        assert body["source_id"] == "mem-1"
-        assert body["target_id"] == "mem-2"
+        # Server schema uses from_id / to_id (not source_id/target_id).
+        assert body["from_id"] == "mem-1"
+        assert body["to_id"] == "mem-2"
         assert body["relation"] == "supports"
-        assert body["confidence"] == 0.9
         return httpx.Response(200, json=_mcp({"association_id": "a-1"}))
 
     m = _memory(handler)
@@ -99,21 +99,22 @@ def test_resolve_round_trip() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
+        # Server route is GET /memory/resolve/:id (supersession-chain resolve).
+        assert req.method == "GET"
         assert req.url.path == "/memory/resolve/mem-9"
-        body = json.loads(req.content)
-        assert body["policy"] == "highest_confidence"
         return httpx.Response(200, json=_mcp({"resolved_id": "mem-10"}))
 
     m = _memory(handler)
-    out = m.resolve("mem-9", policy="highest_confidence")
+    out = m.resolve("mem-9")
     assert out["resolved_id"] == "mem-10"
 
 
 def test_summarise_round_trip() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         body = json.loads(req.content)
-        assert body["source_ids"] == ["m1", "m2", "m3"]
-        assert body["summary_content"] == "Alice and Bob met in Nairobi."
+        # Server schema reads ids + contents (not source_ids/summary_content).
+        assert body["ids"] == ["m1", "m2", "m3"]
+        assert body["contents"] == ["Alice and Bob met in Nairobi."]
         return httpx.Response(200, json=_mcp({"summary_id": "sum-1"}))
 
     m = _memory(handler)

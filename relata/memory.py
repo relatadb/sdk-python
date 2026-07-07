@@ -221,14 +221,14 @@ class Memory:
     ) -> dict[str, Any]:
         """Link two memories with a typed relation.
 
-        Wraps ``POST /memory/associate``. Returns the association record
-        (``source_id``, ``target_id``, ``relation``, ``confidence``).
+        Wraps ``POST /memory/associate``. The server reads ``from_id`` /
+        ``to_id`` / ``relation`` (``confidence`` is not part of the server
+        schema and is ignored). Returns the association record.
         """
         payload = {
-            "source_id": source_id,
-            "target_id": target_id,
+            "from_id": source_id,
+            "to_id": target_id,
             "relation": relation,
-            "confidence": confidence,
             "purpose": self._purpose,
         }
         return _unwrap(self._t.post("/memory/associate", payload))
@@ -263,16 +263,14 @@ class Memory:
         path = f"/memory/justify/{quote(memory_id)}?purpose={quote(self._purpose)}"
         return _unwrap(self._t.get(path))
 
-    def resolve(self, memory_id: str, *, policy: str = "latest_wins") -> dict[str, Any]:
-        """Resolve a contradiction between ``memory_id`` and a newer belief.
+    def resolve(self, memory_id: str) -> dict[str, Any]:
+        """Resolve a memory's supersession chain to its canonical head.
 
-        Wraps ``POST /memory/resolve/<id>``. The ``policy`` selects the
-        resolver (``latest_wins`` / ``highest_confidence`` / ``manual``).
-        Returns the resolution record.
+        Wraps ``GET /memory/resolve/<id>``. Follows the supersession chain from
+        ``memory_id`` to the current canonical belief and returns it.
         """
-        payload = {"policy": policy, "purpose": self._purpose}
-        path = f"/memory/resolve/{quote(memory_id)}"
-        return _unwrap(self._t.post(path, payload))
+        path = f"/memory/resolve/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        return _unwrap(self._t.get(path))
 
     def summarise(
         self,
@@ -282,17 +280,16 @@ class Memory:
     ) -> dict[str, Any]:
         """Produce a summary belief from a set of source memories.
 
-        Wraps ``POST /memory/summarise``. ``source_ids`` is the list of memory
-        ids to summarise; ``summary_content`` lets the caller supply the
-        summary text (the server otherwise derives one). Returns the new
-        summary memory.
+        Wraps ``POST /memory/summarise``. The server reads ``ids`` (memory
+        UUIDs to fetch and summarise) and optional ``contents`` (explicit
+        source text). Returns the new summary memory.
         """
         payload: dict[str, Any] = {
-            "source_ids": source_ids,
+            "ids": source_ids,
             "purpose": self._purpose,
         }
         if summary_content is not None:
-            payload["summary_content"] = summary_content
+            payload["contents"] = [summary_content]
         return _unwrap(self._t.post("/memory/summarise", payload))
 
     def close(self) -> None:
@@ -417,10 +414,9 @@ class AsyncMemory:
     ) -> dict[str, Any]:
         """Link two memories with a typed relation (async)."""
         payload = {
-            "source_id": source_id,
-            "target_id": target_id,
+            "from_id": source_id,
+            "to_id": target_id,
             "relation": relation,
-            "confidence": confidence,
             "purpose": self._purpose,
         }
         return _unwrap(await self._t.post("/memory/associate", payload))
@@ -447,11 +443,10 @@ class AsyncMemory:
         path = f"/memory/justify/{quote(memory_id)}?purpose={quote(self._purpose)}"
         return _unwrap(await self._t.get(path))
 
-    async def resolve(self, memory_id: str, *, policy: str = "latest_wins") -> dict[str, Any]:
-        """Resolve a contradiction between ``memory_id`` and a newer belief (async)."""
-        payload = {"policy": policy, "purpose": self._purpose}
-        path = f"/memory/resolve/{quote(memory_id)}"
-        return _unwrap(await self._t.post(path, payload))
+    async def resolve(self, memory_id: str) -> dict[str, Any]:
+        """Resolve a memory's supersession chain to its canonical head (async)."""
+        path = f"/memory/resolve/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        return _unwrap(await self._t.get(path))
 
     async def summarise(
         self,
@@ -461,11 +456,11 @@ class AsyncMemory:
     ) -> dict[str, Any]:
         """Produce a summary belief from a set of source memories (async)."""
         payload: dict[str, Any] = {
-            "source_ids": source_ids,
+            "ids": source_ids,
             "purpose": self._purpose,
         }
         if summary_content is not None:
-            payload["summary_content"] = summary_content
+            payload["contents"] = [summary_content]
         return _unwrap(await self._t.post("/memory/summarise", payload))
 
     async def close(self) -> None:
