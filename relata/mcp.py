@@ -101,9 +101,12 @@ class McpClient:
         top_k: int = 10,
     ) -> dict[str, Any]:
         """``search_knowledge`` — hybrid BM25 + vector search."""
+        # #341: the handler reads `limit` (mcp_tool_search_knowledge), so send
+        # `limit` — the previous `top_k` key was silently dropped and the result
+        # count fell back to the server default.
         return self.call_tool(
             "search_knowledge",
-            {"query": query, "purpose": purpose, "top_k": top_k},
+            {"query": query, "purpose": purpose, "limit": top_k},
         )
 
     def explain_policy(self, sql: str, *, purpose: str) -> dict[str, Any]:
@@ -111,9 +114,11 @@ class McpClient:
         apply to ``sql`` without executing it."""
         return self.call_tool("explain_policy", {"sql": sql, "purpose": purpose})
 
-    def suggest_extensions(self, prefix: str) -> dict[str, Any]:
-        """``suggest_extensions`` — type/canonical-kind autocomplete."""
-        return self.call_tool("suggest_extensions", {"prefix": prefix})
+    def suggest_extensions(self) -> dict[str, Any]:
+        """``suggest_extensions`` — list extension packs and their data
+        availability. #341: takes no arguments (the handler ignores any) and
+        returns pack suggestions, not type/kind autocomplete."""
+        return self.call_tool("suggest_extensions", {})
 
     # --- Entity / type discovery ---
 
