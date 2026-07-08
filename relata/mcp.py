@@ -125,47 +125,78 @@ class McpClient:
         self,
         object_type: str,
         *,
-        filter_expr: str | None = None,
+        filters: dict[str, str] | None = None,
         limit: int = 50,
     ) -> dict[str, Any]:
-        """``get_entities`` — paginated entity list."""
-        args: dict[str, Any] = {"object_type": object_type, "limit": limit}
-        if filter_expr:
-            args["filter"] = filter_expr
+        """``get_entities`` — paginated entity list.
+
+        #253: the registered schema declares ``entity_type`` (not ``object_type``)
+        and ``filters`` as a key-value object (not a ``filter`` string); sending
+        the old names 400'd before dispatch.
+        """
+        args: dict[str, Any] = {"entity_type": object_type, "limit": limit}
+        if filters:
+            args["filters"] = filters
         return self.call_tool("get_entities", args)
 
-    def search_entities(self, query: str, *, object_type: str | None = None) -> dict[str, Any]:
-        """``search_entities`` — free-text entity search."""
+    def search_entities(
+        self, query: str, *, entity_types: list[str] | None = None
+    ) -> dict[str, Any]:
+        """``search_entities`` — free-text entity search.
+
+        #253: the schema declares ``entity_types`` (an array), not ``object_type``.
+        """
         args: dict[str, Any] = {"query": query}
-        if object_type:
-            args["object_type"] = object_type
+        if entity_types:
+            args["entity_types"] = entity_types
         return self.call_tool("search_entities", args)
 
-    def get_domain_summary(self, *, object_type: str | None = None) -> dict[str, Any]:
-        """``get_domain_summary`` — counts + freshness per type."""
-        args: dict[str, Any] = {}
-        if object_type:
-            args["object_type"] = object_type
-        return self.call_tool("get_domain_summary", args)
+    def get_domain_summary(self, domain: str) -> dict[str, Any]:
+        """``get_domain_summary`` — counts + freshness for a domain.
 
-    def find_in_social_corpus(self, query: str, *, corpus: str | None = None) -> dict[str, Any]:
-        """``find_in_social_corpus`` — search the ingested social-media corpus."""
-        args: dict[str, Any] = {"query": query}
-        if corpus:
-            args["corpus"] = corpus
+        #253: the schema requires ``domain`` (enum: financial, telco, cyber,
+        humint, narcotics, fara, maritime, border, sanctions, all), not
+        ``object_type``.
+        """
+        return self.call_tool("get_domain_summary", {"domain": domain})
+
+    def find_in_social_corpus(
+        self,
+        object_type: str,
+        *,
+        text_query: str | None = None,
+        user: str | None = None,
+        top_k: int = 20,
+    ) -> dict[str, Any]:
+        """``find_in_social_corpus`` — search the ingested social-media corpus.
+
+        #253: the schema requires ``object_type`` (the post type) and takes
+        ``text_query`` / ``user`` / ``top_k`` — not the old ``query`` / ``corpus``.
+        """
+        args: dict[str, Any] = {"object_type": object_type, "top_k": top_k}
+        if text_query:
+            args["text_query"] = text_query
+        if user:
+            args["user"] = user
         return self.call_tool("find_in_social_corpus", args)
 
     # --- Identity ---
 
     def lookup_identity(self, value: str, *, purpose: str = "analytics") -> dict[str, Any]:
-        """``lookup_identity`` — universal identity lookup."""
-        return self.call_tool("lookup_identity", {"value": value, "purpose": purpose})
+        """``lookup_identity`` — universal identity lookup.
+
+        #253: the schema declares the raw identifier under ``raw``, not ``value``.
+        """
+        return self.call_tool("lookup_identity", {"raw": value, "purpose": purpose})
 
     # --- Case / investigation ---
 
     def get_entity_profile(self, entity_id: str, *, purpose: str) -> dict[str, Any]:
-        """``get_entity_profile`` — rich per-entity dossier."""
-        return self.call_tool("get_entity_profile", {"entity_id": entity_id, "purpose": purpose})
+        """``get_entity_profile`` — rich per-entity dossier.
+
+        #253: the schema declares the entity under ``name``, not ``entity_id``.
+        """
+        return self.call_tool("get_entity_profile", {"name": entity_id, "purpose": purpose})
 
     def get_timeline(
         self,
@@ -175,8 +206,11 @@ class McpClient:
         since_ns: int | None = None,
         until_ns: int | None = None,
     ) -> dict[str, Any]:
-        """``get_timeline`` — chronological event list for an entity."""
-        args: dict[str, Any] = {"entity_id": entity_id, "purpose": purpose}
+        """``get_timeline`` — chronological event list for an entity.
+
+        #253: the schema declares the entity under ``entity``, not ``entity_id``.
+        """
+        args: dict[str, Any] = {"entity": entity_id, "purpose": purpose}
         if since_ns is not None:
             args["since_ns"] = since_ns
         if until_ns is not None:
