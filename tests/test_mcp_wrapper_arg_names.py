@@ -110,3 +110,24 @@ def test_get_audit_trail_sends_schema_fields_only() -> None:
     assert args["purpose"] == "audit"
     assert args["principal_filter"] == "api-user"
     assert "case_id" not in args and "entity_id" not in args
+
+
+def test_search_knowledge_sends_limit_not_top_k() -> None:
+    # #341: the handler reads `limit`; the previous `top_k` key was silently
+    # dropped and the result count fell back to the server default.
+    client, seen = _capture()
+    client.search_knowledge("acme fraud", purpose="analytics", top_k=25)
+    args = seen["arguments"]
+    assert args["limit"] == 25
+    assert "top_k" not in args
+
+
+def test_suggest_extensions_sends_no_args() -> None:
+    # #341: the handler takes no arguments (it ignores any) and returns pack
+    # suggestions — the previous `prefix` arg was misleading and dropped.
+    client, seen = _capture()
+    client.suggest_extensions()
+    # call_tool omits the `arguments` key entirely for an empty map, so no
+    # `prefix` is ever sent (the handler takes no args).
+    assert "arguments" not in seen
+    assert seen.get("name") == "suggest_extensions"
