@@ -92,3 +92,21 @@ def test_get_timeline_sends_entity() -> None:
     args = seen["arguments"]
     assert args["entity"] == "Jane Roe"
     assert "entity_id" not in args
+
+
+def test_get_relationships_sends_subject_not_entity_id() -> None:
+    client, seen = _capture()
+    client.get_relationships("Acme Corp", purpose="analytics", predicate="controls")
+    args = seen["arguments"]
+    assert args["subject"] == "Acme Corp"
+    assert args["predicate"] == "controls"
+    assert "entity_id" not in args and "depth" not in args
+
+
+def test_get_audit_trail_sends_schema_fields_only() -> None:
+    client, seen = _capture()
+    client.get_audit_trail(purpose="audit", principal_filter="api-user")
+    args = seen["arguments"]
+    assert args["purpose"] == "audit"
+    assert args["principal_filter"] == "api-user"
+    assert "case_id" not in args and "entity_id" not in args

@@ -239,16 +239,30 @@ class McpClient:
 
     def get_relationships(
         self,
-        entity_id: str,
+        subject: str | None = None,
         *,
         purpose: str,
-        depth: int = 1,
+        predicate: str | None = None,
+        object: str | None = None,  # noqa: A002 — matches the schema field name
+        source: str | None = None,
+        limit: int = 50,
     ) -> dict[str, Any]:
-        """``get_relationships`` — direct neighbours of ``entity_id``."""
-        return self.call_tool(
-            "get_relationships",
-            {"entity_id": entity_id, "depth": depth, "purpose": purpose},
-        )
+        """``get_relationships`` — governed (subject, predicate, object) triples.
+
+        #253: the schema declares ``subject`` / ``predicate`` / ``object`` /
+        ``source`` filters (not ``entity_id`` / ``depth`` — that neighbours-at-depth
+        shape is ``find_connections``). Sending the old names 400'd before dispatch.
+        """
+        args: dict[str, Any] = {"purpose": purpose, "limit": limit}
+        if subject:
+            args["subject"] = subject
+        if predicate:
+            args["predicate"] = predicate
+        if object:
+            args["object"] = object
+        if source:
+            args["source"] = source
+        return self.call_tool("get_relationships", args)
 
     def add_case_note(
         self,
@@ -266,15 +280,21 @@ class McpClient:
     def get_audit_trail(
         self,
         *,
-        case_id: str | None = None,
-        entity_id: str | None = None,
+        purpose: str | None = None,
+        principal_filter: str | None = None,
+        limit: int = 100,
     ) -> dict[str, Any]:
-        """``get_audit_trail`` — provenance chain for a case or entity."""
-        args: dict[str, Any] = {}
-        if case_id:
-            args["case_id"] = case_id
-        if entity_id:
-            args["entity_id"] = entity_id
+        """``get_audit_trail`` — the governed audit trail.
+
+        #253: the schema declares ``purpose`` / ``principal_filter`` / ``limit``
+        (not ``case_id`` / ``entity_id`` — those are not audit-trail parameters).
+        Sending the old names 400'd before dispatch.
+        """
+        args: dict[str, Any] = {"limit": limit}
+        if purpose:
+            args["purpose"] = purpose
+        if principal_filter:
+            args["principal_filter"] = principal_filter
         return self.call_tool("get_audit_trail", args)
 
     def get_case_summary(self, case_id: str, *, purpose: str) -> dict[str, Any]:
