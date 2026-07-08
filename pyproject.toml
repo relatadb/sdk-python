@@ -1,16 +1,25 @@
 [build-system]
-requires = ["hatchling"]
+requires = [
+    "hatchling",
+]
 build-backend = "hatchling.build"
 
 [project]
 name = "relata-sdk"
-version = "0.2.0"
+version = "0.2.1"
 description = "Python SDK for the Relata enterprise-grade data engine"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
-authors = [{ name = "Relata", email = "sdk@relata.io" }]
-keywords = ["relata", "data-engine", "analytics", "ontology", "bi-temporal"]
+authors = [
+    { name = "Relata", email = "sdk@relata.io" },
+]
+keywords = [
+    "relata",
+    "data-engine",
+    "analytics",
+    "ontology",
+    "bi-temporal",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -28,6 +37,9 @@ dependencies = [
     "pydantic>=2.6",
 ]
 
+[project.license]
+text = "Apache-2.0"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
@@ -44,15 +56,30 @@ Repository = "https://github.com/OpenWorkBench-Co/RelataDB"
 Issues = "https://github.com/OpenWorkBench-Co/RelataDB/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["relata", "relata_adapters", "relata_langgraph"]
+packages = [
+    "relata",
+    "relata_adapters",
+    "relata_langgraph",
+]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "ANN"]
-ignore = ["ANN101", "ANN102"]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "ANN",
+]
+ignore = [
+    "ANN101",
+    "ANN102",
+]
 
 [tool.mypy]
 python_version = "3.11"
