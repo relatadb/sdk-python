@@ -1,6 +1,15 @@
-"""RelataCheckpointer for LangGraph — persists graph state in RelataDB.
+"""RelataCheckpointer — a REST checkpoint store client for RelataDB.
 
-Usage::
+EXPERIMENTAL / NOT a LangGraph BaseCheckpointSaver (#340). This class talks to
+the governed A2A checkpoint endpoints but does NOT subclass
+``langgraph.checkpoint.base.BaseCheckpointSaver`` and exposes a bespoke
+``put(thread_id, step, state)`` / ``get`` / ``list`` / ``delete`` — not
+LangGraph's required ``put`` / ``get_tuple`` / ``list`` / ``put_writes`` (+ async
+variants) with ``channel_values`` serialization. It therefore CANNOT be passed
+directly to ``workflow.compile(checkpointer=...)``; that needs a real
+``BaseCheckpointSaver`` adapter over these endpoints, which is not implemented.
+
+Usage (standalone REST checkpoint store)::
 
     from relata_langgraph import RelataCheckpointer
 
@@ -8,9 +17,8 @@ Usage::
         endpoint="http://localhost:8080",
         token="my-bearer-token",
     )
-
-    # Pass to your LangGraph compiled graph:
-    # graph = workflow.compile(checkpointer=checkpointer)
+    checkpointer.put(thread_id="t1", step=0, state={"messages": []})
+    state = checkpointer.get(thread_id="t1", step=0)
 
 See docs/src/guides/langgraph-checkpointer.md for full documentation.
 """
@@ -44,18 +52,15 @@ class RelataCheckpointer:
             token=os.environ["RELATA_BEARER_TOKEN"],
         )
 
-    Example (with LangGraph)::
+    NOT usable as a LangGraph checkpointer (#340)::
 
-        from langgraph.graph import StateGraph
-        from relata_langgraph import RelataCheckpointer
-
-        checkpointer = RelataCheckpointer(endpoint="...", token="...")
-        workflow = StateGraph(...)
-        # ... add nodes and edges ...
-        app = workflow.compile(checkpointer=checkpointer)
-
-        # Invoke with thread persistence:
-        result = app.invoke({"input": "hello"}, config={"configurable": {"thread_id": "42"}})
+        # This does NOT work — RelataCheckpointer is not a BaseCheckpointSaver:
+        #   app = workflow.compile(checkpointer=checkpointer)  # TypeError / wrong API
+        # Passing it to compile() requires a real BaseCheckpointSaver adapter
+        # (put/get_tuple/list/put_writes + async), which is not implemented yet.
+        # Use it as a standalone REST checkpoint store instead:
+        checkpointer.put(thread_id="42", step=0, state={"input": "hello"})
+        state = checkpointer.get(thread_id="42", step=0)
     """
 
     def __init__(
