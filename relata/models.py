@@ -93,14 +93,14 @@ class HealthResponse(BaseModel):
 
     Attributes:
         status: ``"ok"`` when the node is healthy.
-        profile: Deployment profile — one of ``"lite"``, ``"server"``,
+        profile: Deployment profile — one of ``"free"``, ``"server"``,
             ``"cluster"``.
         node_id: Stable node identifier (e.g. ``"coordinator"``,
             ``"reader-1"``).
     """
 
     status: str = Field(..., description="'ok' when the node is healthy")
-    profile: str = Field(..., description="Deployment profile: lite | server | cluster")
+    profile: str = Field(..., description="Deployment profile: free | server | cluster")
     node_id: str = Field(..., description="Stable node identifier")
 
     @property
@@ -121,7 +121,7 @@ class StatusResponse(BaseModel):
     """Response from ``GET /status``.
 
     Attributes:
-        profile: Deployment profile — one of ``"lite"``, ``"server"``,
+        profile: Deployment profile — one of ``"free"``, ``"server"``,
             ``"cluster"``.
         role: Node role — one of ``"coordinator"``, ``"reader"``,
             ``"writer"``, ``"indexer"``.
@@ -245,7 +245,7 @@ class VersionInfo(BaseModel):
     Attributes:
         version: Relata server version (e.g. ``"1.1.0"``).
         commit: Git commit hash the binary was built from.
-        profile: Deployment profile — ``lite`` / ``server`` / ``cluster``.
+        profile: Deployment profile — ``free`` / ``server`` / ``cluster``.
         schema_version: Ontology / row-model schema version, useful for
             migration gating.
         features: Optional list of compiled-in feature flags.

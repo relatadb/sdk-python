@@ -60,7 +60,7 @@ def test_tenant_header_is_sent_on_every_request() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         captured.append(req)
-        return httpx.Response(200, json={"status": "ok", "profile": "lite", "node_id": "n1"})
+        return httpx.Response(200, json={"status": "ok", "profile": "free", "node_id": "n1"})
 
     client = _client(handler, tenant="org-cbi")
     client.health()
@@ -74,7 +74,7 @@ def test_acting_as_and_delegated_by_headers_propagate() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         captured.append(req)
-        return httpx.Response(200, json={"status": "ok", "profile": "lite", "node_id": "n1"})
+        return httpx.Response(200, json={"status": "ok", "profile": "free", "node_id": "n1"})
 
     client = _client(
         handler,
@@ -95,7 +95,7 @@ def test_custom_headers_win_over_defaults() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         captured.append(req)
-        return httpx.Response(200, json={"status": "ok", "profile": "lite", "node_id": "n1"})
+        return httpx.Response(200, json={"status": "ok", "profile": "free", "node_id": "n1"})
 
     client = _client(
         handler,
@@ -189,7 +189,7 @@ def test_ready_shedding_surfaces_reason() -> None:
 async def test_async_methods_round_trip() -> None:
     """``astats`` / ``aversion`` / ``aready`` mirror their sync counterparts."""
 
-    payload = {"status": "ok", "profile": "lite", "node_id": "n1"}
+    payload = {"status": "ok", "profile": "free", "node_id": "n1"}
 
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=payload)

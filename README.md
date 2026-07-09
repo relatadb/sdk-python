@@ -362,11 +362,13 @@ See the `examples/` directory:
 
 ## Deployment profiles
 
+> `lite` is kept as a silent legacy alias for `free` (ADR-204).
+
 Relata ships three deployment profiles.  The SDK works identically across all three:
 
 | Profile | Use case | Binary |
 |---|---|---|
-| `lite` | Embedded / single-process | `RELATA_PROFILE=lite relata serve` |
+| `free` | Embedded / single-process | `RELATA_PROFILE=free relata serve` |
 | `server` | Single-node production | `RELATA_PROFILE=server relata serve` |
 | `cluster` | Multi-node distributed | `RELATA_PROFILE=cluster relata serve` |
 
