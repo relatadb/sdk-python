@@ -89,7 +89,7 @@ def test_mcp_typed_wrappers_match_server_names() -> None:
     c.query_knowledge("SELECT 1", purpose="x")
     c.search_knowledge("q", purpose="x")
     c.explain_policy("SELECT 1", purpose="x")
-    c.suggest_extensions("p")
+    c.suggest_extensions()  # #341: takes no args (handler ignores any)
     c.list_entity_types()
     c.get_entities("Person")
     c.search_entities("q")
