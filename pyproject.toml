@@ -23,7 +23,7 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [project.license]
-text = "Apache-2.0"
+text = "AGPL-3.0-only"
 
 [project.optional-dependencies]
 dev = [
