@@ -8,6 +8,7 @@ task, watch the jobs queue, inspect the agent card.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from relata._http import AsyncHttpTransport, HttpTransport
 
@@ -72,6 +73,49 @@ class SystemClient:
         """
         return self._t.get("/jobs")
 
+    def job_status(self, name: str) -> dict[str, Any]:
+        """Status of a single background job by name. Wraps ``GET /jobs/:name``."""
+        return self._t.get(f"/jobs/{quote(name, safe='')}")
+
+    # ------------------------------------------------------------------
+    # Workflows (#615/#619; hardened by #706/#709/#711)
+    # ------------------------------------------------------------------
+
+    def list_workflows(self) -> dict[str, Any]:
+        """List registered workflow definition names. Wraps ``GET /workflows``."""
+        return self._t.get("/workflows")
+
+    def get_workflow(self, name: str) -> dict[str, Any]:
+        """Fetch one workflow definition. Wraps ``GET /workflows/:name``."""
+        return self._t.get(f"/workflows/{quote(name, safe='')}")
+
+    def register_workflow(self, name: str, steps: list[dict[str, Any]]) -> dict[str, Any]:
+        """Register a workflow definition. Wraps ``POST /workflows``.
+
+        ``steps`` is a list of step dicts, e.g.
+        ``{"name": "..", "kind": "query", "sql": "..", "depends_on": [0]}``.
+        """
+        return self._t.post("/workflows", {"name": name, "steps": steps})
+
+    def run_workflow(self, name: str) -> dict[str, Any]:
+        """Start a workflow execution; returns ``run_id`` + runnable steps.
+
+        Wraps ``POST /workflows/:name/run``.
+        """
+        return self._t.post(f"/workflows/{quote(name, safe='')}/run", {})
+
+    def workflow_status(self, name: str) -> dict[str, Any]:
+        """Latest run status for a workflow (by name). Wraps
+        ``GET /workflows/:name/status``."""
+        return self._t.get(f"/workflows/{quote(name, safe='')}/status")
+
+    def workflow_run(self, run_id: str) -> dict[str, Any]:
+        """Step-level detail of a run by ``run_id`` — surfaces ``attempt_count``,
+        ``last_error``, per-step status (the fields #711/#713 made accurate).
+        Wraps ``GET /workflows/runs/:run_id``.
+        """
+        return self._t.get(f"/workflows/runs/{quote(run_id, safe='')}")
+
     def close(self) -> None:
         self._t.close()
 
@@ -118,6 +162,27 @@ class AsyncSystemClient:
 
     async def jobs_status(self) -> dict[str, Any]:
         return await self._t.get("/jobs")
+
+    async def job_status(self, name: str) -> dict[str, Any]:
+        return await self._t.get(f"/jobs/{quote(name, safe='')}")
+
+    async def list_workflows(self) -> dict[str, Any]:
+        return await self._t.get("/workflows")
+
+    async def get_workflow(self, name: str) -> dict[str, Any]:
+        return await self._t.get(f"/workflows/{quote(name, safe='')}")
+
+    async def register_workflow(self, name: str, steps: list[dict[str, Any]]) -> dict[str, Any]:
+        return await self._t.post("/workflows", {"name": name, "steps": steps})
+
+    async def run_workflow(self, name: str) -> dict[str, Any]:
+        return await self._t.post(f"/workflows/{quote(name, safe='')}/run", {})
+
+    async def workflow_status(self, name: str) -> dict[str, Any]:
+        return await self._t.get(f"/workflows/{quote(name, safe='')}/status")
+
+    async def workflow_run(self, run_id: str) -> dict[str, Any]:
+        return await self._t.get(f"/workflows/runs/{quote(run_id, safe='')}")
 
     async def close(self) -> None:
         await self._t.aclose()

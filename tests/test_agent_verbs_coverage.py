@@ -188,3 +188,37 @@ def test_system_client_jobs_status() -> None:
     s = SystemClient(BASE, transport=_wrap(handler))
     out = s.jobs_status()
     assert out["jobs"][0]["name"] == "orphan_sweep"
+
+
+def test_system_client_jobs_and_workflows() -> None:
+    """#723: all 8 canonical jobs+workflow methods on sync SystemClient."""
+    calls: list[tuple[str, str]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append((req.method, req.url.path))
+        if req.url.path == "/jobs/c2_beacon_detect":
+            return httpx.Response(200, json={"name": "c2_beacon_detect", "status": "ok"})
+        if req.url.path == "/workflows" and req.method == "GET":
+            return httpx.Response(200, json={"workflows": ["demo_flow"]})
+        if req.url.path == "/workflows" and req.method == "POST":
+            return httpx.Response(200, json={"name": "demo_flow"})
+        if req.url.path == "/workflows/demo_flow" and req.method == "GET":
+            return httpx.Response(200, json={"name": "demo_flow", "steps": []})
+        if req.url.path == "/workflows/demo_flow/run":
+            return httpx.Response(200, json={"run_id": "run-1", "status": "running"})
+        if req.url.path == "/workflows/demo_flow/status":
+            return httpx.Response(200, json={"run_id": "run-1", "status": "ok"})
+        if req.url.path == "/workflows/runs/run-1":
+            return httpx.Response(200, json={"run_id": "run-1", "attempt_count": 1, "last_error": None, "steps": []})
+        return httpx.Response(404)
+
+    s = SystemClient(BASE, transport=_wrap(handler))
+    assert s.job_status("c2_beacon_detect")["name"] == "c2_beacon_detect"
+    assert "workflows" in s.list_workflows()
+    assert s.register_workflow("demo_flow", [])["name"] == "demo_flow"
+    assert s.get_workflow("demo_flow")["name"] == "demo_flow"
+    run = s.run_workflow("demo_flow")
+    assert run["run_id"] == "run-1"
+    assert s.workflow_status("demo_flow")["status"] == "ok"
+    detail = s.workflow_run("run-1")
+    assert detail["attempt_count"] == 1
