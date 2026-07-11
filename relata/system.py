@@ -116,6 +116,46 @@ class SystemClient:
         """
         return self._t.get(f"/workflows/runs/{quote(run_id, safe='')}")
 
+    # ── feed ─────────────────────────────────────────────────────────────────
+
+    def feed_health(self) -> dict[str, Any]:
+        """GET /feed/health — RIFN feed broker health."""
+        return self._t.get("/feed/health")
+
+    def feed_channels(self) -> dict[str, Any]:
+        """GET /feed/channels — list available feed channels."""
+        return self._t.get("/feed/channels")
+
+    def feed_publish(self, channel: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST /feed/publish — publish a record to a channel."""
+        return self._t.post("/feed/publish", {"channel": channel, "payload": payload})
+
+    # ── notifications ─────────────────────────────────────────────────────────
+
+    def notification_rules(self) -> list[dict[str, Any]]:
+        """GET /notifications/rules — list notification rules."""
+        data = self._t.get("/notifications/rules")
+        return data if isinstance(data, list) else data.get("rules", [])
+
+    def create_notification_rule(self, rule: dict[str, Any]) -> dict[str, Any]:
+        """POST /notifications/rules — create a notification rule."""
+        return self._t.post("/notifications/rules", rule)
+
+    def delete_notification_rule(self, rule_id: str) -> dict[str, Any]:
+        """DELETE /notifications/rules/:id — delete a notification rule."""
+        return self._t.delete(f"/notifications/rules/{quote(rule_id, safe='')}")
+
+    # ── pipelines ─────────────────────────────────────────────────────────────
+
+    def list_pipelines(self) -> list[dict[str, Any]]:
+        """GET /pipelines — list registered ingest pipelines."""
+        data = self._t.get("/pipelines")
+        return data if isinstance(data, list) else data.get("pipelines", [])
+
+    def define_pipeline(self, definition: dict[str, Any]) -> dict[str, Any]:
+        """POST /pipelines — define a new ingest pipeline."""
+        return self._t.post("/pipelines", definition)
+
     def close(self) -> None:
         self._t.close()
 
@@ -183,6 +223,32 @@ class AsyncSystemClient:
 
     async def workflow_run(self, run_id: str) -> dict[str, Any]:
         return await self._t.get(f"/workflows/runs/{quote(run_id, safe='')}")
+
+    async def feed_health(self) -> dict[str, Any]:
+        return await self._t.get("/feed/health")
+
+    async def feed_channels(self) -> dict[str, Any]:
+        return await self._t.get("/feed/channels")
+
+    async def feed_publish(self, channel: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._t.post("/feed/publish", {"channel": channel, "payload": payload})
+
+    async def notification_rules(self) -> list[dict[str, Any]]:
+        data = await self._t.get("/notifications/rules")
+        return data if isinstance(data, list) else data.get("rules", [])
+
+    async def create_notification_rule(self, rule: dict[str, Any]) -> dict[str, Any]:
+        return await self._t.post("/notifications/rules", rule)
+
+    async def delete_notification_rule(self, rule_id: str) -> dict[str, Any]:
+        return await self._t.delete(f"/notifications/rules/{quote(rule_id, safe='')}")
+
+    async def list_pipelines(self) -> list[dict[str, Any]]:
+        data = await self._t.get("/pipelines")
+        return data if isinstance(data, list) else data.get("pipelines", [])
+
+    async def define_pipeline(self, definition: dict[str, Any]) -> dict[str, Any]:
+        return await self._t.post("/pipelines", definition)
 
     async def close(self) -> None:
         await self._t.aclose()
