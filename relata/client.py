@@ -38,6 +38,7 @@ from relata.models import (
     IngestDocumentResponse,
     QueryResult,
     ReadyReport,
+    SearchResponse,
     Stats,
     StatusResponse,
     VersionInfo,
@@ -298,6 +299,70 @@ class RelataClient:
         payload = {"purpose": effective_purpose, "sql": sql}
         data = self._sync.post("/query", payload)
         return QueryResult.model_validate(data)
+
+    def search(
+        self,
+        query: str,
+        type: str,  # noqa: A002 — mirrors server API field name
+        *,
+        limit: int | None = None,
+        facets: list[str] | None = None,
+        highlight: bool = False,
+        filters: dict[str, str] | None = None,
+    ) -> SearchResponse:
+        """Full-text search over a governed object type (#670).
+
+        Args:
+            query: Free-text search string (BM25 + vector hybrid).
+            type: Object type to search (e.g. ``"Person"``).
+            limit: Maximum number of hits to return (server default: 20).
+            facets: Field names to aggregate counts for.
+            highlight: Include field-level ``<em>`` snippets.
+            filters: Equality filters applied server-side (``{"field": "val"}``).
+
+        Returns:
+            :class:`~relata.models.SearchResponse` with ``hits``, ``total``,
+            ``facets``, and ``processing_time_ms``.
+
+        Example::
+
+            results = client.search(
+                "alice smith", "Person",
+                limit=10, facets=["agency_id"], highlight=True,
+            )
+            for hit in results.hits:
+                print(hit.score, hit.fields.get("name"))
+        """
+        payload: dict[str, object] = {"query": query, "type": type, "highlight": highlight}
+        if limit is not None:
+            payload["limit"] = limit
+        if facets:
+            payload["facets"] = facets
+        if filters:
+            payload["filters"] = filters
+        data = self._sync.post("/search", payload)
+        return SearchResponse.model_validate(data)
+
+    async def asearch(
+        self,
+        query: str,
+        type: str,  # noqa: A002
+        *,
+        limit: int | None = None,
+        facets: list[str] | None = None,
+        highlight: bool = False,
+        filters: dict[str, str] | None = None,
+    ) -> SearchResponse:
+        """Async variant of :meth:`search`."""
+        payload: dict[str, object] = {"query": query, "type": type, "highlight": highlight}
+        if limit is not None:
+            payload["limit"] = limit
+        if facets:
+            payload["facets"] = facets
+        if filters:
+            payload["filters"] = filters
+        data = await self._async.post("/search", payload)
+        return SearchResponse.model_validate(data)
 
     def health(self) -> HealthResponse:
         """Check node health (synchronous).

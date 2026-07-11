@@ -352,3 +352,32 @@ class ReadyReport(BaseModel):
             f"status={self.status!r}, "
             f"reason={self.reason!r})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Search (#670)
+# ---------------------------------------------------------------------------
+
+
+class SearchHit(BaseModel):
+    """A single document returned by ``POST /search``."""
+
+    id: str = Field(..., description="Object ID")
+    object_type: str = Field(..., description="Object type name")
+    fields: dict[str, Any] = Field(default_factory=dict, description="Object fields")
+    score: float = Field(..., description="BM25 relevance score")
+    highlights: dict[str, str] = Field(
+        default_factory=dict,
+        description="Field-level snippets with <em> tags (present when highlight=True)",
+    )
+
+
+class SearchResponse(BaseModel):
+    """Response from ``POST /search`` (#670)."""
+
+    hits: list[SearchHit] = Field(default_factory=list)
+    total: int = Field(0, description="Total matching documents")
+    facets: dict[str, dict[str, int]] = Field(
+        default_factory=dict, description="Facet counts keyed by field then value"
+    )
+    processing_time_ms: int = Field(0, description="Server-side processing time")
