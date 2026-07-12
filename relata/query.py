@@ -186,6 +186,57 @@ class QueryBuilder:
         self._where_clauses.append(condition)
         return self
 
+    def where_param(self, condition: str, *values: str | int | float) -> QueryBuilder:
+        """Safe WHERE predicate with client-side scalar interpolation.
+
+        Replaces ``?`` placeholders left-to-right with safely-typed literals:
+
+        - ``str``   → ``'value'`` with internal ``'`` escaped as ``''``
+        - ``int``   → unquoted integer literal
+        - ``float`` → unquoted float literal (Python ``repr``)
+
+        Use this instead of :meth:`where` when the predicate value comes from
+        user input. ``bool`` is rejected — pass ``1``/``0`` explicitly.
+
+        Examples::
+
+            builder.where_param("id = ?", "my.skill-id")
+            builder.where_param("confidence > ? AND score < ?", 0.7, 1.0)
+
+        Args:
+            condition: SQL predicate with ``?`` placeholder(s).
+            *values:   Scalar values, one per ``?``.
+
+        Returns:
+            ``self``
+
+        Raises:
+            ValueError: Placeholder / value count mismatch.
+            TypeError:  Value is not ``str``, ``int``, or ``float``.
+        """
+        placeholders = condition.count("?")
+        if placeholders != len(values):
+            raise ValueError(
+                f"where_param: {placeholders} placeholder(s) but {len(values)} value(s) provided"
+            )
+        result = condition
+        for v in values:
+            if isinstance(v, bool):
+                raise TypeError("where_param does not accept bool; pass 1 or 0 instead")
+            if isinstance(v, int):
+                literal = str(v)
+            elif isinstance(v, float):
+                literal = repr(v)
+            elif isinstance(v, str):
+                literal = "'" + v.replace("'", "''") + "'"
+            else:
+                raise TypeError(
+                    f"where_param only accepts str, int, float; got {type(v).__name__}"
+                )
+            result = result.replace("?", literal, 1)
+        self._where_clauses.append(result)
+        return self
+
     def limit(self, n: int, *, after: str | None = None) -> QueryBuilder:
         """Set a LIMIT on result rows, optionally with a cursor for pagination.
 

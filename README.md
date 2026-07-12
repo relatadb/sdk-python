@@ -260,7 +260,7 @@ Each module inherits the parent client's auth, tenant, and purpose context:
 | `relata.a2a` | `A2AClient` | A2A tasks + LangGraph checkpoints + agent card |
 | `relata.audit` | `AuditClient` | Audit entries (filtered/paginated) + signed receipts + PDF export |
 | `relata.identity` | `IdentityClient` | Identity label/uncertainty + lookup tables + ERASE SUBJECT |
-| `relata.objects` | `ObjectClient` | Typed upsert + batch via `/ingest?object_type=` |
+| `relata.objects` | `ObjectClient` | Typed upsert + batch + point-lookup (`get`) + delete via `/ingest?object_type=` |
 | `relata.ingest` | `IngestClient` | Bulk NDJSON + CSV + media status |
 | `relata.vectors` | `VectorClient` | KNN + hybrid search + similar-to (SQL-backed) |
 | `relata.s3` | `S3Client` | boto3 / httpx / aiobotocore wrapper for the S3 protocol door |
@@ -312,7 +312,9 @@ Unknown types return `400` on both ingest and read — fail-closed by design.
 | `.since(cursor)` | Incremental reads (`WHERE system_from > cursor`) |
 
 The builder also validates identifiers (`from_()`, `select()`) and refuses
-dangerous tokens in `where()` (SQL-injection stopgap).
+dangerous tokens in `where()` (SQL-injection stopgap). For user-supplied
+values use `.where_param("id = ?", value)` — `?` placeholders are replaced
+with safely-typed literals (str → single-quoted + escaped, int/float → numeric).
 
 ### Agent-framework adapters
 
@@ -335,6 +337,7 @@ dangerous tokens in `where()` (SQL-injection stopgap).
 | `.select(*cols)` | Columns or table name shorthand |
 | `.from_(table)` | FROM table |
 | `.where(condition)` | Add WHERE predicate (multiple calls → AND) |
+| `.where_param(condition, *values)` | Safe WHERE with `?` placeholder interpolation (str/int/float) |
 | `.as_of(timestamp)` | Bi-temporal AS OF |
 | `.with_provenance()` | Append WITH PROVENANCE |
 | `.purpose(p)` | Override purpose for this query |
