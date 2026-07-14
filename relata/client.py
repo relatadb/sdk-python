@@ -309,6 +309,8 @@ class RelataClient:
         facets: list[str] | None = None,
         highlight: bool = False,
         filters: dict[str, str] | None = None,
+        matching_strategy: str | None = None,
+        typo_tolerance: dict[str, object] | None = None,
     ) -> SearchResponse:
         """Full-text search over a governed object type (#670).
 
@@ -319,16 +321,21 @@ class RelataClient:
             facets: Field names to aggregate counts for.
             highlight: Include field-level ``<em>`` snippets.
             filters: Equality filters applied server-side (``{"field": "val"}``).
+            matching_strategy: ``"all"`` (AND), ``"last"``, ``"frequency"``, or
+                ``"any"`` (OR, default). Controls which query terms are required (#967).
+            typo_tolerance: Dict with ``enabled``, ``min_word_size``,
+                ``disable_on_words``, ``disable_on_attributes`` (#967).
 
         Returns:
             :class:`~relata.models.SearchResponse` with ``hits``, ``total``,
-            ``facets``, and ``processing_time_ms``.
+            ``facets``, ``estimated_total_hits``, and ``processing_time_ms``.
 
         Example::
 
             results = client.search(
                 "alice smith", "Person",
                 limit=10, facets=["agency_id"], highlight=True,
+                matching_strategy="all",
             )
             for hit in results.hits:
                 print(hit.score, hit.fields.get("name"))
@@ -340,6 +347,10 @@ class RelataClient:
             payload["facets"] = facets
         if filters:
             payload["filters"] = filters
+        if matching_strategy is not None:
+            payload["matching_strategy"] = matching_strategy
+        if typo_tolerance is not None:
+            payload["typo_tolerance"] = typo_tolerance
         data = self._sync.post("/search", payload)
         return SearchResponse.model_validate(data)
 
@@ -352,6 +363,8 @@ class RelataClient:
         facets: list[str] | None = None,
         highlight: bool = False,
         filters: dict[str, str] | None = None,
+        matching_strategy: str | None = None,
+        typo_tolerance: dict[str, object] | None = None,
     ) -> SearchResponse:
         """Async variant of :meth:`search`."""
         payload: dict[str, object] = {"query": query, "type": type, "highlight": highlight}
@@ -361,8 +374,35 @@ class RelataClient:
             payload["facets"] = facets
         if filters:
             payload["filters"] = filters
+        if matching_strategy is not None:
+            payload["matching_strategy"] = matching_strategy
+        if typo_tolerance is not None:
+            payload["typo_tolerance"] = typo_tolerance
         data = await self._async.post("/search", payload)
         return SearchResponse.model_validate(data)
+
+    def multi_search(
+        self,
+        queries: list[dict[str, object]],
+    ) -> dict[str, object]:
+        """Federated multi-query search (#967).
+
+        Args:
+            queries: List of dicts, each with ``query``, ``type``, and optional
+                ``limit``, ``matching_strategy``, ``typo_tolerance``.
+
+        Returns:
+            Dict with ``results`` (list of per-query responses) and
+            ``processing_time_ms``.
+        """
+        return self._sync.post("/multi-search", {"queries": queries})
+
+    async def amulti_search(
+        self,
+        queries: list[dict[str, object]],
+    ) -> dict[str, object]:
+        """Async variant of :meth:`multi_search`."""
+        return await self._async.post("/multi-search", {"queries": queries})
 
     def health(self) -> HealthResponse:
         """Check node health (synchronous).

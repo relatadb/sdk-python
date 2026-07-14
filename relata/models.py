@@ -377,7 +377,11 @@ class SearchResponse(BaseModel):
 
     hits: list[SearchHit] = Field(default_factory=list)
     total: int = Field(0, description="Total matching documents")
+    estimated_total_hits: int = Field(0, description="Full matching-set size (#967)")
     facets: dict[str, dict[str, int]] = Field(
         default_factory=dict, description="Facet counts keyed by field then value"
+    )
+    facet_stats: dict[str, dict[str, float]] = Field(
+        default_factory=dict, description="Numeric facet stats (min/max/sum/avg) (#967)"
     )
     processing_time_ms: int = Field(0, description="Server-side processing time")
