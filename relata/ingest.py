@@ -8,7 +8,7 @@ path the partner contract (§4) calls for.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 from urllib.parse import urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport
@@ -107,6 +107,35 @@ class IngestClient:
             headers={"Content-Type": "text/csv"},
         )
         return _handle_raw(resp)
+
+    def ingest_iter(
+        self,
+        object_type: str,
+        rows: Iterable[dict[str, Any]],
+        *,
+        purpose: str | None = None,
+        batch_size: int = 500,
+    ) -> int:
+        """Stream rows from an iterator into batched ``POST /ingest`` calls.
+
+        Memory is O(batch_size), not O(total_rows). Returns the total number
+        of rows successfully ingested. Stops on the first error.
+
+        >>> rows = [{"name": "Alice"}, {"name": "Bob"}]
+        >>> total = client.ingest_iter("Person", rows, purpose="onboarding", batch_size=500)
+        """
+        batch: list[dict[str, Any]] = []
+        total = 0
+        for row in rows:
+            batch.append(row)
+            if len(batch) >= batch_size:
+                self.bulk(object_type, batch, purpose=purpose)
+                total += len(batch)
+                batch = []
+        if batch:
+            self.bulk(object_type, batch, purpose=purpose)
+            total += len(batch)
+        return total
 
     def media_status(self, task_id: str) -> dict[str, Any]:
         """Poll the status of a multipart media upload (paired with #76)."""
