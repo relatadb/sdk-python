@@ -187,6 +187,10 @@ class Memory:
         rows = result.get("rows")
         return rows if isinstance(rows, list) else []
 
+    def batch_search(self, queries: list[str], *, top_k: int = 5) -> list[list[dict[str, Any]]]:
+        """Run multiple recall queries and return merged results (#967 Tier 4c)."""
+        return [self.search(q, top_k=top_k) for q in queries]
+
     def get(self, memory_id: str) -> dict[str, Any] | None:
         """Fetch a single memory by id, or ``None`` if not found."""
         path = f"/memory/recognize/{quote(memory_id)}?purpose={quote(self._purpose)}"
