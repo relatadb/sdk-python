@@ -489,6 +489,10 @@ class RelataClient:
     # SPARQL, sessions & cluster (#967 Tier 2d)
     # ------------------------------------------------------------------
 
+    def export_data(self, object_type: str, *, format: str = "json") -> dict[str, object]:
+        """Bulk export all rows of a type (#967 Tier 5c)."""
+        return self._sync.get(f"/export?type={object_type}&format={format}&purpose=export")
+
     def sparql(self, query: str) -> dict[str, object]:
         """Execute a SPARQL query."""
         return self._sync.post("/sparql", {"query": query})
