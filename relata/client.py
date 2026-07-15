@@ -493,6 +493,18 @@ class RelataClient:
         """Bulk export all rows of a type (#967 Tier 5c)."""
         return self._sync.get(f"/export?type={object_type}&format={format}&purpose=export")
 
+    def register_webhook(self, url: str, event_types: list[str] | None = None) -> dict[str, object]:
+        """Register a webhook for push notifications (#967 Tier 5b)."""
+        return self._sync.post("/webhooks", {"url": url, "event_types": event_types or []})
+
+    def list_webhooks(self) -> dict[str, object]:
+        """List registered webhooks."""
+        return self._sync.get("/webhooks")
+
+    def delete_webhook(self, webhook_id: str) -> dict[str, object]:
+        """Delete a webhook."""
+        return self._sync.delete(f"/webhooks/{webhook_id}")
+
     def sparql(self, query: str) -> dict[str, object]:
         """Execute a SPARQL query."""
         return self._sync.post("/sparql", {"query": query})
