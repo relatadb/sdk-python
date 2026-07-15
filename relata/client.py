@@ -404,6 +404,87 @@ class RelataClient:
         """Async variant of :meth:`multi_search`."""
         return await self._async.post("/multi-search", {"queries": queries})
 
+    # ------------------------------------------------------------------
+    # Type management & ontology (#967)
+    # ------------------------------------------------------------------
+
+    def list_types(self) -> dict[str, object]:
+        """List all registered object types with row counts."""
+        return self._sync.get("/types")
+
+    def register_type(self, name: str, **kwargs: object) -> dict[str, object]:
+        """Register a custom object type at runtime. ``kwargs`` may include
+        ``description``, ``owner``, ``properties``, ``computed_columns``."""
+        payload: dict[str, object] = {"name": name, **kwargs}
+        return self._sync.post("/types", payload)
+
+    def deregister_type(self, name: str) -> dict[str, object]:
+        """Deregister a custom type. Admin token required."""
+        return self._sync.delete(f"/types/{name}")
+
+    def type_detail(self, name: str) -> dict[str, object]:
+        """Get type detail (properties, owner, row count)."""
+        return self._sync.get(f"/types/{name}")
+
+    def ontology_migrate(self, schema: dict[str, object]) -> dict[str, object]:
+        """SHACL schema migration — register type specs, link types, property
+        constraints in one governed call."""
+        return self._sync.post("/ontology/migrate", schema)
+
+    def enrichment_rules(self, rules: dict[str, object]) -> dict[str, object]:
+        """Register identity enrichment rules for SmartIngest."""
+        return self._sync.post("/ontology/enrichment-rules", rules)
+
+    def list_modules(self) -> dict[str, object]:
+        """List installed modules / extensions."""
+        return self._sync.get("/modules")
+
+    def create_link(
+        self,
+        link_name: str,
+        source_id: str,
+        source_type: str,
+        target_id: str,
+        target_type: str,
+    ) -> dict[str, object]:
+        """Create a typed, governed link (edge) between two objects."""
+        return self._sync.post("/links", {
+            "link_name": link_name,
+            "source_id": source_id,
+            "source_type": source_type,
+            "target_id": target_id,
+            "target_type": target_type,
+        })
+
+    # ------------------------------------------------------------------
+    # Identity resolution & entity lifecycle (#967)
+    # ------------------------------------------------------------------
+
+    def resolve_identity(self, value: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Resolve an identity value to all known objects and clusters.
+        Executes ``RESOLVE_IDENTITY('<value>')`` via ``POST /query``."""
+        p = purpose or self._default_purpose or "analytics"
+        sql = f"RESOLVE_IDENTITY('{value.replace(chr(39), chr(39)+chr(39))}')"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
+
+    def detect_identities(self, text: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Detect identities in free text via SmartIngest.
+        Executes ``DETECT_IDENTITIES('<text>')``."""
+        p = purpose or self._default_purpose or "analytics"
+        sql = f"DETECT_IDENTITIES('{text.replace(chr(39), chr(39)+chr(39))}')"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
+
+    def erase_subject(
+        self, subject: str, *, reason: str = "gdpr-art17-request", purpose: str | None = None,
+    ) -> dict[str, object]:
+        """GDPR Art. 17 erasure: crypto-shred every row, vector, and blob
+        linked to a subject. **Irreversible.**"""
+        p = purpose or self._default_purpose or "gdpr-erasure"
+        s = subject.replace(chr(39), chr(39) + chr(39))
+        r = reason.replace(chr(39), chr(39) + chr(39))
+        sql = f"ERASE SUBJECT '{s}' REASON '{r}' CERTIFY"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
+
     def health(self) -> HealthResponse:
         """Check node health (synchronous).
 

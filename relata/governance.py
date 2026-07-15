@@ -152,6 +152,22 @@ class GovernanceClient(_BaseGovernance):
         (``rules_imported``, ``rules_skipped``, ``errors``)."""
         return self._t.post("/rules/sigma", {"sigma": sigma_yaml})
 
+    def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
+        """Temporarily disable a rule for ``duration_secs`` (#967)."""
+        return self._t.post(f"/rules/{rule_id}/snooze", {"duration_secs": duration_secs})
+
+    def suppress_rule(self, rule_id: str, pattern: str) -> dict[str, Any]:
+        """Suppress all future matches of ``pattern`` for a rule (#967)."""
+        return self._t.post(f"/rules/{rule_id}/suppress", {"pattern": pattern})
+
+    def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
+        """Add an exception entry so specific matches are ignored (#967)."""
+        return self._t.post(f"/rules/{rule_id}/exceptions", exception)
+
+    def get_rule_tuning(self, rule_id: str) -> dict[str, Any]:
+        """Retrieve the tuning state (snoozes, suppressions, exceptions) (#967)."""
+        return self._t.get(f"/rules/{rule_id}/tuning")
+
     # ------------------------------------------------------------------
     # Retention (#74)
     # ------------------------------------------------------------------
@@ -393,6 +409,18 @@ class AsyncGovernanceClient(_BaseGovernance):
 
     async def import_sigma(self, sigma_yaml: str) -> dict[str, Any]:
         return await self._t.post("/rules/sigma", {"sigma": sigma_yaml})
+
+    async def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
+        return await self._t.post(f"/rules/{rule_id}/snooze", {"duration_secs": duration_secs})
+
+    async def suppress_rule(self, rule_id: str, pattern: str) -> dict[str, Any]:
+        return await self._t.post(f"/rules/{rule_id}/suppress", {"pattern": pattern})
+
+    async def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
+        return await self._t.post(f"/rules/{rule_id}/exceptions", exception)
+
+    async def get_rule_tuning(self, rule_id: str) -> dict[str, Any]:
+        return await self._t.get(f"/rules/{rule_id}/tuning")
 
     async def list_legal_holds(self) -> list[dict[str, Any]]:
         data = await self._t.get("/retention/holds")
