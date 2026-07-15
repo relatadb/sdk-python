@@ -534,6 +534,12 @@ class RelataClient:
         a = id_a.replace("'", "''")
         b = id_b.replace("'", "''")
         return self._sync.post("/query", {"purpose": p, "sql": f"FUSE_IDENTITIES('{a}', '{b}')"})
+    def split_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Ontological unmerge — inverse of fuse_identities (#967)."""
+        p = purpose or self._default_purpose or "analytics"
+        a = id_a.replace("'", "''"); b = id_b.replace("'", "''")
+        return self._sync.post("/query", {"purpose": p, "sql": f"SPLIT_IDENTITIES('{a}', '{b}')"})
+
 
     # ------------------------------------------------------------------
     # Graph algorithm operators (#967)
