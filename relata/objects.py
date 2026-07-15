@@ -95,6 +95,28 @@ class ObjectClient:
         Returns the server's upsert receipt (``object_id``, ``write_seq``,
         ``valid_from``).
         """
+
+    def typed_upsert(self, obj: Any, *, purpose: str | None = None) -> dict[str, Any]:
+        """Upsert a typed object (Pydantic model or dataclass). Field names
+        and types are validated by the model's schema before the request
+        reaches the server — a malformed field is a local ``ValidationError``,
+        not a server 400 (#967 Tier 2a).
+
+        The object type is derived from ``obj.__class__.__name__`` or the
+        ``_type`` attribute if present.
+        """
+        # Support Pydantic v2 models.
+        if hasattr(obj, "model_dump"):
+            fields = obj.model_dump()
+        # Support dataclasses.
+        elif hasattr(obj, "__dataclass_fields__"):
+            from dataclasses import asdict
+            fields = asdict(obj)
+        else:
+            fields = dict(obj)
+        object_type = fields.pop("_type", type(obj).__name__)
+        object_id = str(fields.get("_pk", fields.get("id", "")))
+        return self.upsert(object_type, object_id, fields, purpose=purpose)
         row = dict(fields)
         row["id"] = object_id
         if source is not None:
