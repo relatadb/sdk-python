@@ -486,6 +486,38 @@ class RelataClient:
         return self._sync.post("/query", {"purpose": p, "sql": sql})
 
     # ------------------------------------------------------------------
+    # SPARQL, sessions & cluster (#967 Tier 2d)
+    # ------------------------------------------------------------------
+
+    def sparql(self, query: str) -> dict[str, object]:
+        """Execute a SPARQL query."""
+        return self._sync.post("/sparql", {"query": query})
+
+    def cluster_topology(self) -> dict[str, object]:
+        """Get cluster topology (nodes, partitions, roles)."""
+        return self._sync.get("/cluster/topology")
+
+    def cluster_rebalance(self) -> dict[str, object]:
+        """Trigger a cluster rebalance."""
+        return self._sync.post("/cluster/rebalance", {})
+
+    def cluster_drain(self, node_id: str) -> dict[str, object]:
+        """Drain a node for maintenance."""
+        return self._sync.post(f"/cluster/drain/{node_id}", {})
+
+    def session_diff(self, session_id: str) -> dict[str, object]:
+        """View uncommitted session changes."""
+        return self._sync.get(f"/session/{session_id}/diff")
+
+    def session_commit(self, session_id: str) -> dict[str, object]:
+        """Commit a session's draft writes."""
+        return self._sync.post(f"/session/{session_id}/commit", {})
+
+    def session_discard(self, session_id: str) -> dict[str, object]:
+        """Discard uncommitted session changes."""
+        return self._sync.delete(f"/session/{session_id}/draft")
+
+    # ------------------------------------------------------------------
     # Entity merge, dedup & identity resolution (#967)
     # ------------------------------------------------------------------
 
