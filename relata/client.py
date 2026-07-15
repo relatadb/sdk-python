@@ -495,6 +495,14 @@ class RelataClient:
         v = value.replace("'", "''")
         return self._sync.post("/query", {"purpose": p, "sql": f"RESOLVE_IDENTITY('{v}', MODE => 'cluster')"})
 
+    def fuse_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Ontological merge of two identities — writes an IdentityLink with
+        link_type='fused' and returns the merged cluster (#967)."""
+        p = purpose or self._default_purpose or "analytics"
+        a = id_a.replace("'", "''")
+        b = id_b.replace("'", "''")
+        return self._sync.post("/query", {"purpose": p, "sql": f"FUSE_IDENTITIES('{a}', '{b}')"})
+
     # ------------------------------------------------------------------
     # Graph algorithm operators (#967)
     # ------------------------------------------------------------------
