@@ -114,6 +114,10 @@ class BackupClient:
         raw_list = resp.get("backups", []) if isinstance(resp, dict) else []
         return [BackupRef(r) for r in raw_list]
 
+    def compact(self) -> dict[str, Any]:
+        """Trigger background compaction of the row store (#967)."""
+        return self._t.post("/admin/compact", {})
+
     def restore(
         self,
         snapshot_id: str,
