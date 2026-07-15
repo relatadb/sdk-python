@@ -485,6 +485,127 @@ class RelataClient:
         sql = f"ERASE SUBJECT '{s}' REASON '{r}' CERTIFY"
         return self._sync.post("/query", {"purpose": p, "sql": sql})
 
+    # ------------------------------------------------------------------
+    # Entity merge, dedup & identity resolution (#967)
+    # ------------------------------------------------------------------
+
+    def identity_cluster(self, value: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Resolve an identity to its full cluster of linked identifiers."""
+        p = purpose or self._default_purpose or "analytics"
+        v = value.replace("'", "''")
+        return self._sync.post("/query", {"purpose": p, "sql": f"RESOLVE_IDENTITY('{v}', MODE => 'cluster')"})
+
+    # ------------------------------------------------------------------
+    # Graph algorithm operators (#967)
+    # ------------------------------------------------------------------
+
+    def graph_dijkstra(self, object_type: str, from_id: str, to_id: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Shortest path between two entities."""
+        p = purpose or self._default_purpose or "analytics"
+        sql = f"GRAPH_DIJKSTRA('{object_type}', FROM => '{from_id}', TO => '{to_id}')"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
+
+    def graph_pagerank(self, object_type: str, *, damping: float | None = None, max_iter: int | None = None, purpose: str | None = None) -> dict[str, object]:
+        """PageRank centrality."""
+        p = purpose or self._default_purpose or "analytics"
+        parts = [f"GRAPH_PAGERANK('{object_type}'"]
+        if damping is not None: parts.append(f", DAMPING => {damping}")
+        if max_iter is not None: parts.append(f", MAX_ITER => {max_iter}")
+        parts.append(")")
+        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+
+    def graph_scc(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Strongly connected components (fraud-ring detection)."""
+        p = purpose or self._default_purpose or "analytics"
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_SCC('{object_type}')"})
+
+    def graph_cycles(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Cycle detection in the graph."""
+        p = purpose or self._default_purpose or "analytics"
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_CYCLES('{object_type}')"})
+
+    def graph_community(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Community detection via label propagation."""
+        p = purpose or self._default_purpose or "analytics"
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_COMMUNITY('{object_type}')"})
+
+    def graph_node_similarity(self, object_type: str, node: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Node similarity — find entities similar to a seed node."""
+        p = purpose or self._default_purpose or "analytics"
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_NODE_SIMILARITY('{object_type}', NODE => '{node}')"})
+
+    def graph_link_predict(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Link prediction — predict missing relationships."""
+        p = purpose or self._default_purpose or "analytics"
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_LINK_PREDICT('{object_type}')"})
+
+    def graph_triangle_count(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Triangle count — measures graph density / cohesion."""
+        p = purpose or self._default_purpose or "analytics"
+        return self._sync.post("/query", {"purpose": p, "sql": f"TRIANGLE_COUNT('{object_type}')"})
+
+    # ------------------------------------------------------------------
+    # Intelligence operators (#967)
+    # ------------------------------------------------------------------
+
+    def beneficial_ownership_chain(self, party: str, *, max_depth: int | None = None, purpose: str | None = None) -> dict[str, object]:
+        """Trace ownership to ultimate beneficial owner."""
+        p = purpose or self._default_purpose or "compliance"
+        parts = [f"BENEFICIAL_OWNERSHIP_CHAIN('{party}'"]
+        if max_depth is not None: parts.append(f", MAX_DEPTH => {max_depth}")
+        parts.append(")")
+        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+
+    def sanctions_screen(self, party: str, *, threshold: float | None = None, purpose: str | None = None) -> dict[str, object]:
+        """Sanctions screening with fuzzy threshold."""
+        p = purpose or self._default_purpose or "compliance"
+        parts = [f"SANCTIONS_SCREEN('{party}'"]
+        if threshold is not None: parts.append(f", THRESHOLD => {threshold}")
+        parts.append(")")
+        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+
+    def convoy_detect(self, *, radius_m: float | None = None, time_tol_secs: int | None = None, min_points: int | None = None, purpose: str | None = None) -> dict[str, object]:
+        """Convoy detection — find entities traveling together."""
+        p = purpose or self._default_purpose or "analytics"
+        parts = []
+        if radius_m is not None: parts.append(f"RADIUS => {radius_m}")
+        if time_tol_secs is not None: parts.append(f"TIME_TOL => {time_tol_secs * 1_000_000_000}")
+        if min_points is not None: parts.append(f"MIN_POINTS => {min_points}")
+        sql = f"CONVOY({', '.join(parts)})" if parts else "CONVOY()"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
+
+    def burner_detect(self, *, max_age_days: int | None = None, max_calls: int | None = None, purpose: str | None = None) -> dict[str, object]:
+        """Burner phone detection."""
+        p = purpose or self._default_purpose or "analytics"
+        parts = []
+        if max_age_days is not None: parts.append(f"MAX_AGE => {max_age_days * 86_400_000_000_000}")
+        if max_calls is not None: parts.append(f"MAX_CALLS => {max_calls}")
+        sql = f"BURNER_DETECT({', '.join(parts)})" if parts else "BURNER_DETECT()"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
+
+    def crypto_trace(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Follow cryptocurrency fund flow."""
+        p = purpose or self._default_purpose or "analytics"
+        return self._sync.post("/query", {"purpose": p, "sql": f"CRYPTO_TRACE('{entity}')"})
+
+    def dns_tunnel_detect(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
+        """DNS tunnel detection."""
+        p = purpose or self._default_purpose or "security"
+        return self._sync.post("/query", {"purpose": p, "sql": f"DNS_TUNNEL_DETECT('{entity}')"})
+
+    def crime_pattern_cluster(self, area: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Spatial crime pattern analysis."""
+        p = purpose or self._default_purpose or "analytics"
+        return self._sync.post("/query", {"purpose": p, "sql": f"CRIME_PATTERN_CLUSTER('{area}')"})
+
+    def geofence(self, fence: str, *, target_type: str | None = None, purpose: str | None = None) -> dict[str, object]:
+        """Geo-fence query — find entities within a geographic fence."""
+        p = purpose or self._default_purpose or "analytics"
+        parts = [f"GEOFENCE('{fence}'"]
+        if target_type is not None: parts.append(f", TARGET_TYPE => '{target_type}'")
+        parts.append(")")
+        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+
     def health(self) -> HealthResponse:
         """Check node health (synchronous).
 
