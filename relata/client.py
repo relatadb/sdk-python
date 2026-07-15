@@ -334,7 +334,7 @@ class RelataClient:
 
             results = client.search(
                 "alice smith", "Person",
-                limit=10, facets=["agency_id"], highlight=True,
+                limit=10, facets=["tenant_id"], highlight=True,
                 matching_strategy="all",
             )
             for hit in results.hits:

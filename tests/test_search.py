@@ -27,7 +27,7 @@ _SEARCH_PAYLOAD = {
         }
     ],
     "total": 1,
-    "facets": {"agency_id": {"EUROPOL": 1}},
+    "facets": {"tenant_id": {"EUROPOL": 1}},
     "processing_time_ms": 5,
 }
 
@@ -84,13 +84,13 @@ def test_search_passes_optional_params():
     client = _mock_client(handler)
     client.search(
         "alice smith", "Person",
-        limit=5, facets=["agency_id"], highlight=True,
-        filters={"agency_id": "EUROPOL"},
+        limit=5, facets=["tenant_id"], highlight=True,
+        filters={"tenant_id": "EUROPOL"},
     )
     assert captured["limit"] == 5
-    assert captured["facets"] == ["agency_id"]
+    assert captured["facets"] == ["tenant_id"]
     assert captured["highlight"] is True
-    assert captured["filters"] == {"agency_id": "EUROPOL"}
+    assert captured["filters"] == {"tenant_id": "EUROPOL"}
 
 
 @pytest.mark.asyncio
