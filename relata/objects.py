@@ -95,6 +95,22 @@ class ObjectClient:
         Returns the server's upsert receipt (``object_id``, ``write_seq``,
         ``valid_from``).
         """
+        row = dict(fields)
+        row["id"] = object_id
+        if source is not None:
+            row["_source"] = source
+        body = _row_to_ndjson([row])
+        eff_purpose = purpose or self._purpose
+        params: dict[str, str] = {"object_type": object_type}
+        if eff_purpose:
+            params["purpose"] = eff_purpose
+        headers = {"Content-Type": "application/x-ndjson"}
+        resp = self._t._client.post(  # noqa: SLF001 — needs raw httpx for non-JSON body
+            "/ingest?" + urlencode(params),
+            content=body,
+            headers=headers,
+        )
+        return dict(HttpTransport._handle(resp))
 
     def typed_upsert(self, obj: Any, *, purpose: str | None = None) -> dict[str, Any]:
         """Upsert a typed object (Pydantic model or dataclass). Field names
@@ -117,24 +133,6 @@ class ObjectClient:
         object_type = fields.pop("_type", type(obj).__name__)
         object_id = str(fields.get("_pk", fields.get("id", "")))
         return self.upsert(object_type, object_id, fields, purpose=purpose)
-        row = dict(fields)
-        row["id"] = object_id
-        if source is not None:
-            row["_source"] = source
-        body = _row_to_ndjson([row])
-        # The /ingest endpoint accepts NDJSON in the body and object_type in
-        # the query string. ``purpose`` is required by governance.
-        eff_purpose = purpose or self._purpose
-        params: dict[str, str] = {"object_type": object_type}
-        if eff_purpose:
-            params["purpose"] = eff_purpose
-        headers = {"Content-Type": "application/x-ndjson"}
-        resp = self._t._client.post(  # noqa: SLF001 — needs raw httpx for non-JSON body
-            "/ingest?" + urlencode(params),
-            content=body,
-            headers=headers,
-        )
-        return dict(HttpTransport._handle(resp))
 
     def batch_upsert(
         self,
