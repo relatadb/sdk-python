@@ -40,7 +40,10 @@ class QueryResult(BaseModel):
 
     rows: list[dict[str, Any]] = Field(default_factory=list)
     query_id: str = Field("", description="Server-assigned query execution ID")
-    elapsed_ms: int = Field(0, description="Server-side execution time in ms", ge=0)
+    elapsed_ms: int = Field(0, description="Server-side execution time in ms (legacy)", ge=0)
+    processing_time_ms: int | None = Field(
+        None, description="Server-side processing time in ms (#1252)", ge=0
+    )
     row_count: int = Field(0, description="Number of rows returned")
     columns: list[str] = Field(default_factory=list, description="Column names in order")
 
@@ -57,6 +60,10 @@ class QueryResult(BaseModel):
             # Populate columns if the server sent them
             if "columns" not in data:
                 data["columns"] = []
+            # Back-fill processing_time_ms from elapsed_ms when the new field
+            # is absent (older server versions) (#1252).
+            if data.get("processing_time_ms") is None and data.get("elapsed_ms") is not None:
+                data["processing_time_ms"] = data["elapsed_ms"]
         return data
 
     @model_validator(mode="after")

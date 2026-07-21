@@ -402,3 +402,23 @@ def test_s3_client_boto3_configured() -> None:
     assert s3.meta.region_name == "us-east-1"
     # endpoint_url is stored on the meta endpoint URL.
     assert "localhost:9090" in s3.meta.endpoint_url
+
+
+def test_query_result_processing_time_ms_from_new_field() -> None:
+    """#1252: processing_time_ms populated from new field when present."""
+    from relata.models import QueryResult
+
+    r = QueryResult.model_validate(
+        {"rows": [], "query_id": "q1", "elapsed_ms": 3, "processing_time_ms": 9}
+    )
+    assert r.processing_time_ms == 9
+
+
+def test_query_result_processing_time_ms_fallback() -> None:
+    """#1252: processing_time_ms falls back to elapsed_ms on older servers."""
+    from relata.models import QueryResult
+
+    r = QueryResult.model_validate(
+        {"rows": [], "query_id": "q1", "elapsed_ms": 5}
+    )
+    assert r.processing_time_ms == 5
