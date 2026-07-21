@@ -22,7 +22,7 @@ from relata.a2a import A2AClient
 from relata.mcp import McpClient
 from relata.system import SystemClient
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 
 Handler = Callable[[httpx.Request], httpx.Response]
 

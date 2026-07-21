@@ -9,7 +9,7 @@ Usage::
     from relata import RelataClient
     from relata_adapters.smolagents import RelataTool
 
-    client = RelataClient("http://localhost:8080", purpose="analytics")
+    client = RelataClient("http://localhost:9090", purpose="analytics")
     tool = RelataTool(client)
     # Pass to an HfAgent's toolbox.
 """
@@ -41,7 +41,7 @@ class RelataTool:
         from relata import RelataClient
         from relata_adapters.smolagents import RelataTool
 
-        client = RelataClient("http://localhost:8080", purpose="analytics")
+        client = RelataClient("http://localhost:9090", purpose="analytics")
         query_tool = RelataTool(client, tool_name="query_knowledge")
         result = query_tool(sql="SELECT * FROM Person LIMIT 5")
     """

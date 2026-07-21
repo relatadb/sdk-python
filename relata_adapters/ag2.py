@@ -31,7 +31,7 @@ class RelataAG2Memory:
         from relata_adapters.ag2 import RelataAG2Memory
 
         client = RelataClient(
-            "http://localhost:8080", purpose="agent"
+            "http://localhost:9090", purpose="agent"
         )
         memory = RelataAG2Memory(client, session_id="case-42")
         memory.add("Alice called Bob from +254...", metadata={"type": "call"})

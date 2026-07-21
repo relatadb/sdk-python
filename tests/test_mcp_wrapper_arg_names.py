@@ -17,7 +17,7 @@ import httpx
 
 from relata import McpClient
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 
 
 def _capture() -> tuple[McpClient, dict[str, Any]]:

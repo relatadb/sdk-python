@@ -12,7 +12,7 @@ Quick start::
 
     from relata import RelataClient
 
-    with RelataClient("http://localhost:8080", purpose="analytics") as client:
+    with RelataClient("http://localhost:9090", purpose="analytics") as client:
         # Simple query
         result = client.query("SELECT * FROM Person WHERE name LIKE 'Ahmed%' LIMIT 10")
         for row in result:

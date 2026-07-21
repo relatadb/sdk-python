@@ -13,7 +13,7 @@ from relata._http import HttpTransport
 from relata.query import select
 from relata.tenants import TenantAdminClient
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 
 Handler = Callable[[httpx.Request], httpx.Response]
 

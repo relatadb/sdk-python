@@ -13,7 +13,7 @@ import httpx
 
 from relata import AsyncMemory
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 
 
 def _mcp(result: dict[str, Any]) -> dict[str, Any]:

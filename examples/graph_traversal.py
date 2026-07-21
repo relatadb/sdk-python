@@ -223,7 +223,7 @@ def hub_detection(
 
 
 if __name__ == "__main__":
-    RELATA_URL = os.getenv("RELATA_URL", "http://localhost:8080")
+    RELATA_URL = os.getenv("RELATA_URL", "http://localhost:9090")
     RELATA_TOKEN = os.getenv("RELATA_TOKEN")
 
     ENTITY_ID = os.getenv("ENTITY_ID", "person-001")

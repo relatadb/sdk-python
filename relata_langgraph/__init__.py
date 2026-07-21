@@ -14,7 +14,7 @@ Usage (standalone REST checkpoint store)::
     from relata_langgraph import RelataCheckpointer
 
     checkpointer = RelataCheckpointer(
-        endpoint="http://localhost:8080",
+        endpoint="http://localhost:9090",
         token="my-bearer-token",
     )
     checkpointer.put(thread_id="t1", step=0, state={"messages": []})
@@ -75,7 +75,7 @@ class RelataCheckpointer:
 
         Args:
             endpoint: Base URL of the Relata HTTP endpoint
-                      (e.g. ``"http://localhost:8080"``).
+                      (e.g. ``"http://localhost:9090"``).
             token: Bearer token for authentication. Set to an empty string
                    in unauthenticated dev mode.
             transport: Optional httpx transport (injected in tests).

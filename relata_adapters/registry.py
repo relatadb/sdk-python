@@ -6,7 +6,7 @@ Usage::
     from relata import RelataClient
     from relata_adapters.registry import get_memory_adapter
 
-    client = RelataClient("http://localhost:8080", purpose="agent")
+    client = RelataClient("http://localhost:9090", purpose="agent")
     AdapterClass = get_memory_adapter()  # auto-detects langchain/crewai/etc.
     if AdapterClass:
         adapter = AdapterClass(client)

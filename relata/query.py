@@ -614,7 +614,7 @@ def select(*columns_or_table: str) -> QueryBuilder:
     To execute the query, bind a client::
 
         builder = select("Person").where("status = 'wanted'").limit(50)
-        with RelataClient("http://localhost:8080", purpose="analytics") as client:
+        with RelataClient("http://localhost:9090", purpose="analytics") as client:
             result = builder.purpose("analytics").execute()
 
     .. note::

@@ -6,7 +6,7 @@ Use it as the storage backend for a CrewAI memory:
 
     from relata_adapters.crewai import RelataStorage
 
-    storage = RelataStorage(base_url="http://localhost:8080", purpose="crew")
+    storage = RelataStorage(base_url="http://localhost:9090", purpose="crew")
 
 Governance (purpose + ACL) is on.
 """

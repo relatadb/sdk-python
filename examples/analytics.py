@@ -224,7 +224,7 @@ if __name__ == "__main__":
     import os
 
     run_analytics_workflow(
-        base_url=os.getenv("RELATA_URL", "http://localhost:8080"),
+        base_url=os.getenv("RELATA_URL", "http://localhost:9090"),
         bearer_token=os.getenv("RELATA_TOKEN"),
         person_name="Ahmed",
         access_scope_ref=os.getenv("ACCESS_SCOPE_REF"),  # e.g. "SCOPE-2025-0042"

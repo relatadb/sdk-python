@@ -191,7 +191,7 @@ def multi_threshold_search(
 
 
 if __name__ == "__main__":
-    RELATA_URL = os.getenv("RELATA_URL", "http://localhost:8080")
+    RELATA_URL = os.getenv("RELATA_URL", "http://localhost:9090")
     RELATA_TOKEN = os.getenv("RELATA_TOKEN")
 
     PROBE_FACE_ID = os.getenv("PROBE_FACE_ID", "face-001")

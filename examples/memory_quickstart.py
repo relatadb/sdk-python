@@ -11,7 +11,7 @@ then:
 
 from relata import Memory
 
-with Memory("http://localhost:8080", purpose="agent-notes") as m:
+with Memory("http://localhost:9090", purpose="agent-notes") as m:
     mem_id = m.add("Alice prefers dark mode")
     print("stored:", mem_id)
 

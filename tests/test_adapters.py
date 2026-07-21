@@ -20,7 +20,7 @@ from relata_adapters.crewai import RelataStorage
 from relata_adapters.langchain import RelataMemory as LangChainMemory
 from relata_adapters.llamaindex import RelataMemory as LlamaIndexMemory
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 Handler = Callable[[httpx.Request], httpx.Response]
 
 

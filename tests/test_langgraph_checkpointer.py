@@ -13,7 +13,7 @@ import httpx
 
 from relata_langgraph import RelataCheckpointer
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 
 
 class FakeCheckpointStore:

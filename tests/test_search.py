@@ -14,7 +14,7 @@ from relata import RelataClient
 from relata._http import AsyncHttpTransport, HttpTransport
 from relata.models import SearchHit, SearchResponse
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 
 _SEARCH_PAYLOAD = {
     "hits": [

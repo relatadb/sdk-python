@@ -20,7 +20,7 @@ import pytest
 from relata import ReadyReport, RelataClient, Stats, VersionInfo
 from relata._http import AsyncHttpTransport, HttpTransport
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 
 Handler = Callable[[httpx.Request], httpx.Response]
 

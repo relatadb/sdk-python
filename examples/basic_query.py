@@ -20,7 +20,7 @@ def main() -> None:
     # The 'purpose' is mandatory for every Relata query.  Setting it on the
     # client means you don't have to repeat it on every query() call.
     with RelataClient(
-        "http://localhost:8080",
+        "http://localhost:9090",
         purpose="analytics",
         # bearer_token="your-token-here",  # uncomment if auth is enabled
     ) as relata:
@@ -96,7 +96,7 @@ def main() -> None:
 def demonstrate_error_handling() -> None:
     """Show how to handle common SDK exceptions."""
 
-    with RelataClient("http://localhost:8080") as relata:
+    with RelataClient("http://localhost:9090") as relata:
         # PurposeError — no default purpose and none passed to query()
         try:
             relata.query("SELECT * FROM Person")

@@ -305,7 +305,7 @@ def detect_anomalies(relata: RelataClient, threshold_queries_per_hour: int = 500
 
 
 if __name__ == "__main__":
-    RELATA_URL = os.getenv("RELATA_URL", "http://localhost:8080")
+    RELATA_URL = os.getenv("RELATA_URL", "http://localhost:9090")
     RELATA_TOKEN = os.getenv("RELATA_TOKEN")
     CASE_REF = os.getenv("CASE_REF", "CASE-2025-0042")
 

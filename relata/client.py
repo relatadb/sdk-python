@@ -5,7 +5,7 @@ Usage::
 
     from relata import RelataClient
 
-    with RelataClient("http://localhost:8080", purpose="analytics") as client:
+    with RelataClient("http://localhost:9090", purpose="analytics") as client:
         result = client.query("SELECT * FROM Person LIMIT 10")
         for row in result:
             print(row)
@@ -16,7 +16,7 @@ Async usage::
     from relata import RelataClient
 
     async def main():
-        async with RelataClient("http://localhost:8080", purpose="analytics") as client:
+        async with RelataClient("http://localhost:9090", purpose="analytics") as client:
             result = await client.aquery("SELECT * FROM Person LIMIT 10")
             for row in result:
                 print(row)
@@ -58,7 +58,7 @@ class RelataClient:
 
     Args:
         base_url: Base URL of the Relata server, e.g.
-            ``"http://localhost:8080"``. Trailing slashes are stripped.
+            ``"http://localhost:9090"``. Trailing slashes are stripped.
         bearer_token: Optional Bearer token sent as
             ``Authorization: Bearer <token>``.  Required when the server is
             configured with ``RELATA_BEARER_TOKEN``.
@@ -92,12 +92,12 @@ class RelataClient:
     Examples::
 
         # Minimal usage
-        client = RelataClient("http://localhost:8080", purpose="analytics")
+        client = RelataClient("http://localhost:9090", purpose="analytics")
         result = client.query("SELECT * FROM Person LIMIT 5")
         client.close()
 
         # Preferred: context manager
-        with RelataClient("http://localhost:8080", purpose="analytics") as client:
+        with RelataClient("http://localhost:9090", purpose="analytics") as client:
             result = client.query("SELECT * FROM Person LIMIT 5")
 
         # With authentication
@@ -787,7 +787,7 @@ class RelataClient:
 
         Examples::
 
-            async with RelataClient("http://localhost:8080", purpose="audit") as client:
+            async with RelataClient("http://localhost:9090", purpose="audit") as client:
                 result = await client.aquery("SELECT COUNT(*) FROM AuditLog")
                 print(result.rows)
         """

@@ -6,7 +6,7 @@ so the common agent-memory case is a one-liner instead of hand-built requests::
 
     from relata import Memory
 
-    with Memory("http://localhost:8080", purpose="agent-notes") as m:
+    with Memory("http://localhost:9090", purpose="agent-notes") as m:
         mem_id = m.add("Alice prefers dark mode")
         hits = m.search("ui preferences", top_k=5)
         m.forget(mem_id)
@@ -85,7 +85,7 @@ class Memory:
     """High-level memory client — ``add`` / ``search`` / ``forget``.
 
     Args:
-        base_url: Relata server URL, e.g. ``"http://localhost:8080"``.
+        base_url: Relata server URL, e.g. ``"http://localhost:9090"``.
         purpose: Declared purpose token, recorded for audit and enforced by
             ACL. Required and non-empty.
         bearer_token: Optional bearer token (required when the server sets

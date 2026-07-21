@@ -7,7 +7,7 @@ Requires a running Relata server (``cargo run -p relata-cli -- serve``).
 import asyncio
 from relata.system import AsyncSystemClient, SystemClient
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 TOKEN = "demo"
 
 

@@ -17,7 +17,7 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-BASE = "http://localhost:8080"
+BASE = "http://localhost:9090"
 Handler = Callable[[httpx.Request], httpx.Response]
 
 

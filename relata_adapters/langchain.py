@@ -6,7 +6,7 @@ chain as the ``memory=`` argument:
 
     from relata_adapters.langchain import RelataMemory
 
-    mem = RelataMemory(base_url="http://localhost:8080", purpose="agent")
+    mem = RelataMemory(base_url="http://localhost:9090", purpose="agent")
     # chain = ConversationChain(llm=..., memory=mem)
 
 ``save_context`` stores the turn; ``load_memory_variables`` recalls the most

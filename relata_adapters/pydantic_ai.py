@@ -8,7 +8,7 @@ Usage::
     from relata import RelataClient
     from relata_adapters.pydantic_ai import RelataMemoryBackend
 
-    client = RelataClient("http://localhost:8080", purpose="agent")
+    client = RelataClient("http://localhost:9090", purpose="agent")
     backend = RelataMemoryBackend(client)
     # Pass to a Pydantic-AI Agent(memory=backend).
 """
@@ -38,7 +38,7 @@ class RelataMemoryBackend:
         from relata_adapters.pydantic_ai import RelataMemoryBackend
 
         client = RelataClient(
-            "http://localhost:8080", purpose="agent", bearer_token="..."
+            "http://localhost:9090", purpose="agent", bearer_token="..."
         )
         backend = RelataMemoryBackend(client, session_id="session-42")
         backend.add("User prefers dark mode")
