@@ -172,7 +172,7 @@ if not result:
     print("No results")
 
 # Row count
-print(f"{len(result)} rows in {result.elapsed_ms} ms")
+print(f"{len(result)} rows in {result.processing_time_ms} ms")
 ```
 
 ### Async support
@@ -357,7 +357,7 @@ with safely-typed literals (str → single-quoted + escaped, int/float → numer
 
 | Model | Fields |
 |---|---|
-| `QueryResult` | `rows`, `query_id`, `elapsed_ms`, `row_count` |
+| `QueryResult` | `rows`, `query_id`, `processing_time_ms`, `elapsed_ms` (alias, removed v1.6.0), `row_count` |
 | `HealthResponse` | `status`, `profile`, `node_id` |
 | `StatusResponse` | `profile`, `role`, `query_quota` |
 | `AuditCountResponse` | `entries`, `chain_valid` |
