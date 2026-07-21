@@ -390,6 +390,26 @@ Relata ships three deployment profiles.  The SDK works identically across all th
 | `server` | Single-node production | `RELATA_PROFILE=server relata serve` |
 | `cluster` | Multi-node distributed | `RELATA_PROFILE=cluster relata serve` |
 
+## Testing with an ephemeral server
+
+`tests/conftest_ephemeral.py` provides a session-scoped pytest fixture that
+starts a real `relata serve` process on a random port and tears it down at the
+end of the test session.
+
+```python
+# In any test file:
+from tests.conftest_ephemeral import relata_server
+
+def test_health(relata_server):
+    import httpx
+    r = httpx.get(f"{relata_server['base_url']}/health",
+                  headers={"Authorization": f"Bearer {relata_server['token']}"})
+    assert r.status_code == 200
+```
+
+Set `RELATA_BIN` to the binary path (default: `relata` on `$PATH`) and
+`RELATA_TEST_TOKEN` to override the bearer token (default: `relata-test`).
+
 ## License
 
 AGPL-3.0-only.  See the root `LICENSE` file.
