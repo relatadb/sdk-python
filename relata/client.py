@@ -48,6 +48,24 @@ if TYPE_CHECKING:
     from relata.query import QueryBuilder
 
 
+def _rewrite_question_mark_params(sql: str) -> str:
+    """Rewrite ``?`` placeholders to ``$1``, ``$2``, … left-to-right.
+
+    This lets callers use the more familiar ``?`` form; the server only
+    understands ``$N`` positional parameters (#1162).
+    """
+    import re
+
+    counter = 0
+
+    def _replace(m: "re.Match[str]") -> str:  # type: ignore[name-defined]
+        nonlocal counter
+        counter += 1
+        return f"${counter}"
+
+    return re.sub(r"\?", _replace, sql)
+
+
 class RelataClient:
     """Synchronous and asynchronous client for the Relata HTTP API.
 
@@ -297,6 +315,45 @@ class RelataClient:
         """
         effective_purpose = self._resolve_purpose(purpose)
         payload = {"purpose": effective_purpose, "sql": sql}
+        data = self._sync.post("/query", payload)
+        return QueryResult.model_validate(data)
+
+    def query_params(
+        self,
+        sql: str,
+        params: list,
+        *,
+        purpose: str | None = None,
+    ) -> QueryResult:
+        """Execute a parameterized SQL query (synchronous, #1162).
+
+        Positional placeholders ``$1``, ``$2``, … in ``sql`` are substituted
+        server-side with the corresponding values from ``params``.
+        Pass ``?`` placeholders instead and they will be rewritten to ``$1``,
+        ``$2``, … before the request is sent.
+
+        Args:
+            sql: SQL with ``$N`` or ``?`` positional placeholders.
+            params: Values to bind in order. ``None`` maps to SQL ``NULL``.
+            purpose: Purpose override for this call.
+
+        Returns:
+            :class:`~relata.models.QueryResult`
+
+        Examples::
+
+            result = client.query_params(
+                "SELECT * FROM Person WHERE age = $1 AND city = $2",
+                [25, "Karachi"],
+                purpose="analytics",
+            )
+
+            # ? form — rewritten to $1, $2, … automatically
+            result = client.query_params("SELECT * FROM T WHERE id = ?", [42])
+        """
+        sql = _rewrite_question_mark_params(sql)
+        effective_purpose = self._resolve_purpose(purpose)
+        payload = {"purpose": effective_purpose, "sql": sql, "params": params}
         data = self._sync.post("/query", payload)
         return QueryResult.model_validate(data)
 
@@ -793,6 +850,20 @@ class RelataClient:
         """
         effective_purpose = self._resolve_purpose(purpose)
         payload = {"purpose": effective_purpose, "sql": sql}
+        data = await self._async.post("/query", payload)
+        return QueryResult.model_validate(data)
+
+    async def aquery_params(
+        self,
+        sql: str,
+        params: list,
+        *,
+        purpose: str | None = None,
+    ) -> QueryResult:
+        """Async parameterized query — see :meth:`query_params` (#1162)."""
+        sql = _rewrite_question_mark_params(sql)
+        effective_purpose = self._resolve_purpose(purpose)
+        payload = {"purpose": effective_purpose, "sql": sql, "params": params}
         data = await self._async.post("/query", payload)
         return QueryResult.model_validate(data)
 
