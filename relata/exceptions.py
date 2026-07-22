@@ -187,6 +187,9 @@ class RateLimitedError(RelataError):
         *,
         status_code: int = 429,
         retry_after: float | None = None,
+        rate_limit_limit: float | None = None,
+        rate_limit_remaining: float | None = None,
+        rate_limit_reset: float | None = None,
         code: str | None = None,
         type_url: str | None = None,
         retryable: bool = False,
@@ -201,3 +204,7 @@ class RateLimitedError(RelataError):
             request_id=request_id,
         )
         self.retry_after = retry_after
+        # #1321: X-RateLimit-* quota headers (None when the server omitted them).
+        self.rate_limit_limit = rate_limit_limit
+        self.rate_limit_remaining = rate_limit_remaining
+        self.rate_limit_reset = rate_limit_reset

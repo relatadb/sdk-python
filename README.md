@@ -39,6 +39,29 @@ result = client.query("MATCH (n:Person {id: 'p1'}) RETURN *")
 # → SELECT * FROM Person WHERE id = 'p1'
 ```
 
+## GraphQL
+
+`graphql()` (ADR-220) translates a GraphQL SELECT subset to SQL and runs it
+through the governed query path. Returns `data`; raises `RelataError` on a
+non-empty `errors` envelope.
+
+```python
+data = client.graphql(
+    "{ Person(where: { age: { _gt: 30 } }, limit: 10) { id name age } }",
+)
+# data == [{"id": "p1", "name": "Ada", "age": 36}, ...]
+
+# With variables + an explicit operation name:
+data = client.graphql(
+    "query Q($n: Int!) { Person(where: { age: { _gt: $n } }) { name } }",
+    variables={"n": 30},
+    operation_name="Q",
+)
+
+# Async variant:
+# data = await client.agraphql("{ __schema { types { name } } }")
+```
+
 Supported: `MATCH` / `OPTIONAL MATCH`, `WHERE`, `RETURN`, `UNION` / `UNION ALL`
 (#378), and `CALL traverse.*` / `CALL gds.*` procedures (#377). `CREATE` / `MERGE`
 writes route through the governed write door. See the

@@ -48,12 +48,24 @@ _DEFAULT_MAX_RETRIES = 0  # off by default — caller must opt in
 _DEFAULT_RETRY_BACKOFF = 0.5
 
 
+def _opt_float_header(headers: Any, name: str) -> float | None:
+    """Parse a numeric response header to float, returning ``None`` when absent/unparseable."""
+    raw = headers.get(name)
+    try:
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _classify_error(
     status_code: int,
     body: dict[str, Any],
     *,
     request_id: str | None = None,
     retry_after: float | None = None,
+    rate_limit_limit: float | None = None,
+    rate_limit_remaining: float | None = None,
+    rate_limit_reset: float | None = None,
 ) -> RelataError:
     """Map an HTTP error response to the most-specific SDK exception.
 
@@ -127,6 +139,9 @@ def _classify_error(
             f"Rate limited: {detail}",
             status_code=status_code,
             retry_after=retry_after,
+            rate_limit_limit=rate_limit_limit,
+            rate_limit_remaining=rate_limit_remaining,
+            rate_limit_reset=rate_limit_reset,
             **base_kwargs,
         )
     if status_code >= 500:
@@ -281,11 +296,17 @@ class HttpTransport:
         request_id = resp.headers.get("x-request-id")
         retry_after_hdr = resp.headers.get("retry-after")
         retry_after = float(retry_after_hdr) if retry_after_hdr else None
+        rl_limit = _opt_float_header(resp.headers, "x-ratelimit-limit")
+        rl_remaining = _opt_float_header(resp.headers, "x-ratelimit-remaining")
+        rl_reset = _opt_float_header(resp.headers, "x-ratelimit-reset")
         raise _classify_error(
             resp.status_code,
             body,
             request_id=request_id,
             retry_after=retry_after,
+            rate_limit_limit=rl_limit,
+            rate_limit_remaining=rl_remaining,
+            rate_limit_reset=rl_reset,
         )
 
 
@@ -397,9 +418,15 @@ class AsyncHttpTransport:
         request_id = resp.headers.get("x-request-id")
         retry_after_hdr = resp.headers.get("retry-after")
         retry_after = float(retry_after_hdr) if retry_after_hdr else None
+        rl_limit = _opt_float_header(resp.headers, "x-ratelimit-limit")
+        rl_remaining = _opt_float_header(resp.headers, "x-ratelimit-remaining")
+        rl_reset = _opt_float_header(resp.headers, "x-ratelimit-reset")
         raise _classify_error(
             resp.status_code,
             body,
             request_id=request_id,
             retry_after=retry_after,
+            rate_limit_limit=rl_limit,
+            rate_limit_remaining=rl_remaining,
+            rate_limit_reset=rl_reset,
         )
