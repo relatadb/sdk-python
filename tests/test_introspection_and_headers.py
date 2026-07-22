@@ -55,7 +55,7 @@ def _client(handler: Handler, **client_kwargs: object) -> RelataClient:
 
 
 def test_tenant_header_is_sent_on_every_request() -> None:
-    """``tenant=`` constructor arg becomes ``X-Organization-Id`` on the wire."""
+    """``tenant=`` constructor arg becomes ``X-Relata-Tenant-Id`` on the wire."""
     captured: list[httpx.Request] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -66,7 +66,7 @@ def test_tenant_header_is_sent_on_every_request() -> None:
     client.health()
 
     assert len(captured) == 1
-    assert captured[0].headers["X-Organization-Id"] == "org-cbi"
+    assert captured[0].headers["X-Relata-Tenant-Id"] == "org-cbi"
 
 
 def test_acting_as_and_delegated_by_headers_propagate() -> None:
@@ -84,7 +84,7 @@ def test_acting_as_and_delegated_by_headers_propagate() -> None:
     )
     client.health()
 
-    assert captured[0].headers["X-Organization-Id"] == "acme"
+    assert captured[0].headers["X-Relata-Tenant-Id"] == "acme"
     assert captured[0].headers["X-Acting-As"] == "acme-partner"
     assert captured[0].headers["X-Delegated-By"] == "service-acct"
 

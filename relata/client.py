@@ -30,7 +30,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING
 
 from relata._http import AsyncHttpTransport, HttpTransport
-from relata.exceptions import PurposeError
+from relata.exceptions import PurposeError, RelataError
 from relata.models import (
     AuditCountResponse,
     ClusterNode,
@@ -46,6 +46,21 @@ from relata.models import (
 
 if TYPE_CHECKING:
     from relata.query import QueryBuilder
+
+
+def _graphql_data(resp: dict[str, object]) -> dict[str, object] | list[dict[str, object]] | None:
+    """Return the ``data`` field of a GraphQL envelope, raising on ``errors``.
+
+    The server wraps every ``/graphql`` response in ``{"data": …, "errors": […]}``.
+    On a non-empty ``errors`` array, raise :class:`RelataError` carrying the
+    first error message; otherwise return ``data``.
+    """
+    errors = resp.get("errors") or []
+    if errors:
+        first = errors[0]
+        msg = first.get("message", "graphql error") if isinstance(first, dict) else str(first)
+        raise RelataError(f"graphql: {msg}")
+    return resp.get("data")
 
 
 def _rewrite_question_mark_params(sql: str) -> str:
@@ -85,7 +100,7 @@ class RelataClient:
             ``purpose=`` to every :meth:`query` call.  Common values:
             ``"analytics"``, ``"audit"``, ``"analysis"``.
         timeout: HTTP request timeout in seconds (default ``30.0``).
-        tenant: Optional tenant / organisation id sent as ``X-Organization-Id``
+        tenant: Optional tenant / organisation id sent as ``X-Relata-Tenant-Id``
             on every request.  Required for multi-tenant deployments; overrides
             per-call via the ``tenant=`` argument on individual methods.
         acting_as: Optional delegation principal sent as ``X-Acting-As`` — the
@@ -156,7 +171,7 @@ class RelataClient:
         # request_id=) are merged in transport-property accessors below.
         extra: dict[str, str] = {}
         if tenant is not None:
-            extra["X-Organization-Id"] = tenant
+            extra["X-Relata-Tenant-Id"] = tenant
         if acting_as is not None:
             extra["X-Acting-As"] = acting_as
         if delegated_by is not None:
@@ -460,6 +475,47 @@ class RelataClient:
     ) -> dict[str, object]:
         """Async variant of :meth:`multi_search`."""
         return await self._async.post("/multi-search", {"queries": queries})
+
+    def graphql(
+        self,
+        query: str,
+        variables: dict[str, object] | None = None,
+        operation_name: str | None = None,
+    ) -> dict[str, object] | list[dict[str, object]] | None:
+        """Execute a GraphQL query against the governed query path (ADR-220).
+
+        Args:
+            query: The GraphQL query string.
+            variables: Optional variables map.
+            operation_name: Optional operation name (multi-operation documents).
+
+        Returns:
+            The ``data`` field — a list of row objects for a query, or the
+            ``__schema`` object for an introspection request.
+
+        Raises:
+            RelataError: if the server returns a non-empty ``errors`` array.
+        """
+        body: dict[str, object] = {"query": query}
+        if variables is not None:
+            body["variables"] = variables
+        if operation_name is not None:
+            body["operationName"] = operation_name
+        return _graphql_data(self._sync.post("/graphql", body))
+
+    async def agraphql(
+        self,
+        query: str,
+        variables: dict[str, object] | None = None,
+        operation_name: str | None = None,
+    ) -> dict[str, object] | list[dict[str, object]] | None:
+        """Async variant of :meth:`graphql`."""
+        body: dict[str, object] = {"query": query}
+        if variables is not None:
+            body["variables"] = variables
+        if operation_name is not None:
+            body["operationName"] = operation_name
+        return _graphql_data(await self._async.post("/graphql", body))
 
     # ------------------------------------------------------------------
     # Type management & ontology (#967)

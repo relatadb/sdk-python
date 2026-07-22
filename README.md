@@ -224,7 +224,7 @@ RelataClient(
     bearer_token: str | None = None,
     purpose: str | None = None,
     timeout: float = 30.0,
-    tenant: str | None = None,        # X-Organization-Id (multi-tenant)
+    tenant: str | None = None,        # X-Relata-Tenant-Id (multi-tenant)
     acting_as: str | None = None,     # X-Acting-As (delegation)
     delegated_by: str | None = None,  # X-Delegated-By
     headers: dict[str, str] | None = None,  # arbitrary header overlay

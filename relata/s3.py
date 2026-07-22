@@ -119,7 +119,7 @@ class S3Client:
         if self.bearer_token:
             headers["Authorization"] = f"Bearer {self.bearer_token}"
         if self.tenant:
-            headers["X-Organization-Id"] = self.tenant
+            headers["X-Relata-Tenant-Id"] = self.tenant
         return httpx.Client(
             base_url=self.endpoint_url,
             headers=headers,

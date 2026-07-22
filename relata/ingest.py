@@ -50,7 +50,7 @@ class IngestClient:
         self._tenant = tenant
         extra: dict[str, str] = {}
         if tenant is not None:
-            extra["X-Organization-Id"] = tenant
+            extra["X-Relata-Tenant-Id"] = tenant
         if extra_headers:
             extra.update(extra_headers)
         self._t = HttpTransport(
@@ -169,7 +169,7 @@ class AsyncIngestClient:
         self._tenant = tenant
         extra: dict[str, str] = {}
         if tenant is not None:
-            extra["X-Organization-Id"] = tenant
+            extra["X-Relata-Tenant-Id"] = tenant
         if extra_headers:
             extra.update(extra_headers)
         self._t = AsyncHttpTransport(
