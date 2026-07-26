@@ -23,7 +23,7 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [project.license]
-text = "AGPL-3.0-only"
+text = "Apache-2.0"
 
 [project.optional-dependencies]
 dev = [
@@ -52,8 +52,8 @@ dev = [
 [project.urls]
 Homepage = "https://relatadb.dev"
 Documentation = "https://docs.relatadb.dev/sdk/python"
-Repository = "https://github.com/OpenWorkBench-Co/RelataDB"
-Issues = "https://github.com/OpenWorkBench-Co/RelataDB/issues"
+Repository = "https://github.com/relatadb/RelataDB"
+Issues = "https://github.com/relatadb/RelataDB/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = [
