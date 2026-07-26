@@ -1,0 +1,89 @@
+name: Publish to PyPI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-pypi
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      contents: write
+      id-token: write   # OIDC Trusted Publisher — no token needed
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: pip install hatch tomli tomli-w
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          python3 - <<'EOF'
+          import tomli, tomli_w, urllib.request, sys, os
+
+          with open("pyproject.toml", "rb") as f:
+              data = tomli.load(f)
+
+          current = data["project"]["version"]
+          parts = current.split(".")
+          parts[-1] = str(int(parts[-1]) + 1)
+          new_version = ".".join(parts)
+
+          try:
+              urllib.request.urlopen(f"https://pypi.org/pypi/relata-sdk/{new_version}/json")
+              print(f"Version {new_version} already on PyPI — skipping.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("skip=true\n")
+              sys.exit(0)
+          except urllib.error.HTTPError as e:
+              if e.code != 404:
+                  raise
+
+          data["project"]["version"] = new_version
+          with open("pyproject.toml", "wb") as f:
+              tomli_w.dump(data, f)
+
+          print(f"Bumped {current} → {new_version}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("skip=false\n")
+          EOF
+
+      - name: Commit version bump
+        if: steps.bump.outputs.skip != 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git diff --cached --quiet || git commit -m "chore: bump version [skip ci]"
+          git push
+
+      - name: Run tests
+        if: steps.bump.outputs.skip != 'true'
+        run: |
+          pip install -e ".[dev]" 2>/dev/null || pip install -e .
+          pytest tests/ -q --tb=short
+
+      - name: Build
+        if: steps.bump.outputs.skip != 'true'
+        run: hatch build --clean
+
+      - name: Publish
+        if: steps.bump.outputs.skip != 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
