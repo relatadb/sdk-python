@@ -372,6 +372,37 @@ class RelataClient:
         data = self._sync.post("/query", payload)
         return QueryResult.model_validate(data)
 
+    def query_arrow(
+        self,
+        sql: str,
+        *,
+        purpose: str | None = None,
+    ) -> "pyarrow.Table":  # type: ignore[name-defined]  # noqa: F821
+        """Execute a SQL query and return results as a ``pyarrow.Table`` (#1744).
+
+        Calls ``POST /query/arrow`` which streams Arrow IPC binary.  Requires
+        ``pyarrow`` to be installed (``pip install pyarrow``).
+
+        Args:
+            sql: SQL query string.
+            purpose: Purpose override.
+
+        Returns:
+            A ``pyarrow.Table``.
+
+        Example::
+
+            tbl = client.query_arrow("SELECT * FROM Person LIMIT 1000", purpose="analytics")
+            df = tbl.to_pandas()
+        """
+        import io
+        import pyarrow.ipc as ipc  # type: ignore[import]
+
+        effective_purpose = self._resolve_purpose(purpose)
+        chunks = self.streaming.query_arrow_raw(sql, purpose=effective_purpose)
+        buf = io.BytesIO(b"".join(chunks))
+        return ipc.open_stream(buf).read_all()
+
     def search(
         self,
         query: str,

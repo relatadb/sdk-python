@@ -196,6 +196,31 @@ class StreamingClient:
         params = urlencode({"sql": sql, "purpose": purpose})
         yield from self._sse_stream(f"/watch/stream?{params}", reconnect=reconnect)
 
+    def watch_stream(
+        self,
+        type: str,  # noqa: A002
+        *,
+        since: str | None = None,
+        reconnect: bool = True,
+    ) -> Iterator[dict[str, Any]]:
+        """SSE consumer for ``GET /watch/stream`` filtered to an object type (#1747).
+
+        Yields ``RowsAppended`` events whenever rows of *type* are committed.
+        Use *since* (decimal ``system_from`` ns) for incremental consumption.
+
+        Args:
+            type: Object type to watch (e.g. ``"HmDispute"``).
+            since: Optional system_from cursor; only events after this timestamp.
+            reconnect: Reconnect on disconnect with exponential back-off.
+        """
+        from urllib.parse import urlencode
+
+        sql = f"SELECT * FROM {type}"
+        if since:
+            sql += f" WHERE system_from > {since}"
+        params = urlencode({"sql": sql, "purpose": "watch"})
+        yield from self._sse_stream(f"/watch/stream?{params}", reconnect=reconnect)
+
     def alerts(self, *, reconnect: bool = True) -> Iterator[dict[str, Any]]:
         """SSE consumer for ``GET /alerts/stream``. Yields alert events
         addressed to the caller's principal / tenant."""
@@ -269,6 +294,52 @@ class AsyncStreamingClient:
         from urllib.parse import urlencode
 
         params = urlencode({"sql": sql, "purpose": purpose})
+        async_transport = self._client._async  # noqa: SLF001
+
+        async def _gen() -> Any:  # noqa: ANN401
+            async with async_transport._client.stream(  # noqa: SLF001
+                "GET", f"/watch/stream?{params}"
+            ) as resp:
+                if not resp.is_success:
+                    await resp.aread()
+                    return
+                event_type: str | None = None
+                data_lines: list[str] = []
+                async for line in resp.aiter_lines():
+                    if line.startswith("event:"):
+                        event_type = line[6:].strip()
+                    elif line.startswith("data:"):
+                        data_lines.append(line[5:].strip())
+                    elif line == "" and data_lines:
+                        raw = "\n".join(data_lines)
+                        try:
+                            payload = json.loads(raw)
+                        except json.JSONDecodeError:
+                            payload = {"raw": raw}
+                        if event_type:
+                            payload["event"] = event_type
+                        yield payload
+                        event_type = None
+                        data_lines = []
+
+        return _gen()
+
+    async def watch_stream(
+        self,
+        type: str,  # noqa: A002
+        *,
+        since: str | None = None,
+    ) -> Any:  # noqa: ANN401
+        """Async SSE consumer for ``GET /watch/stream`` filtered to an object type (#1747).
+
+        Yields ``RowsAppended`` events for *type*. Use *since* for incremental reads.
+        """
+        from urllib.parse import urlencode
+
+        sql = f"SELECT * FROM {type}"
+        if since:
+            sql += f" WHERE system_from > {since}"
+        params = urlencode({"sql": sql, "purpose": "watch"})
         async_transport = self._client._async  # noqa: SLF001
 
         async def _gen() -> Any:  # noqa: ANN401
