@@ -88,9 +88,14 @@ class ObjectClient:
         *,
         purpose: str | None = None,
         source: str | None = None,
+        on_conflict: str = "upsert",
     ) -> dict[str, Any]:
         """Upsert a single state object. The ``object_id`` becomes the row's
         primary key; re-upserting with the same id supersedes bi-temporally.
+
+        Args:
+            on_conflict: ``"upsert"`` (default) overwrites; ``"skip"`` ignores
+                existing rows; ``"error"`` raises on conflict (HTTP 409).
 
         Returns the server's upsert receipt (``object_id``, ``write_seq``,
         ``valid_from``).
@@ -104,6 +109,8 @@ class ObjectClient:
         params: dict[str, str] = {"object_type": object_type}
         if eff_purpose:
             params["purpose"] = eff_purpose
+        if on_conflict != "upsert":
+            params["on_conflict"] = on_conflict
         headers = {"Content-Type": "application/x-ndjson"}
         resp = self._t._client.post(  # noqa: SLF001 — needs raw httpx for non-JSON body
             "/ingest?" + urlencode(params),
@@ -141,24 +148,26 @@ class ObjectClient:
         *,
         purpose: str | None = None,
         source: str | None = None,
+        on_conflict: str = "upsert",
     ) -> dict[str, Any]:
-        """Bulk upsert. Each row must carry its own ``id`` key. Returns the
-        bulk receipt (``accepted``, ``rejected``, ``write_seq``, ``queue_depth``).
+        """Bulk upsert via ``POST /ingest/bulk``. Each row must carry its own
+        ``id`` key. Returns the bulk receipt with per-row error detail (#1760):
+        ``{"inserted", "updated", "skipped", "errors": [...], "by_type": {...}}``.
+
+        Args:
+            on_conflict: ``"upsert"`` (default) overwrites; ``"skip"`` silently
+                ignores rows whose ``id`` already exists; ``"error"`` raises on
+                the first conflict (HTTP 409).
         """
-        if source is not None:
-            rows = [{**r, "_source": source} for r in rows]
-        body = _row_to_ndjson(rows)
-        eff_purpose = purpose or self._purpose
-        params: dict[str, str] = {"object_type": object_type}
-        if eff_purpose:
-            params["purpose"] = eff_purpose
-        headers = {"Content-Type": "application/x-ndjson"}
-        resp = self._t._client.post(  # noqa: SLF001
-            "/ingest?" + urlencode(params),
-            content=body,
-            headers=headers,
-        )
-        return dict(HttpTransport._handle(resp))
+        # Tag each row with _type so /ingest/bulk can route them.
+        objects = [
+            {**({**r, "_source": source} if source is not None else r), "_type": object_type}
+            for r in rows
+        ]
+        payload: dict[str, Any] = {"objects": objects, "on_conflict": on_conflict}
+        if (eff_purpose := purpose or self._purpose):
+            payload["purpose"] = eff_purpose
+        return dict(self._t.post("/ingest/bulk", payload))
 
     def get(
         self,
@@ -290,6 +299,7 @@ class AsyncObjectClient:
         *,
         purpose: str | None = None,
         source: str | None = None,
+        on_conflict: str = "upsert",
     ) -> dict[str, Any]:
         row = dict(fields)
         row["id"] = object_id
@@ -300,6 +310,8 @@ class AsyncObjectClient:
         params: dict[str, str] = {"object_type": object_type}
         if eff_purpose:
             params["purpose"] = eff_purpose
+        if on_conflict != "upsert":
+            params["on_conflict"] = on_conflict
         headers = {"Content-Type": "application/x-ndjson"}
         resp = await self._t._client.post(  # noqa: SLF001
             "/ingest?" + urlencode(params),
@@ -315,21 +327,17 @@ class AsyncObjectClient:
         *,
         purpose: str | None = None,
         source: str | None = None,
+        on_conflict: str = "upsert",
     ) -> dict[str, Any]:
-        if source is not None:
-            rows = [{**r, "_source": source} for r in rows]
-        body = _row_to_ndjson(rows)
-        eff_purpose = purpose or self._purpose
-        params: dict[str, str] = {"object_type": object_type}
-        if eff_purpose:
-            params["purpose"] = eff_purpose
-        headers = {"Content-Type": "application/x-ndjson"}
-        resp = await self._t._client.post(  # noqa: SLF001
-            "/ingest?" + urlencode(params),
-            content=body,
-            headers=headers,
-        )
-        return dict(HttpTransport._handle(resp))
+        """Async equivalent of :meth:`ObjectClient.batch_upsert`."""
+        objects = [
+            {**({**r, "_source": source} if source is not None else r), "_type": object_type}
+            for r in rows
+        ]
+        payload: dict[str, Any] = {"objects": objects, "on_conflict": on_conflict}
+        if (eff_purpose := purpose or self._purpose):
+            payload["purpose"] = eff_purpose
+        return dict(await self._t.post("/ingest/bulk", payload))
 
     async def get(
         self,
