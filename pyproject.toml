@@ -52,8 +52,8 @@ dev = [
 [project.urls]
 Homepage = "https://relatadb.dev"
 Documentation = "https://docs.relatadb.dev/sdk/python"
-Repository = "https://github.com/relatadb/RelataDB"
-Issues = "https://github.com/relatadb/RelataDB/issues"
+Repository = "https://github.com/relatadb/sdk-python"
+Issues = "https://github.com/relatadb/sdk-python/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = [
