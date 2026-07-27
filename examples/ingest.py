@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 
 from relata import RelataClient
+from relata.ingest import IngestClient
 
 
 def main() -> None:
@@ -22,6 +23,8 @@ def main() -> None:
     token = os.getenv("RELATA_TOKEN")
 
     with RelataClient(url, bearer_token=token, purpose="data-load") as relata:
+        ingest = IngestClient.from_client(relata)
+
         # ── 1. Bulk NDJSON ingest ──────────────────────────────────────────
         print("=== 1. Bulk NDJSON ingest (3 rows) ===")
         batch = [
@@ -29,19 +32,20 @@ def main() -> None:
             {"_pk": "p2", "name": "Bob", "email": "bob@example.com", "age": 25},
             {"_pk": "p3", "name": "Carol", "email": "carol@example.com", "age": 35},
         ]
-        resp = relata.ingest_bulk("Person", batch)
-        print(f"  Accepted {resp.accepted} row(s); errors: {resp.errors}")
+        resp = ingest.bulk("Person", batch)
+        print(f"  Receipt: {resp}")
 
         # ── 2. CSV ingest ──────────────────────────────────────────────────
         print("\n=== 2. CSV ingest ===")
         csv = "_pk,name,email\np4,Dave,dave@example.com\np5,Eve,eve@example.com\n"
-        resp = relata.ingest_csv("Person", csv)
-        print(f"  Accepted {resp.accepted} row(s); errors: {resp.errors}")
+        resp = ingest.bulk_csv("Person", csv)
+        print(f"  Receipt: {resp}")
 
         # ── 3. Verify queryable ────────────────────────────────────────────
         print("\n=== 3. Verify rows are queryable ===")
         result = relata.query("SELECT name, age FROM Person ORDER BY name LIMIT 10")
-        print(f"  {len(list(result))} row(s) returned")
+        rows = list(result)
+        print(f"  {len(rows)} row(s) returned")
 
 
 if __name__ == "__main__":
