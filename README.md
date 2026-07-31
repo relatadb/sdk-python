@@ -33,6 +33,37 @@ with RelataClient("http://localhost:9090", purpose="analytics") as client:
         print(row)
 ```
 
+## Flagship retrieval surface — `namespace().query()` (#1991)
+
+For the search / RAG persona, the SDK ships a typed JSON door that compiles to
+a governed SQL plan — **no SQL on the client side**. `text` compiles to a BM25
+`rank_by` directive; `filters` narrow the set server-side; and `.write()` is
+schemaless (auto-creates the type with inferred fields via `POST /ingest/auto`
+— no DDL).
+
+```python
+from relata import RelataClient
+
+with RelataClient("http://localhost:9090", purpose="rag") as client:
+    docs = client.namespace("Document")
+    docs.write([{"id": "d1", "title": "Knowledge graphs 101", "body": "..."}])
+    res = docs.query(
+        text="graph retrieval",
+        match_column="title",
+        filters=[{"field": "status", "op": "eq", "value": "published"}],
+        limit=10,
+    )
+    for row in res:
+        print(row["title"])
+```
+
+`rank_by` (explicit) accepts the server's array forms
+(`["bm25","title","..."]`, `["vector","ann","..."]`); `filters` take
+`{field, op, value}` (ops `eq/ne/gt/gte/lt/lte/like/ilike/in/between`) or an
+equality-dict shorthand. Async: `AsyncNamespace` / `await docs.query(...)`. HTTP
+compression is off by default (pass `compress=True` to re-enable for slow
+links); one connection pool is reused across every namespace.
+
 ## Cypher
 
 RelataDB auto-detects Cypher: any query starting with `MATCH` is translated to SQL

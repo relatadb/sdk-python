@@ -156,12 +156,21 @@ def _classify_error(
 def _build_headers(
     bearer_token: str | None,
     extra: dict[str, str] | None = None,
+    *,
+    compress: bool = False,
 ) -> dict[str, str]:
     headers: dict[str, str] = {
         "Content-Type": _CONTENT_TYPE,
         "Accept": _CONTENT_TYPE,
         "User-Agent": "relata-sdk-python/0.1.0",
     }
+    if not compress:
+        # T9 (#1991): HTTP compression disabled by default — SDK clients are
+        # CPU-bound on serialisation, and transparent decompression adds
+        # avoidable latency on already-fast localhost / VPC links. Pass
+        # compress=True to RelataClient (or set Accept-Encoding in headers=)
+        # to re-enable gzip/deflate/br for slow links.
+        headers["Accept-Encoding"] = "identity"
     if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
     if extra:
@@ -189,10 +198,11 @@ class HttpTransport:
         max_retries: int = _DEFAULT_MAX_RETRIES,
         retry_backoff: float = _DEFAULT_RETRY_BACKOFF,
         retry_on: frozenset[int] = _DEFAULT_RETRY_ON,
+        compress: bool = False,
     ) -> None:
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
-            headers=_build_headers(bearer_token, extra_headers),
+            headers=_build_headers(bearer_token, extra_headers, compress=compress),
             timeout=timeout,
             transport=transport,
         )
@@ -270,6 +280,23 @@ class HttpTransport:
         """Perform a POST request with a JSON body and return the decoded JSON body."""
         return self._send_with_retry("POST", path, json_payload=payload)
 
+    def post_raw(
+        self,
+        path: str,
+        content: bytes | str,
+        *,
+        content_type: str = "application/x-ndjson",
+    ) -> dict[str, Any]:
+        """POST a raw (non-JSON) body — used by NDJSON/CSV ingest paths.
+
+        The ``Content-Type`` header is set per ``content_type`` (overriding the
+        default ``application/json``). Response handling + retry + error
+        classification are identical to :meth:`post`.
+        """
+        return self._send_with_retry(
+            "POST", path, content=content, headers={"Content-Type": content_type}
+        )
+
     def delete(self, path: str) -> dict[str, Any]:
         """Perform a DELETE request and return the decoded JSON body."""
         return self._send_with_retry("DELETE", path)
@@ -328,10 +355,11 @@ class AsyncHttpTransport:
         max_retries: int = _DEFAULT_MAX_RETRIES,
         retry_backoff: float = _DEFAULT_RETRY_BACKOFF,
         retry_on: frozenset[int] = _DEFAULT_RETRY_ON,
+        compress: bool = False,
     ) -> None:
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
-            headers=_build_headers(bearer_token, extra_headers),
+            headers=_build_headers(bearer_token, extra_headers, compress=compress),
             timeout=timeout,
             transport=transport,
         )
@@ -348,18 +376,26 @@ class AsyncHttpTransport:
         path: str,
         *,
         json_payload: dict[str, Any] | None = None,
+        content: bytes | str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Send an async HTTP request with retry + request_id propagation."""
         import asyncio
 
         last_exc: RelataError | None = None
         for attempt in range(self._max_retries + 1):
-            req_headers = {"X-Request-ID": self._request_id()}
+            req_headers: dict[str, str] = {"X-Request-ID": self._request_id()}
+            if headers:
+                req_headers.update(headers)
             try:
                 if method == "GET":
                     resp = await self._client.get(path, headers=req_headers)
                 elif method == "DELETE":
                     resp = await self._client.delete(path, headers=req_headers)
+                elif content is not None:
+                    resp = await self._client.request(
+                        method, path, content=content, headers=req_headers
+                    )
                 else:
                     resp = await self._client.request(
                         method, path, json=json_payload or {}, headers=req_headers
@@ -391,6 +427,18 @@ class AsyncHttpTransport:
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Perform an async POST request with a JSON body."""
         return await self._send_with_retry("POST", path, json_payload=payload)
+
+    async def post_raw(
+        self,
+        path: str,
+        content: bytes | str,
+        *,
+        content_type: str = "application/x-ndjson",
+    ) -> dict[str, Any]:
+        """Async POST a raw (non-JSON) body — NDJSON/CSV ingest path."""
+        return await self._send_with_retry(
+            "POST", path, content=content, headers={"Content-Type": content_type}
+        )
 
     async def delete(self, path: str) -> dict[str, Any]:
         """Perform an async DELETE request."""

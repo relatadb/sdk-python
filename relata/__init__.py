@@ -63,9 +63,11 @@ from relata.models import (
     StatusResponse,
     VersionInfo,
 )
+from relata.namespace import AsyncNamespace, Namespace
 from relata.objects import AsyncObjectClient, ObjectClient
 from relata.query import QueryBuilder, select
 from relata.s3 import AsyncS3Client, S3Client
+from relata.search import AsyncSearchClient, SearchClient
 from relata.streaming import AsyncStreamingClient, StreamingClient
 from relata.system import AsyncSystemClient, SystemClient
 from relata.tenants import AsyncTenantAdminClient, TenantAdminClient
@@ -104,6 +106,11 @@ __all__ = [
     "AsyncStreamingClient",
     "TenantAdminClient",
     "AsyncTenantAdminClient",
+    # T9 flagship retrieval surface (#1991)
+    "Namespace",
+    "AsyncNamespace",
+    "SearchClient",
+    "AsyncSearchClient",
     # Query builder
     "QueryBuilder",
     "select",

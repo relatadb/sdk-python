@@ -155,6 +155,7 @@ class RelataClient:
         headers: dict[str, str] | None = None,
         max_retries: int = 0,
         retry_backoff_secs: float = 0.5,
+        compress: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._bearer_token = bearer_token
@@ -165,6 +166,7 @@ class RelataClient:
         self._delegated_by = delegated_by
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff_secs
+        self._compress = compress
 
         # Compose the static extra-headers bag: tenant/delegation first, then
         # caller-supplied headers win. Per-call overrides (tenant=, acting_as=,
@@ -199,6 +201,7 @@ class RelataClient:
                 extra_headers=self._extra_headers,
                 max_retries=self._max_retries,
                 retry_backoff=self._retry_backoff,
+                compress=self._compress,
             )
         return self.__sync_transport
 
@@ -212,6 +215,7 @@ class RelataClient:
                 extra_headers=self._extra_headers,
                 max_retries=self._max_retries,
                 retry_backoff=self._retry_backoff,
+                compress=self._compress,
             )
         return self.__async_transport
 
@@ -1042,6 +1046,31 @@ class RelataClient:
         from relata.query import QueryBuilder
 
         return QueryBuilder(client=self).select(*columns_or_table)
+
+    # ------------------------------------------------------------------
+    # T9 flagship namespace handle (#1991, epic #1982)
+    # ------------------------------------------------------------------
+
+    def namespace(self, name: str) -> Namespace:
+        """Return a typed :class:`~relata.namespace.Namespace` handle bound to
+        one object type — the flagship retrieval surface.
+
+        The handle reuses this client's connection pool, auth, tenant, and
+        purpose context::
+
+            docs = client.namespace("Document")
+            docs.write([{"id": "d1", "title": "..."}])      # schemaless (T6, /ingest/auto)
+            res = docs.query(                                # typed search (T1, /search)
+                text="retrieval",
+                match_column="title",
+                filters=[{"field": "status", "op": "eq", "value": "published"}],
+            )
+            for row in res:
+                print(row)
+        """
+        from relata.namespace import Namespace
+
+        return Namespace(self, name)
 
     # ------------------------------------------------------------------
     # Ingest
