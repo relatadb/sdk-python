@@ -816,6 +816,36 @@ class RelataClient:
         parts.append(")")
         return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
 
+    # ------------------------------------------------------------------
+    # Maritime operators (#2247)
+    # ------------------------------------------------------------------
+
+    def vessel_track(self, mmsi: int, *, window_secs: int | None = None, purpose: str | None = None) -> dict[str, object]:
+        """Track a vessel's AIS position reports over a time window."""
+        p = purpose or self._default_purpose or "analytics"
+        parts = [f"VESSEL_TRACK({mmsi}"]
+        if window_secs is not None: parts.append(f", WINDOW => {window_secs * 1_000_000_000}")
+        parts.append(")")
+        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+
+    def dark_fleet_detect(self, *, max_gap_hours: float | None = None, purpose: str | None = None) -> dict[str, object]:
+        """Detect vessels with AIS gaps (transponder-off 'going dark' periods)."""
+        p = purpose or self._default_purpose or "analytics"
+        if max_gap_hours is not None:
+            sql = f"DARK_FLEET_DETECT(MAX_GAP_HOURS => {max_gap_hours})"
+        else:
+            sql = "DARK_FLEET_DETECT()"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
+
+    def vessel_to_vessel_transfer(self, *, proximity_nm: float | None = None, time_window_minutes: int | None = None, purpose: str | None = None) -> dict[str, object]:
+        """Detect ship-to-ship transfers (close-proximity vessel encounters)."""
+        p = purpose or self._default_purpose or "analytics"
+        parts = []
+        if proximity_nm is not None: parts.append(f"PROXIMITY_NM => {proximity_nm}")
+        if time_window_minutes is not None: parts.append(f"TIME_WINDOW_MINUTES => {time_window_minutes}")
+        sql = f"VESSEL_TO_VESSEL_TRANSFER({', '.join(parts)})" if parts else "VESSEL_TO_VESSEL_TRANSFER()"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
+
     def health(self) -> HealthResponse:
         """Check node health (synchronous).
 

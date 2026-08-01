@@ -39,6 +39,8 @@ Public API
 from relata.a2a import A2AClient, AsyncA2AClient
 from relata.audit import AsyncAuditClient, AuditClient
 from relata.client import RelataClient
+from relata import aml
+from relata import canonical
 from relata.exceptions import (
     AuthError,
     ConnectionError,
@@ -131,4 +133,7 @@ __all__ = [
     "AuthError",
     "ConnectionError",
     "ServerError",
+    # Foundational typed surfaces (#2248 client canonical validation, #2255 AML decoders)
+    "aml",
+    "canonical",
 ]
