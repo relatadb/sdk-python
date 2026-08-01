@@ -503,6 +503,85 @@ def test_vector_knn_search_builds_pgvector_sql() -> None:
     assert "LIMIT 5" in seen_sql[0]
 
 
+def test_vector_hybrid_search_requires_text_or_embedding() -> None:
+    from relata.vectors import VectorClient
+
+    client = _client_with_mock(lambda req: httpx.Response(200, json={"rows": []}))
+    v = VectorClient.from_client(client)
+    with pytest.raises(ValueError, match="requires query_text or query_embedding"):
+        v.hybrid_search("Person")
+
+
+def test_vector_hybrid_search_builds_tvf_sql() -> None:
+    from relata.vectors import VectorClient
+
+    seen_sql: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen_sql.append(json.loads(req.content)["sql"])
+        return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
+
+    v = VectorClient.from_client(_client_with_mock(handler))
+    v.hybrid_search("Person", query_text="alice", k=3)
+    assert seen_sql[0] == (
+        "SELECT * FROM HYBRID_SEARCH(from => 'Person', limit => 3, query_text => 'alice')"
+    )
+
+
+def test_vector_similar_to_builds_sql() -> None:
+    from relata.vectors import VectorClient
+
+    seen_sql: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen_sql.append(json.loads(req.content)["sql"])
+        return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
+
+    v = VectorClient.from_client(_client_with_mock(handler))
+    v.similar_to("Person", "p-1", k=2)
+    assert seen_sql[0] == "SELECT * FROM SIMILAR TO Person WHERE id = 'p-1' LIMIT 2"
+
+
+# ---------------------------------------------------------------------------
+# #1172 — VectorClient.embed / embed_batch (direct /embed HTTP door)
+# ---------------------------------------------------------------------------
+
+
+def test_vector_embed_posts_to_embed_endpoint() -> None:
+    from relata.vectors import VectorClient
+
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/embed"
+        seen.append(json.loads(req.content))
+        return httpx.Response(200, json={"embedding": [0.1, 0.2], "model": "lexical", "dim": 2})
+
+    v = VectorClient.from_client(_client_with_mock(handler))
+    result = v.embed("Alice Smith")
+    assert seen[0] == {"text": "Alice Smith"}
+    assert result == {"embedding": [0.1, 0.2], "model": "lexical", "dim": 2}
+
+
+def test_vector_embed_batch_posts_to_embed_batch_endpoint() -> None:
+    from relata.vectors import VectorClient
+
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/embed/batch"
+        seen.append(json.loads(req.content))
+        return httpx.Response(
+            200,
+            json={"embeddings": [[0.1], [0.2]], "model": "lexical", "dim": 1, "count": 2},
+        )
+
+    v = VectorClient.from_client(_client_with_mock(handler))
+    result = v.embed_batch(["Alice", "Bob"], model="lexical")
+    assert seen[0] == {"texts": ["Alice", "Bob"], "model": "lexical"}
+    assert result["count"] == 2
+
+
 # ---------------------------------------------------------------------------
 # #81 — S3Client returns a configured boto3 client (skip if boto3 not installed)
 # ---------------------------------------------------------------------------
