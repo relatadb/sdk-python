@@ -42,13 +42,23 @@ def test_governance_create_rule_posts_to_rules() -> None:
         seen.append(req)
         assert req.method == "POST"
         assert req.url.path == "/rules"
+        assert dict(req.url.params) == {"purpose": "audit"}
         body = json.loads(req.content)
         assert body == {"name": "r1", "object_type": "Person", "condition": "age > 18"}
         return httpx.Response(200, json={"id": "rule-1", "name": "r1"})
 
-    g = GovernanceClient(BASE, transport=_wrap(handler))
+    g = GovernanceClient(BASE, purpose="audit", transport=_wrap(handler))
     out = g.create_rule({"name": "r1", "object_type": "Person", "condition": "age > 18"})
     assert out["id"] == "rule-1"
+
+
+def test_governance_create_rule_requires_purpose() -> None:
+    from relata.exceptions import PurposeError
+    from relata.governance import GovernanceClient
+
+    g = GovernanceClient(BASE, transport=_wrap(lambda req: httpx.Response(200, json={})))
+    with pytest.raises(PurposeError):
+        g.create_rule({"name": "r1"})
 
 
 def test_governance_place_legal_hold_posts_payload() -> None:
@@ -111,15 +121,32 @@ def test_governance_submit_dsar_uses_query_params() -> None:
 def test_governance_import_sigma_sends_yaml() -> None:
     from relata.governance import GovernanceClient
 
+    yaml_text = "title: Suspicious\nlogsource: ...\n"
+
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/rules/sigma"
-        body = json.loads(req.content)
-        assert "title: Suspicious" in body["sigma"]
+        assert dict(req.url.params) == {"purpose": "audit"}
+        assert req.headers["content-type"] == "application/x-yaml"
+        assert req.content.decode() == yaml_text
         return httpx.Response(200, json={"rules_imported": 1, "rules_skipped": 0})
 
-    g = GovernanceClient(BASE, transport=_wrap(handler))
-    out = g.import_sigma("title: Suspicious\nlogsource: ...")
+    g = GovernanceClient(BASE, purpose="audit", transport=_wrap(handler))
+    out = g.import_sigma(yaml_text)
     assert out["rules_imported"] == 1
+
+
+def test_governance_suppress_rule_sends_entity_id() -> None:
+    from relata.governance import GovernanceClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/rules/r1/suppress"
+        body = json.loads(req.content)
+        assert body == {"entity_id": "entity-42", "condition": "known FP"}
+        return httpx.Response(200, json={"rule_id": "r1"})
+
+    g = GovernanceClient(BASE, transport=_wrap(handler))
+    out = g.suppress_rule("r1", "entity-42", condition="known FP")
+    assert out["rule_id"] == "r1"
 
 
 # ---------------------------------------------------------------------------

@@ -92,6 +92,20 @@ class _BaseGovernance:
             extra_headers=client._extra_headers,
         )
 
+    def _effective_purpose(self, purpose: str | None) -> str:
+        """Resolve ``purpose`` (per-call override, else the client default),
+        raising :class:`~relata.exceptions.PurposeError` if neither is set.
+        """
+        eff = purpose or self._purpose
+        if not eff:
+            from relata.exceptions import PurposeError
+
+            raise PurposeError(
+                "This governance call requires a purpose. Pass purpose= to "
+                "the call or set a default on the RelataClient."
+            )
+        return eff
+
 
 class GovernanceClient(_BaseGovernance):
     """Synchronous governance surface — rules / retention / breakglass / alerts / DSAR."""
@@ -136,29 +150,57 @@ class GovernanceClient(_BaseGovernance):
         rules = data.get("rules") if isinstance(data, dict) else data
         return rules if isinstance(rules, list) else []
 
-    def create_rule(self, rule: dict[str, Any]) -> dict[str, Any]:
+    def create_rule(
+        self, rule: dict[str, Any], *, purpose: str | None = None
+    ) -> dict[str, Any]:
         """Create a detection rule. The dict shape matches the server's
         ``RuleSpec`` (``name``, ``object_type``, ``condition``, ``action``, ...).
         Returns the created rule record including its server-assigned ``id``.
+
+        ``purpose`` is mandatory server-side (``POST /rules?purpose=<p>``) —
+        pass it here or set a default on the parent ``RelataClient``.
         """
-        return self._t.post("/rules", rule)
+        from urllib.parse import quote
+
+        eff = self._effective_purpose(purpose)
+        return self._t.post(f"/rules?purpose={quote(eff)}", rule)
 
     def disable_rule(self, rule_id: str) -> dict[str, Any]:
         """Disable (logically delete) a rule by id."""
         return self._t.delete(f"/rules/{rule_id}")
 
-    def import_sigma(self, sigma_yaml: str) -> dict[str, Any]:
+    def import_sigma(
+        self, sigma_yaml: str, *, purpose: str | None = None
+    ) -> dict[str, Any]:
         """Import a Sigma rule (YAML string). Returns the import summary
-        (``rules_imported``, ``rules_skipped``, ``errors``)."""
-        return self._t.post("/rules/sigma", {"sigma": sigma_yaml})
+        (``rules_imported``, ``rules_skipped``, ``errors``).
+
+        The server (``POST /rules/sigma?purpose=<p>``) requires ``purpose``
+        as a query param and the raw YAML text as the request body — not a
+        JSON envelope.
+        """
+        from urllib.parse import quote
+
+        eff = self._effective_purpose(purpose)
+        return self._t.post_raw(
+            f"/rules/sigma?purpose={quote(eff)}",
+            sigma_yaml,
+            content_type="application/x-yaml",
+        )
 
     def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
         """Temporarily disable a rule for ``duration_secs`` (#967)."""
         return self._t.post(f"/rules/{rule_id}/snooze", {"duration_secs": duration_secs})
 
-    def suppress_rule(self, rule_id: str, pattern: str) -> dict[str, Any]:
-        """Suppress all future matches of ``pattern`` for a rule (#967)."""
-        return self._t.post(f"/rules/{rule_id}/suppress", {"pattern": pattern})
+    def suppress_rule(
+        self, rule_id: str, entity_id: str, *, condition: str | None = None
+    ) -> dict[str, Any]:
+        """Permanently suppress future matches of the rule for ``entity_id``
+        (#967). ``condition`` is an optional informational note."""
+        payload: dict[str, Any] = {"entity_id": entity_id}
+        if condition is not None:
+            payload["condition"] = condition
+        return self._t.post(f"/rules/{rule_id}/suppress", payload)
 
     def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
         """Add an exception entry so specific matches are ignored (#967)."""
@@ -401,20 +443,39 @@ class AsyncGovernanceClient(_BaseGovernance):
         rules = data.get("rules") if isinstance(data, dict) else data
         return rules if isinstance(rules, list) else []
 
-    async def create_rule(self, rule: dict[str, Any]) -> dict[str, Any]:
-        return await self._t.post("/rules", rule)
+    async def create_rule(
+        self, rule: dict[str, Any], *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        eff = self._effective_purpose(purpose)
+        return await self._t.post(f"/rules?purpose={quote(eff)}", rule)
 
     async def disable_rule(self, rule_id: str) -> dict[str, Any]:
         return await self._t.delete(f"/rules/{rule_id}")
 
-    async def import_sigma(self, sigma_yaml: str) -> dict[str, Any]:
-        return await self._t.post("/rules/sigma", {"sigma": sigma_yaml})
+    async def import_sigma(
+        self, sigma_yaml: str, *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        eff = self._effective_purpose(purpose)
+        return await self._t.post_raw(
+            f"/rules/sigma?purpose={quote(eff)}",
+            sigma_yaml,
+            content_type="application/x-yaml",
+        )
 
     async def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
         return await self._t.post(f"/rules/{rule_id}/snooze", {"duration_secs": duration_secs})
 
-    async def suppress_rule(self, rule_id: str, pattern: str) -> dict[str, Any]:
-        return await self._t.post(f"/rules/{rule_id}/suppress", {"pattern": pattern})
+    async def suppress_rule(
+        self, rule_id: str, entity_id: str, *, condition: str | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"entity_id": entity_id}
+        if condition is not None:
+            payload["condition"] = condition
+        return await self._t.post(f"/rules/{rule_id}/suppress", payload)
 
     async def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
         return await self._t.post(f"/rules/{rule_id}/exceptions", exception)
