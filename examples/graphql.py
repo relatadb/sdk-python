@@ -1,5 +1,10 @@
 """
-GraphQL example — governed `/graphql` door (ADR-220).
+GraphQL example — governed `/graphql` door (ADR-020's 2026-08-01 update, #1173).
+
+Note: ADR-220 originally named a dedicated GraphQL protocol-door decision;
+that file was deleted and the number later recycled for an unrelated
+decision. This shipped `/graphql` door is documented instead by the
+ADR-020 update (2026-08-01) and issue #1173. See #2101.
 
 Demonstrates the four supported query shapes plus error handling:
 1. Schema introspection (`{ __schema { types { name } } }`)
@@ -68,7 +73,7 @@ def main() -> None:
         )
         print(f"  Response: {json.dumps(with_vars)[:200]}")
 
-        # ── 5. Error envelope: mutations are not supported (ADR-220) ──────
+        # ── 5. Error envelope: mutations are not supported (ADR-020, #1173) ──
         print("\n=== 5. Mutation → expected error envelope ===")
         try:
             relata.graphql('mutation { createPerson(name: "Bob") { id } }')
