@@ -81,6 +81,74 @@ def _rewrite_question_mark_params(sql: str) -> str:
     return re.sub(r"\?", _replace, sql)
 
 
+def _sql_literal(s: str) -> str:
+    """Quote ``s`` as a SQL string literal, doubling internal single quotes."""
+    return "'" + s.replace("'", "''") + "'"
+
+
+def _face_search_sql(
+    gallery_id: str,
+    embedding: list[float] | str,
+    *,
+    k: int,
+    threshold: float,
+) -> str:
+    """Build a ``SELECT * FROM FACE_SEARCH(...)`` ticket (#2251).
+
+    Mirrors the server operator registered in
+    ``relata_query::parser`` — ``FACE_SEARCH('<csv floats>', '<gallery>',
+    K => <n>, THRESHOLD => <f>)`` (defaults K=10, THRESHOLD=0.7).
+    """
+    if isinstance(embedding, str):
+        emb_csv = embedding
+    else:
+        emb_csv = ",".join(repr(float(x)) for x in embedding)
+    return (
+        "SELECT * FROM FACE_SEARCH("
+        f"{_sql_literal(emb_csv)}, {_sql_literal(gallery_id)}, "
+        f"K => {int(k)}, THRESHOLD => {float(threshold)})"
+    )
+
+
+def _match_pdq_sql(corpus_id: str, query_hash: str, *, threshold: float) -> str:
+    """Build a ``SELECT * FROM MATCH_PDQ(...)`` ticket (#2251).
+
+    Mirrors ``MATCH_PDQ('<hash>', '<corpus>', THRESHOLD => <f>)``
+    (default THRESHOLD=0.9).
+    """
+    return (
+        "SELECT * FROM MATCH_PDQ("
+        f"{_sql_literal(query_hash)}, {_sql_literal(corpus_id)}, "
+        f"THRESHOLD => {float(threshold)})"
+    )
+
+
+def _flight_ticket(sql: str, purpose: str | None) -> str:
+    """Assemble an Arrow Flight ``do_get`` ticket from SQL + optional PURPOSE.
+
+    The Flight door (``crates/relata-cli/src/flight_server.rs::do_get``) reads
+    the ticket as raw UTF-8 SQL and extracts ``/* PURPOSE '<id>' */`` from a
+    leading SQL comment, defaulting to ``"flight_query"`` when absent (#958).
+    """
+    if not purpose:
+        return sql
+    return f"/* PURPOSE '{purpose.replace("'", "''")}' */ {sql}"
+
+
+def _flight_endpoint_from(base_url: str, flight_endpoint: str | None) -> str:
+    """Resolve the Arrow Flight gRPC endpoint.
+
+    Defaults to ``grpc://<base_url host>:8815`` (the server's default Flight
+    port, ``RELATA_FLIGHT_PORT``). Pass ``flight_endpoint`` to override.
+    """
+    if flight_endpoint:
+        return flight_endpoint
+    from urllib.parse import urlparse
+
+    host = urlparse(base_url).hostname or "localhost"
+    return f"grpc://{host}:8815"
+
+
 class RelataClient:
     """Synchronous and asynchronous client for the Relata HTTP API.
 
@@ -407,6 +475,89 @@ class RelataClient:
         buf = io.BytesIO(b"".join(chunks))
         return ipc.open_stream(buf).read_all()
 
+    def query_flight(
+        self,
+        sql: str,
+        *,
+        flight_endpoint: str | None = None,
+        purpose: str | None = None,
+        bearer_token: str | None = None,
+    ) -> "pyarrow.Table":  # type: ignore[name-defined]  # noqa: F821
+        """Execute a SQL query over Arrow Flight ``do_get`` and return the
+        result as a zero-copy ``pyarrow.Table`` (#2253, #958).
+
+        Unlike :meth:`query_arrow` (which decodes the HTTP Arrow-IPC stream
+        from ``POST /query/arrow``), this opens a real Arrow Flight client to
+        the server's gRPC Flight door and runs ``do_get`` with the SQL as the
+        ticket bytes — no JSON intermediate.
+
+        The Flight door is enabled server-side with ``RELATA_FLIGHT_ENABLE=true``
+        (default port 8815). The ticket is the raw UTF-8 SQL, optionally
+        prefixed with ``/* PURPOSE '<id>' */`` which the server extracts as the
+        query purpose (defaulting to ``"flight_query"``).
+
+        Requires ``pyarrow`` to be installed (``pip install pyarrow``).
+
+        Args:
+            sql: SQL query string used verbatim as the Flight ticket.
+            flight_endpoint: Flight gRPC endpoint (e.g.
+                ``"grpc://localhost:8815"``). Defaults to
+                ``grpc://<base_url host>:8815``.
+            purpose: Optional purpose injected as a ``/* PURPOSE '...' */``
+                SQL comment. Note this is **not** resolved from the client
+                default — Flight has no purposeless-query gate, so callers
+                pass it explicitly when they want one.
+            bearer_token: Bearer token for Flight metadata. Defaults to the
+                client's token.
+
+        Returns:
+            A ``pyarrow.Table`` with the governed result set.
+
+        Example::
+
+            tbl = client.query_flight(
+                "SELECT * FROM Person LIMIT 1000", purpose="analytics",
+            )
+            df = tbl.to_pandas()
+        """
+        import pyarrow.flight as flight  # type: ignore[import]
+
+        endpoint = _flight_endpoint_from(self._base_url, flight_endpoint)
+        ticket_sql = _flight_ticket(sql, purpose)
+        bearer = bearer_token if bearer_token is not None else self._bearer_token
+
+        client = flight.FlightClient(endpoint)
+        options = flight.FlightCallOptions()
+        if bearer:
+            options = flight.FlightCallOptions(
+                headers=[(b"authorization", f"Bearer {bearer}".encode())]
+            )
+        reader = client.do_get(flight.Ticket(ticket_sql.encode("utf-8")), options)
+        return reader.read_all()
+
+    async def aquery_flight(
+        self,
+        sql: str,
+        *,
+        flight_endpoint: str | None = None,
+        purpose: str | None = None,
+        bearer_token: str | None = None,
+    ) -> "pyarrow.Table":  # type: ignore[name-defined]  # noqa: F821
+        """Async variant of :meth:`query_flight`.
+
+        ``pyarrow.flight`` is synchronous, so the call is dispatched to a
+        worker thread via :func:`asyncio.to_thread`.
+        """
+        import asyncio
+
+        return await asyncio.to_thread(
+            self.query_flight,
+            sql,
+            flight_endpoint=flight_endpoint,
+            purpose=purpose,
+            bearer_token=bearer_token,
+        )
+
     def search(
         self,
         query: str,
@@ -691,6 +842,20 @@ class RelataClient:
         v = value.replace("'", "''")
         return self._sync.post("/query", {"purpose": p, "sql": f"RESOLVE_IDENTITY('{v}', MODE => 'cluster')"})
 
+    def same_identity(self, a: str, b: str, *, purpose: str | None = None) -> bool:
+        """Predicate: do two identifiers resolve to the same entity?
+
+        Executes ``SAME_IDENTITY('<a>', '<b>')`` via ``POST /query`` and
+        returns the ``match`` verdict (#2246).
+        """
+        p = purpose or self._default_purpose or "analytics"
+        ca = a.replace("'", "''")
+        cb = b.replace("'", "''")
+        sql = f"SAME_IDENTITY('{ca}', '{cb}')"
+        data = self._sync.post("/query", {"purpose": p, "sql": sql})
+        rows = data.get("data") or []
+        return bool(rows and rows[0].get("match"))
+
     def fuse_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
         """Ontological merge of two identities — writes an IdentityLink with
         link_type='fused' and returns the merged cluster (#967)."""
@@ -798,6 +963,27 @@ class RelataClient:
         p = purpose or self._default_purpose or "analytics"
         return self._sync.post("/query", {"purpose": p, "sql": f"CRYPTO_TRACE('{entity}')"})
 
+    def wire_reconstruction(
+        self, account: str, *, tolerance_pct: float | None = None, purpose: str | None = None
+    ) -> dict[str, object]:
+        """Reconstruct a wire-transfer chain (FinINT, #2249)."""
+        p = purpose or self._default_purpose or "analytics"
+        parts = [f"WIRE_RECONSTRUCTION('{account}'"]
+        if tolerance_pct is not None:
+            parts.append(f", TOLERANCE_PCT => {tolerance_pct}")
+        parts.append(")")
+        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+
+    def hawala_trace(
+        self, seed: str, *, max_hops: int | None = None, purpose: str | None = None
+    ) -> dict[str, object]:
+        """Trace an informal hawala value-transfer network (FinINT, #2249)."""
+        p = purpose or self._default_purpose or "analytics"
+        hops = 5 if max_hops is None else max(1, min(10, max_hops))
+        return self._sync.post(
+            "/query", {"purpose": p, "sql": f"HAWALA_TRACE('{seed}', MAX_HOPS => {hops})"}
+        )
+
     def dns_tunnel_detect(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
         """DNS tunnel detection."""
         p = purpose or self._default_purpose or "security"
@@ -845,6 +1031,116 @@ class RelataClient:
         if time_window_minutes is not None: parts.append(f"TIME_WINDOW_MINUTES => {time_window_minutes}")
         sql = f"VESSEL_TO_VESSEL_TRANSFER({', '.join(parts)})" if parts else "VESSEL_TO_VESSEL_TRANSFER()"
         return self._sync.post("/query", {"purpose": p, "sql": sql})
+
+    # ------------------------------------------------------------------
+    # Multimedia operators (#2251, epic #655 — ADR-030)
+    # ------------------------------------------------------------------
+    #
+    # Biometric / perceptual-hash search via the governed SQL operator door.
+    # Both route through ``POST /query`` so PURPOSE / ACL / cell-masking /
+    # tenant isolation apply identically to a hand-written query. The server
+    # operators are registered in ``relata_query::parser``:
+    #
+    # - ``FACE_SEARCH('<csv floats>', '<gallery>', K => n, THRESHOLD => f)``
+    #   (cosine k-NN over ``MediaEmbedding`` rows; columns ``entity_id``,
+    #   ``gallery_id``, ``score``, ``modality``).
+    # - ``MATCH_PDQ('<hash>', '<corpus>', THRESHOLD => f)``
+    #   (Hamming similarity over ``MediaHash`` rows; columns ``entity_id``,
+    #   ``media_type``, ``corpus_id``, ``score``, ``matcher``).
+    #
+    # The MCP ``face_match`` tool is gated behind ADR-155 (#409) and returns
+    # 403 — these SQL-reachable operators are the unblocked path the SDK uses.
+
+    def face_search(
+        self,
+        gallery_id: str,
+        embedding: list[float] | str,
+        *,
+        k: int = 10,
+        threshold: float = 0.7,
+        purpose: str | None = None,
+    ) -> QueryResult:
+        """Biometric face k-NN search against a gallery (#2251, ADR-030).
+
+        Executes ``SELECT * FROM FACE_SEARCH(...)`` through the governed
+        ``/query`` door.
+
+        Args:
+            gallery_id: Gallery to search (matches ``MediaEmbedding.gallery_id``).
+            embedding: Probe face embedding as a list of floats, or a
+                pre-formatted comma-separated string (the form the SQL
+                operator expects).
+            k: Max candidates (server default 10).
+            threshold: Minimum cosine similarity in ``[0.0, 1.0]`` (default 0.7).
+            purpose: Purpose override for this query.
+
+        Returns:
+            :class:`~relata.models.QueryResult` with columns ``entity_id``,
+            ``gallery_id``, ``score``, ``modality``, ranked by score desc.
+
+        Example::
+
+            result = client.face_search(
+                "gallery-1", [0.1, 0.2, 0.3], k=5, threshold=0.6,
+                purpose="investigation",
+            )
+            for row in result:
+                print(row["entity_id"], row["score"])
+        """
+        sql = _face_search_sql(gallery_id, embedding, k=k, threshold=threshold)
+        return self.query(sql, purpose=purpose)
+
+    async def aface_search(
+        self,
+        gallery_id: str,
+        embedding: list[float] | str,
+        *,
+        k: int = 10,
+        threshold: float = 0.7,
+        purpose: str | None = None,
+    ) -> QueryResult:
+        """Async variant of :meth:`face_search`."""
+        sql = _face_search_sql(gallery_id, embedding, k=k, threshold=threshold)
+        return await self.aquery(sql, purpose=purpose)
+
+    def match_pdq(
+        self,
+        corpus_id: str,
+        query_hash: str,
+        *,
+        threshold: float = 0.9,
+        purpose: str | None = None,
+    ) -> QueryResult:
+        """Perceptual-hash (PDQ) near-duplicate search over a corpus (#2251).
+
+        Executes ``SELECT * FROM MATCH_PDQ(...)`` through the governed
+        ``/query`` door. PDQ near-duplicates differ by ≤ 31 bits (ADR-187).
+
+        Args:
+            corpus_id: Hash corpus to search (matches ``MediaHash.corpus_id``).
+            query_hash: PDQ hash as a hex string.
+            threshold: Minimum Hamming similarity in ``[0.0, 1.0]`` (default 0.9).
+            purpose: Purpose override for this query.
+
+        Returns:
+            :class:`~relata.models.QueryResult` with columns ``entity_id``,
+            ``media_type``, ``corpus_id``, ``score``, ``matcher``, ranked by
+            score desc.
+        """
+        sql = _match_pdq_sql(corpus_id, query_hash, threshold=threshold)
+        return self.query(sql, purpose=purpose)
+
+    async def amatch_pdq(
+        self,
+        corpus_id: str,
+        query_hash: str,
+        *,
+        threshold: float = 0.9,
+        purpose: str | None = None,
+    ) -> QueryResult:
+        """Async variant of :meth:`match_pdq`."""
+        sql = _match_pdq_sql(corpus_id, query_hash, threshold=threshold)
+        return await self.aquery(sql, purpose=purpose)
 
     def health(self) -> HealthResponse:
         """Check node health (synchronous).

@@ -32,6 +32,52 @@ def _handle_raw(resp: httpx.Response) -> dict[str, Any]:
     raise _classify_error(resp.status_code, body)
 
 
+# ── CDR / OTLP ingest helpers (#2252) ──────────────────────────────────────────
+
+# Canonical CDR column → accepted aliases (mirrors the server's
+# `CdrRecord::from_csv_row` header recognition, case-insensitive server-side).
+_CDR_ALIASES: dict[str, tuple[str, ...]] = {
+    "caller": ("caller", "caller_msisdn", "a_number", "a_msisdn"),
+    "callee": ("callee", "callee_msisdn", "b_number", "b_msisdn", "called"),
+    "start": ("start", "call_start", "start_time", "timestamp", "call_start_ns"),
+    "duration": ("duration", "duration_secs", "duration_seconds"),
+    "tower": ("tower", "tower_id", "cell_id", "site", "cell"),
+    "type": ("type", "call_type", "record_type"),
+}
+_CDR_COLUMNS: tuple[str, ...] = ("caller", "callee", "start", "duration", "tower", "type")
+
+
+def _cdr_field(value: object) -> str:
+    """Render a CDR cell value — the server parses CSV via naive split(',')."""
+    if value is None:
+        return ""
+    # Strip commas / CR / LF so a value can never break column alignment.
+    return str(value).replace(",", "").replace("\r", " ").replace("\n", " ")
+
+
+def _rows_to_cdr_csv(rows: Iterable[dict[str, Any]]) -> str:
+    """Serialise typed CDR rows into the CSV shape ``POST /ingest/cdr`` expects."""
+    lines = [",".join(_CDR_COLUMNS)]
+    for row in rows:
+        fields: list[str] = []
+        for col in _CDR_COLUMNS:
+            val: Any = ""
+            for key in _CDR_ALIASES[col]:
+                if key in row:
+                    val = row[key]
+                    break
+            fields.append(_cdr_field(val))
+        lines.append(",".join(fields))
+    return "\n".join(lines)
+
+
+def _purpose_path(base: str, purpose: str | None) -> str:
+    """Append ``?purpose=<p>`` when a purpose is set; otherwise return ``base``."""
+    if purpose:
+        return f"{base}?{urlencode({'purpose': purpose})}"
+    return base
+
+
 class IngestClient:
     """Synchronous bulk-ingest client."""
 
@@ -107,6 +153,42 @@ class IngestClient:
             headers={"Content-Type": "text/csv"},
         )
         return _handle_raw(resp)
+
+    def ingest_cdr(
+        self,
+        rows: Iterable[dict[str, Any]],
+        *,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingest CDR (call detail records) via ``POST /ingest/cdr`` (#2252).
+
+        Each row is a dict mapping CDR fields (``caller``, ``callee``, ``start``,
+        ``duration``, ``tower``, ``type``); common aliases like ``caller_msisdn``
+        / ``a_number`` are accepted. Rows are serialised to the CSV shape the
+        server's ``CdrBatch::from_csv`` expects. ``purpose`` is mandatory
+        server-side — pass it here or via the client's default purpose.
+        """
+        csv_text = _rows_to_cdr_csv(rows)
+        resp = self._t._client.post(  # noqa: SLF001 — raw CSV body
+            _purpose_path("/ingest/cdr", purpose or self._purpose),
+            content=csv_text,
+            headers={"Content-Type": "text/csv"},
+        )
+        return _handle_raw(resp)
+
+    def otlp_traces(self, payload: dict[str, Any], *, purpose: str | None = None) -> dict[str, Any]:
+        """Ingest OTLP/JSON traces via ``POST /v1/traces`` (#2252)."""
+        return self._t.post(_purpose_path("/v1/traces", purpose or self._purpose), payload)
+
+    def otlp_logs(self, payload: dict[str, Any], *, purpose: str | None = None) -> dict[str, Any]:
+        """Ingest OTLP/JSON logs via ``POST /v1/logs`` (#2252)."""
+        return self._t.post(_purpose_path("/v1/logs", purpose or self._purpose), payload)
+
+    def otlp_metrics(
+        self, payload: dict[str, Any], *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """Ingest OTLP/JSON metrics via ``POST /v1/metrics`` (#2252)."""
+        return self._t.post(_purpose_path("/v1/metrics", purpose or self._purpose), payload)
 
     def ingest_iter(
         self,
@@ -224,6 +306,39 @@ class AsyncIngestClient:
             headers={"Content-Type": "text/csv"},
         )
         return _handle_raw(resp)
+
+    async def ingest_cdr(
+        self,
+        rows: Iterable[dict[str, Any]],
+        *,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """Async ingest CDR (call detail records) via ``POST /ingest/cdr`` (#2252)."""
+        csv_text = _rows_to_cdr_csv(rows)
+        resp = await self._t._client.post(  # noqa: SLF001 — raw CSV body
+            _purpose_path("/ingest/cdr", purpose or self._purpose),
+            content=csv_text,
+            headers={"Content-Type": "text/csv"},
+        )
+        return _handle_raw(resp)
+
+    async def otlp_traces(
+        self, payload: dict[str, Any], *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """Async ingest OTLP/JSON traces via ``POST /v1/traces`` (#2252)."""
+        return await self._t.post(_purpose_path("/v1/traces", purpose or self._purpose), payload)
+
+    async def otlp_logs(
+        self, payload: dict[str, Any], *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """Async ingest OTLP/JSON logs via ``POST /v1/logs`` (#2252)."""
+        return await self._t.post(_purpose_path("/v1/logs", purpose or self._purpose), payload)
+
+    async def otlp_metrics(
+        self, payload: dict[str, Any], *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """Async ingest OTLP/JSON metrics via ``POST /v1/metrics`` (#2252)."""
+        return await self._t.post(_purpose_path("/v1/metrics", purpose or self._purpose), payload)
 
     async def media_status(self, task_id: str) -> dict[str, Any]:
         return await self._t.get(f"/ingest/media/{task_id}")
