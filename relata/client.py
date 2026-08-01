@@ -691,6 +691,20 @@ class RelataClient:
         v = value.replace("'", "''")
         return self._sync.post("/query", {"purpose": p, "sql": f"RESOLVE_IDENTITY('{v}', MODE => 'cluster')"})
 
+    def same_identity(self, a: str, b: str, *, purpose: str | None = None) -> bool:
+        """Predicate: do two identifiers resolve to the same entity?
+
+        Executes ``SAME_IDENTITY('<a>', '<b>')`` via ``POST /query`` and
+        returns the ``match`` verdict (#2246).
+        """
+        p = purpose or self._default_purpose or "analytics"
+        ca = a.replace("'", "''")
+        cb = b.replace("'", "''")
+        sql = f"SAME_IDENTITY('{ca}', '{cb}')"
+        data = self._sync.post("/query", {"purpose": p, "sql": sql})
+        rows = data.get("data") or []
+        return bool(rows and rows[0].get("match"))
+
     def fuse_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
         """Ontological merge of two identities — writes an IdentityLink with
         link_type='fused' and returns the merged cluster (#967)."""
