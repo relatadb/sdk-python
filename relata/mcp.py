@@ -377,6 +377,502 @@ class McpClient:
         """``recall`` MCP tool."""
         return self.call_tool("recall", {"query": query, "purpose": purpose, "top_k": top_k})
 
+    def remember_batch(
+        self, items: list[dict[str, Any]], *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """``remember_batch`` — bulk ``remember`` write (#2322)."""
+        args: dict[str, Any] = {"items": items}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("remember_batch", args)
+
+    def recognize(self, memory_id: str, *, purpose: str | None = None) -> dict[str, Any]:
+        """``recognize`` — look up a stored memory item by id (#2322)."""
+        args: dict[str, Any] = {"id": memory_id}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("recognize", args)
+
+    def episodes_in(
+        self, session_id: str, *, limit: int = 20, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """``episodes_in`` — list Episodes within an AgentSession (#2322)."""
+        args: dict[str, Any] = {"session_id": session_id, "limit": limit}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("episodes_in", args)
+
+    def justify(self, memory_id: str, *, purpose: str | None = None) -> dict[str, Any]:
+        """``justify`` — provenance/audit chain for a memory object (#2322)."""
+        args: dict[str, Any] = {"id": memory_id}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("justify", args)
+
+    def consolidate(
+        self,
+        memory_id: str,
+        content: str,
+        *,
+        confidence: float = 1.0,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``consolidate`` — supersede a memory item with an updated belief (#2322)."""
+        args: dict[str, Any] = {"id": memory_id, "content": content, "confidence": confidence}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("consolidate", args)
+
+    def forget(
+        self, memory_id: str, *, retain_days: int = 0, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """``forget`` — apply a retention policy to a memory item (#2322)."""
+        args: dict[str, Any] = {"id": memory_id, "retain_days": retain_days}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("forget", args)
+
+    def remember_procedure(
+        self,
+        agent_id: str,
+        name: str,
+        instruction_text: str,
+        *,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``remember_procedure`` — store a versioned agent procedure (T16/#2233, #2322)."""
+        args: dict[str, Any] = {
+            "agent_id": agent_id,
+            "name": name,
+            "instruction_text": instruction_text,
+        }
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("remember_procedure", args)
+
+    def recall_procedure(
+        self,
+        agent_id: str,
+        *,
+        name: str | None = None,
+        all_versions: bool = False,
+        limit: int = 20,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``recall_procedure`` — read back stored procedures for an agent (T16/#2233, #2322)."""
+        args: dict[str, Any] = {"agent_id": agent_id, "all_versions": all_versions, "limit": limit}
+        if name:
+            args["name"] = name
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("recall_procedure", args)
+
+    def associate(
+        self,
+        from_id: str,
+        to_id: str,
+        *,
+        relation: str = "related_to",
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``associate`` — link two memory items/entities with a typed relation (#2322)."""
+        args: dict[str, Any] = {"from_id": from_id, "to_id": to_id, "relation": relation}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("associate", args)
+
+    def resolve(self, memory_id: str, *, purpose: str | None = None) -> dict[str, Any]:
+        """``resolve`` — follow a memory's supersession chain to its canonical head (#2322)."""
+        args: dict[str, Any] = {"id": memory_id}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("resolve", args)
+
+    def summarise(
+        self,
+        *,
+        ids: list[str] | None = None,
+        session_id: str | None = None,
+        scope: str | None = None,
+        contents: list[str] | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``summarise`` — governed, provenance-stamped summary of a session/topic (#2322)."""
+        args: dict[str, Any] = {}
+        if ids:
+            args["ids"] = ids
+        if session_id:
+            args["session_id"] = session_id
+        if scope:
+            args["scope"] = scope
+        if contents:
+            args["contents"] = contents
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("summarise", args)
+
+    def nl_query(
+        self, query: str, *, purpose: str | None = None, interpret: bool = False
+    ) -> dict[str, Any]:
+        """``nl_query`` — natural-language question translated to SQL and executed (#2322)."""
+        args: dict[str, Any] = {"query": query, "interpret": interpret}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("nl_query", args)
+
+    def erase_subject(self, subject: str, *, reason: str = "gdpr-art17-request") -> dict[str, Any]:
+        """``erase_subject`` — GDPR Art. 17 crypto-shred erasure with a signed receipt (#2322)."""
+        return self.call_tool("erase_subject", {"subject": subject, "reason": reason})
+
+    def ingest_media(
+        self,
+        object_type: str,
+        *,
+        modality: str = "image",
+        codec: str | None = None,
+        bytes_b64: str | None = None,
+        text: str | None = None,
+        tenant_id: str | None = None,
+        partition_key: str | None = None,
+    ) -> dict[str, Any]:
+        """``ingest_media`` — ingest an image/audio/video (base64) or text payload (#2322)."""
+        args: dict[str, Any] = {"object_type": object_type, "modality": modality}
+        if codec:
+            args["codec"] = codec
+        if bytes_b64:
+            args["bytes_b64"] = bytes_b64
+        if text:
+            args["text"] = text
+        if tenant_id:
+            args["tenant_id"] = tenant_id
+        if partition_key:
+            args["partition_key"] = partition_key
+        return self.call_tool("ingest_media", args)
+
+    def similar_multimodal(
+        self,
+        entity_type: str,
+        entity_id: str,
+        *,
+        top_k: int = 10,
+        modality: str = "text",
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``similar_multimodal`` — governed cross-modal similarity search (ADR-106, #2322)."""
+        args: dict[str, Any] = {
+            "entity_type": entity_type,
+            "id": entity_id,
+            "top_k": top_k,
+            "modality": modality,
+        }
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("similar_multimodal", args)
+
+    def hybrid_search(
+        self,
+        entity_type: str,
+        query: str,
+        *,
+        top_k: int = 10,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``hybrid_search`` — governed BM25 ⊕ vector retrieval fused via RRF (#2322)."""
+        args: dict[str, Any] = {"entity_type": entity_type, "query": query, "top_k": top_k}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("hybrid_search", args)
+
+    def paths_between(
+        self,
+        from_id: str,
+        to_id: str,
+        *,
+        max_hops: int = 4,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``paths_between`` — governed relationship/identity graph walk (#2322)."""
+        args: dict[str, Any] = {"from": from_id, "to": to_id, "max_hops": max_hops}
+        if purpose:
+            args["purpose"] = purpose
+        return self.call_tool("paths_between", args)
+
+    def list_link_types(self) -> dict[str, Any]:
+        """``list_link_types`` — every governed edge type defined in the ontology (#2322)."""
+        return self.call_tool("list_link_types", {})
+
+    def server_health(self) -> dict[str, Any]:
+        """``server_health`` — readiness snapshot for an ops agent (#2322)."""
+        return self.call_tool("server_health", {})
+
+    def job_status(self) -> dict[str, Any]:
+        """``job_status`` — list continuous detection jobs with live status (#2322)."""
+        return self.call_tool("job_status", {})
+
+    def metrics(self) -> dict[str, Any]:
+        """``metrics`` — operational counters for a monitoring agent (#2322)."""
+        return self.call_tool("metrics", {})
+
+    def list_rules(self) -> dict[str, Any]:
+        """``list_rules`` — list detection rules (ADR-162, #2322)."""
+        return self.call_tool("list_rules", {})
+
+    def create_rule(
+        self,
+        name: str,
+        condition_sql: str,
+        *,
+        severity: str | None = None,
+        description: str | None = None,
+        purpose: str = "security",
+    ) -> dict[str, Any]:
+        """``create_rule`` — create a detection rule (ADR-162, #2322)."""
+        args: dict[str, Any] = {
+            "name": name,
+            "condition_sql": condition_sql,
+            "purpose": purpose,
+        }
+        if severity:
+            args["severity"] = severity
+        if description:
+            args["description"] = description
+        return self.call_tool("create_rule", args)
+
+    def import_sigma(self, sigma_yaml: str, *, purpose: str = "security") -> dict[str, Any]:
+        """``import_sigma`` — import a Sigma detection rule (YAML) (#2322)."""
+        return self.call_tool("import_sigma", {"yaml": sigma_yaml, "purpose": purpose})
+
+    def list_jobs(self) -> dict[str, Any]:
+        """``list_jobs`` — list all registered detection jobs with live status (#2322)."""
+        return self.call_tool("list_jobs", {})
+
+    def schedule_job(self, name: str) -> dict[str, Any]:
+        """``schedule_job`` — trigger an immediate run of a named detection job (#2322)."""
+        return self.call_tool("schedule_job", {"name": name})
+
+    def list_workflows(self) -> dict[str, Any]:
+        """``list_workflows`` — list all registered workflow definitions (#2322)."""
+        return self.call_tool("list_workflows", {})
+
+    def run_workflow(self, name: str) -> dict[str, Any]:
+        """``run_workflow`` — start a workflow execution by name (#2322)."""
+        return self.call_tool("run_workflow", {"name": name})
+
+    def workflow_status(self, run_id: str) -> dict[str, Any]:
+        """``workflow_status`` — query step-level status of a workflow run (#2322)."""
+        return self.call_tool("workflow_status", {"run_id": run_id})
+
+    def trace_crypto(
+        self,
+        address: str,
+        *,
+        max_hops: int = 5,
+        min_amount: float = 0,
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``trace_crypto`` — follow a cryptocurrency address hop-by-hop (#2322)."""
+        return self.call_tool(
+            "trace_crypto",
+            {
+                "address": address,
+                "max_hops": max_hops,
+                "min_amount": min_amount,
+                "purpose": purpose,
+            },
+        )
+
+    def beneficial_ownership(
+        self, party: str, *, max_depth: int = 6, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``beneficial_ownership`` — trace the beneficial ownership chain for a party (#2322)."""
+        return self.call_tool(
+            "beneficial_ownership",
+            {"party": party, "max_depth": max_depth, "purpose": purpose},
+        )
+
+    def reconstruct_wire(
+        self, account: str, *, tolerance_pct: float = 5.0, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``reconstruct_wire`` — reconstruct a wire-transfer chain for an account (#2322)."""
+        return self.call_tool(
+            "reconstruct_wire",
+            {"account": account, "tolerance_pct": tolerance_pct, "purpose": purpose},
+        )
+
+    def trace_hawala(
+        self, seed: str, *, max_hops: int = 5, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``trace_hawala`` — trace informal hawala value-transfer networks (#2322)."""
+        return self.call_tool(
+            "trace_hawala", {"seed": seed, "max_hops": max_hops, "purpose": purpose}
+        )
+
+    def geofence(
+        self,
+        lat: float,
+        lon: float,
+        *,
+        radius_m: float = 1000,
+        target_type: str = "MovementEvent",
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``geofence`` — spatial fence query over a circular area (#2322)."""
+        return self.call_tool(
+            "geofence",
+            {
+                "lat": lat,
+                "lon": lon,
+                "radius_m": radius_m,
+                "target_type": target_type,
+                "purpose": purpose,
+            },
+        )
+
+    def resolve_entity_identity(
+        self, identity: str, *, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``resolve_entity_identity`` — resolve the canonical identity cluster (#2322)."""
+        return self.call_tool(
+            "resolve_entity_identity", {"identity": identity, "purpose": purpose}
+        )
+
+    def detect_communities(
+        self, entity_type: str, *, algo: str = "louvain", purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``detect_communities`` — Louvain/Leiden community detection (#2322)."""
+        return self.call_tool(
+            "detect_communities",
+            {"entity_type": entity_type, "algo": algo, "purpose": purpose},
+        )
+
+    def rank_key_nodes(
+        self,
+        entity_type: str,
+        *,
+        metric: str = "pagerank",
+        damping: float = 0.85,
+        max_iter: int = 20,
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``rank_key_nodes`` — rank entities by PageRank or centrality metric (#2322)."""
+        return self.call_tool(
+            "rank_key_nodes",
+            {
+                "entity_type": entity_type,
+                "metric": metric,
+                "damping": damping,
+                "max_iter": max_iter,
+                "purpose": purpose,
+            },
+        )
+
+    def hub_authority(
+        self, entity_type: str, *, max_iter: int = 20, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``hub_authority`` — HITS hub/authority scores for an entity type (#2322)."""
+        return self.call_tool(
+            "hub_authority",
+            {"entity_type": entity_type, "max_iter": max_iter, "purpose": purpose},
+        )
+
+    def predict_links(
+        self,
+        entity_type: str,
+        *,
+        from_id: str | None = None,
+        to_id: str | None = None,
+        method: str = "common_neighbors",
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``predict_links`` — score candidate edges between entities (#2322)."""
+        args: dict[str, Any] = {"entity_type": entity_type, "method": method, "purpose": purpose}
+        if from_id:
+            args["from_id"] = from_id
+        if to_id:
+            args["to_id"] = to_id
+        return self.call_tool("predict_links", args)
+
+    def find_scc(self, entity_type: str, *, purpose: str = "analytics") -> dict[str, Any]:
+        """``find_scc`` — find strongly connected components in an entity type's graph (#2322)."""
+        return self.call_tool("find_scc", {"entity_type": entity_type, "purpose": purpose})
+
+    def screen_sanctions(
+        self,
+        name: str,
+        *,
+        threshold: float | None = None,
+        purpose: str = "compliance_review",
+    ) -> dict[str, Any]:
+        """``screen_sanctions`` — screen a name/entity against sanctions lists (#2322)."""
+        args: dict[str, Any] = {"name": name, "purpose": purpose}
+        if threshold is not None:
+            args["threshold"] = threshold
+        return self.call_tool("screen_sanctions", args)
+
+    def aggregate_stats(
+        self,
+        entity_type: str,
+        *,
+        agg: str = "COUNT",
+        column: str = "*",
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``aggregate_stats`` — governed aggregate query over an entity type (#2322)."""
+        return self.call_tool(
+            "aggregate_stats",
+            {"entity_type": entity_type, "agg": agg, "column": column, "purpose": purpose},
+        )
+
+    def investigate_entity(
+        self, entity_type: str, entity_id: str, *, purpose: str = "security_incident"
+    ) -> dict[str, Any]:
+        """``investigate_entity`` — composite profile + timeline + connections + risk (#2322)."""
+        return self.call_tool(
+            "investigate_entity",
+            {"entity_type": entity_type, "id": entity_id, "purpose": purpose},
+        )
+
+    def find_threats(
+        self, entity_type: str, *, purpose: str = "security_incident"
+    ) -> dict[str, Any]:
+        """``find_threats`` — composite threat hunt over an entity type (#2322)."""
+        return self.call_tool(
+            "find_threats", {"entity_type": entity_type, "purpose": purpose}
+        )
+
+    def search_video_frames(
+        self,
+        query_id: str,
+        *,
+        media_type: str = "VideoFrame",
+        top_k: int = 20,
+        purpose: str = "security_incident",
+    ) -> dict[str, Any]:
+        """``search_video_frames`` — similarity search over video frames/segments (#2322)."""
+        return self.call_tool(
+            "search_video_frames",
+            {
+                "query_id": query_id,
+                "media_type": media_type,
+                "top_k": top_k,
+                "purpose": purpose,
+            },
+        )
+
+    def face_match(
+        self,
+        probe_id: str,
+        *,
+        threshold: float = 0.8,
+        top_k: int = 10,
+        purpose: str = "security_incident",
+    ) -> dict[str, Any]:
+        """``face_match`` — GATED: match a probe face against indexed media (#2322)."""
+        return self.call_tool(
+            "face_match",
+            {"probe_id": probe_id, "threshold": threshold, "top_k": top_k, "purpose": purpose},
+        )
+
     def close(self) -> None:
         self._t.close()
 
