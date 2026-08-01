@@ -124,6 +124,30 @@ class VectorClient:
         result = self._client.query(sql, purpose=self._purpose(purpose))
         return result.rows
 
+    def embed(self, text: str, *, model: str | None = None) -> dict[str, Any]:
+        """Embed a single text string via ``POST /embed`` (#1172).
+
+        Uses the server's built-in CPU lexical embedder when no sidecar is
+        configured, or the GPU sidecar (``RELATA_ACCEL_ENDPOINT``) when set.
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        payload: dict[str, Any] = {"text": text}
+        if model is not None:
+            payload["model"] = model
+        return self._client._sync.post("/embed", payload)  # noqa: SLF001
+
+    def embed_batch(
+        self, texts: list[str], *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed multiple texts in one call via ``POST /embed/batch`` (#1172).
+
+        Returns ``{"embeddings": [[...], ...], "model": ..., "dim": ..., "count": ...}``.
+        """
+        payload: dict[str, Any] = {"texts": texts}
+        if model is not None:
+            payload["model"] = model
+        return self._client._sync.post("/embed/batch", payload)  # noqa: SLF001
+
 
 class AsyncVectorClient:
     """Asynchronous typed vector client — see :class:`VectorClient`."""
@@ -207,3 +231,25 @@ class AsyncVectorClient:
         )
         result = await self._client.aquery(sql, purpose=self._purpose(purpose))
         return result.rows
+
+    async def embed(self, text: str, *, model: str | None = None) -> dict[str, Any]:
+        """Embed a single text string via ``POST /embed`` (#1172).
+
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        payload: dict[str, Any] = {"text": text}
+        if model is not None:
+            payload["model"] = model
+        return await self._client._async.post("/embed", payload)  # noqa: SLF001
+
+    async def embed_batch(
+        self, texts: list[str], *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed multiple texts in one call via ``POST /embed/batch`` (#1172).
+
+        Returns ``{"embeddings": [[...], ...], "model": ..., "dim": ..., "count": ...}``.
+        """
+        payload: dict[str, Any] = {"texts": texts}
+        if model is not None:
+            payload["model"] = model
+        return await self._client._async.post("/embed/batch", payload)  # noqa: SLF001
