@@ -122,8 +122,8 @@ surface: `async with AsyncMemory(...) as m: await m.add(...); await m.search(...
 ## Agent-framework adapters
 
 Drop-in, governed memory backends for the major agent frameworks — each maps the
-framework's memory/storage interface onto Relata, and none imports its framework
-(so they load with or without it installed):
+framework's memory/storage interface onto Relata, and (with one exception) none
+imports its framework (so they load with or without it installed):
 
 | Framework | Import | Shape |
 |---|---|---|
@@ -131,7 +131,13 @@ framework's memory/storage interface onto Relata, and none imports its framework
 | LlamaIndex | `relata_adapters.llamaindex.RelataMemory` | `BaseMemory` |
 | CrewAI | `relata_adapters.crewai.RelataStorage` | `Storage` |
 | AutoGen | `relata_adapters.autogen.RelataMemory` | `Memory` (async) |
-| LangGraph | `relata_langgraph.RelataCheckpointer` | checkpointer |
+| LangGraph* | `relata_langgraph.RelataCheckpointer` / `AsyncRelataCheckpointer` | `BaseCheckpointSaver` |
+
+\* LangGraph is the exception: it gates checkpoint behavior behind
+`isinstance(checkpointer, BaseCheckpointSaver)`, so `relata_langgraph` is a
+real subclass with a real (optional-extra) dependency on `langgraph` — see
+`pip install "relata-sdk[langgraph]"` and
+[the LangGraph checkpointer guide](https://www.relatadb.dev/docs/guides/langgraph-checkpointer).
 
 ```python
 from relata_adapters.langchain import RelataMemory
@@ -382,7 +388,7 @@ with safely-typed literals (str → single-quoted + escaped, int/float → numer
 | LlamaIndex | `relata_adapters.llamaindex.RelataMemory` | `BaseMemory` |
 | CrewAI | `relata_adapters.crewai.RelataStorage` | `Storage` |
 | AutoGen v0.2 | `relata_adapters.autogen.RelataMemory` | `Memory` (async) |
-| LangGraph | `relata_langgraph.RelataCheckpointer` | checkpointer |
+| LangGraph | `relata_langgraph.RelataCheckpointer` / `AsyncRelataCheckpointer` | `BaseCheckpointSaver` |
 | AG2 (v0.4+) | `relata_adapters.ag2.RelataAG2Memory` | `MemoryProtocol` |
 | Pydantic-AI | `relata_adapters.pydantic_ai.RelataMemoryBackend` | memory backend |
 | smolagents | `relata_adapters.smolagents.RelataTool` | tool callable |

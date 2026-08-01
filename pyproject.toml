@@ -47,6 +47,15 @@ dev = [
     "respx>=0.21",
     "ruff>=0.4",
     "mypy>=1.10",
+    "langgraph>=1.2",
+]
+# relata_langgraph.RelataCheckpointer / AsyncRelataCheckpointer subclass
+# langgraph.checkpoint.base.BaseCheckpointSaver, so unlike relata_adapters
+# (which duck-types its target frameworks) it has a real import-time
+# dependency on langgraph. Kept optional since most relata-sdk users don't
+# use LangGraph (#2229).
+langgraph = [
+    "langgraph>=1.2",
 ]
 
 [project.urls]
