@@ -759,11 +759,30 @@ class RelataClient:
     # Identity resolution & entity lifecycle (#967)
     # ------------------------------------------------------------------
 
-    def resolve_identity(self, value: str, *, purpose: str | None = None) -> dict[str, object]:
+    def resolve_identity(
+        self,
+        value: str,
+        *,
+        mode: str | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, object]:
         """Resolve an identity value to all known objects and clusters.
-        Executes ``RESOLVE_IDENTITY('<value>')`` via ``POST /query``."""
+        Executes ``RESOLVE_IDENTITY('<value>')`` via ``POST /query``.
+
+        ``mode`` selects the resolution strategy: ``"canonical"`` (single
+        best match), ``"cluster"`` (server default — same as
+        :meth:`identity_cluster`), or ``"fuse"`` (merge overlapping
+        clusters). Omit to use the server default (``cluster``).
+        """
         p = purpose or self._default_purpose or "analytics"
-        sql = f"RESOLVE_IDENTITY('{value.replace(chr(39), chr(39)+chr(39))}')"
+        escaped = value.replace(chr(39), chr(39) + chr(39))
+        sql = f"RESOLVE_IDENTITY('{escaped}')"
+        if mode is not None:
+            if mode not in ("canonical", "cluster", "fuse"):
+                raise ValueError(
+                    f"mode must be one of 'canonical', 'cluster', 'fuse'; got {mode!r}"
+                )
+            sql = f"RESOLVE_IDENTITY('{escaped}', MODE => '{mode}')"
         return self._sync.post("/query", {"purpose": p, "sql": sql})
 
     def detect_identities(self, text: str, *, purpose: str | None = None) -> dict[str, object]:

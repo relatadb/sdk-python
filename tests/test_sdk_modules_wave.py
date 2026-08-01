@@ -437,6 +437,39 @@ def _client_with_mock(handler: Handler) -> RelataClient:
     return client
 
 
+def test_resolve_identity_omits_mode_by_default() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(req.content))
+        return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
+
+    client = _client_with_mock(handler)
+    client.resolve_identity("alice@example.com")
+    assert seen[0]["sql"] == "RESOLVE_IDENTITY('alice@example.com')"
+
+
+def test_resolve_identity_supports_canonical_and_fuse_modes() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(req.content))
+        return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
+
+    client = _client_with_mock(handler)
+    client.resolve_identity("alice@example.com", mode="canonical")
+    assert seen[0]["sql"] == "RESOLVE_IDENTITY('alice@example.com', MODE => 'canonical')"
+
+    client.resolve_identity("alice@example.com", mode="fuse")
+    assert seen[1]["sql"] == "RESOLVE_IDENTITY('alice@example.com', MODE => 'fuse')"
+
+
+def test_resolve_identity_rejects_invalid_mode() -> None:
+    client = _client_with_mock(lambda req: httpx.Response(200, json={}))
+    with pytest.raises(ValueError, match="mode must be one of"):
+        client.resolve_identity("alice@example.com", mode="bogus")
+
+
 def test_wire_reconstruction_builds_sql() -> None:
     seen: list[dict[str, Any]] = []
 
