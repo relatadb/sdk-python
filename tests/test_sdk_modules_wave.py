@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
+
+if TYPE_CHECKING:
+    from relata import RelataClient
 
 BASE = "http://localhost:9090"
 
@@ -351,6 +354,117 @@ def test_ingest_bulk_csv() -> None:
     c = IngestClient(BASE, purpose="ingest", transport=_wrap(handler))
     out = c.bulk_csv("Person", "name,age\nAlice,30\nBob,40")
     assert out["accepted"] == 2
+
+
+# ---------------------------------------------------------------------------
+# #2252 — CDR + OTLP ingest helpers
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_cdr_serialises_csv_with_aliases() -> None:
+    from relata.ingest import IngestClient
+
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/ingest/cdr"
+        assert "purpose=finint" in str(req.url)
+        assert req.headers["content-type"] == "text/csv"
+        body_text = req.content.decode()
+        lines = body_text.split("\n")
+        # Header + 2 rows.
+        assert lines[0] == "caller,callee,start,duration,tower,type"
+        seen.append({"body": body_text})
+        return httpx.Response(200, json={"rows_queued": 2, "errors": [], "queue_depth": 0})
+
+    c = IngestClient(BASE, purpose="finint", transport=_wrap(handler))
+    out = c.ingest_cdr(
+        [
+            {
+                "caller": "+911234567890", "callee": "919876543210",
+                "duration": 120, "tower": "CELL-042", "type": "voice",
+            },
+            {
+                "a_number": "911111111111", "b_number": "922222222222",
+                "tower_id": "CELL-001", "call_type": "sms",
+            },
+        ],
+        purpose="finint",
+    )
+    assert out["rows_queued"] == 2
+    body = seen[0]["body"]
+    # Aliases resolve to canonical columns; digits kept (server strips non-digits).
+    assert "911234567890" in body
+    assert "911111111111" in body
+    assert "CELL-042" in body
+
+
+def test_ingest_otlp_helpers_post_json_with_purpose() -> None:
+    from relata.ingest import IngestClient
+
+    seen: list[tuple[str, dict[str, Any]]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append((req.url.path, json.loads(req.content)))
+        return httpx.Response(200, json={"ok": True})
+
+    c = IngestClient(BASE, purpose="otel", transport=_wrap(handler))
+    payload = {"resourceSpans": []}
+    assert c.otlp_traces(payload, purpose="otel")["ok"] is True
+    assert c.otlp_logs({"resourceLogs": []}, purpose="otel")["ok"] is True
+    assert c.otlp_metrics({"resourceMetrics": []}, purpose="otel")["ok"] is True
+
+    assert seen[0][0] == "/v1/traces"
+    assert seen[1][0] == "/v1/logs"
+    assert seen[2][0] == "/v1/metrics"
+    assert seen[0][1] == payload
+
+
+# ---------------------------------------------------------------------------
+# #2249 — FinINT trace ops (wire_reconstruction, hawala_trace)
+# ---------------------------------------------------------------------------
+
+
+def _client_with_mock(handler: Handler) -> RelataClient:
+    """Build a RelataClient whose sync transport is mocked."""
+    from relata import RelataClient
+    from relata._http import HttpTransport
+
+    client = RelataClient(BASE, purpose="analytics")
+    client._RelataClient__sync_transport = (  # type: ignore[attr-defined]
+        HttpTransport(BASE, None, 30.0, transport=_wrap(handler), extra_headers=None)
+    )
+    return client
+
+
+def test_wire_reconstruction_builds_sql() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/query"
+        seen.append(json.loads(req.content))
+        return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
+
+    client = _client_with_mock(handler)
+    out = client.wire_reconstruction("ACC-007", tolerance_pct=2.5, purpose="finint")
+    assert out["query_id"] == "q1"
+    assert seen[0]["sql"] == "WIRE_RECONSTRUCTION('ACC-007', TOLERANCE_PCT => 2.5)"
+    assert seen[0]["purpose"] == "finint"
+
+
+def test_hawala_trace_clamps_and_defaults_purpose() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(req.content))
+        return httpx.Response(200, json={"rows": [], "query_id": "q2", "elapsed_ms": 1})
+
+    client = _client_with_mock(handler)
+    # max_hops above the server clamp of 10 is clamped client-side to 10.
+    client.hawala_trace("SEED-1", max_hops=99)
+    assert seen[0]["sql"] == "HAWALA_TRACE('SEED-1', MAX_HOPS => 10)"
+    # No explicit purpose → client default ("analytics").
+    assert seen[0]["purpose"] == "analytics"
 
 
 # ---------------------------------------------------------------------------

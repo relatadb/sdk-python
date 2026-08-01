@@ -949,6 +949,27 @@ class RelataClient:
         p = purpose or self._default_purpose or "analytics"
         return self._sync.post("/query", {"purpose": p, "sql": f"CRYPTO_TRACE('{entity}')"})
 
+    def wire_reconstruction(
+        self, account: str, *, tolerance_pct: float | None = None, purpose: str | None = None
+    ) -> dict[str, object]:
+        """Reconstruct a wire-transfer chain (FinINT, #2249)."""
+        p = purpose or self._default_purpose or "analytics"
+        parts = [f"WIRE_RECONSTRUCTION('{account}'"]
+        if tolerance_pct is not None:
+            parts.append(f", TOLERANCE_PCT => {tolerance_pct}")
+        parts.append(")")
+        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+
+    def hawala_trace(
+        self, seed: str, *, max_hops: int | None = None, purpose: str | None = None
+    ) -> dict[str, object]:
+        """Trace an informal hawala value-transfer network (FinINT, #2249)."""
+        p = purpose or self._default_purpose or "analytics"
+        hops = 5 if max_hops is None else max(1, min(10, max_hops))
+        return self._sync.post(
+            "/query", {"purpose": p, "sql": f"HAWALA_TRACE('{seed}', MAX_HOPS => {hops})"}
+        )
+
     def dns_tunnel_detect(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
         """DNS tunnel detection."""
         p = purpose or self._default_purpose or "security"
