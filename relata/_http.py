@@ -8,6 +8,7 @@ instead.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from typing import Any
@@ -57,6 +58,54 @@ def _opt_float_header(headers: Any, name: str) -> float | None:
         return None
 
 
+# #2321 (ADR-0261): paths mounted only on the loopbound admin control-plane
+# listener (RELATA_ADMIN_BIND, default 127.0.0.1:9091) — never the main
+# data-plane listener. See crates/relata-cli/src/serve/admin_listener.rs.
+_ADMIN_ONLY_PREFIXES = ("/admin/", "/platform/")
+
+
+def _is_admin_only_path(path: str) -> bool:
+    """``True`` for a path served only by the loopbound admin listener."""
+    return path.startswith(_ADMIN_ONLY_PREFIXES)
+
+
+def _response_detail_is_blank(content_type: str, raw_text: str) -> bool:
+    """``True`` when a non-2xx response body carries no human-readable error
+    text at all -- the shape the server's own RFC 7807 normalisation
+    (``normalize_error_body``, ``crates/relata-cli/src/serve.rs``) leaves
+    behind for a request that matched no route on the listener that
+    answered (``{"type":"about:blank","status":404,"title":"Not Found",
+    "detail":""}``), as opposed to a real business error, which always
+    carries a non-empty ``detail``/``error``/``message`` by convention
+    across this codebase. Also ``True`` for a genuinely empty/whitespace
+    non-JSON body.
+    """
+    if "json" in content_type:
+        try:
+            parsed = json.loads(raw_text) if raw_text else {}
+        except ValueError:
+            return not raw_text.strip()
+        if not isinstance(parsed, dict):
+            return not raw_text.strip()
+        return not any(str(parsed.get(k) or "").strip() for k in ("detail", "error", "message"))
+    return not raw_text.strip()
+
+
+def _admin_listener_hint(path: str) -> str:
+    """Build the "you're probably pointed at the wrong port" hint for a bare
+    404 against an admin/platform-only ``path`` (#2321)."""
+    return (
+        f"{path} returned a bare 404 with no error detail. This route is "
+        "served only by Relata's loopbound admin control-plane listener "
+        "(RELATA_ADMIN_BIND, default 127.0.0.1:9091 per ADR-0261) — it is "
+        "never mounted on the main data-plane listener, so a bare 404 here "
+        "almost always means this client's base_url points at the "
+        "data-plane port instead. Pass admin_base_url= to point admin-only "
+        "calls at the admin listener, or verify RELATA_ADMIN_BIND. See "
+        "docs/src/decisions/0261-zero-trust-authorization-model.md."
+    )
+
+
 def _classify_error(
     status_code: int,
     body: dict[str, Any],
@@ -66,6 +115,9 @@ def _classify_error(
     rate_limit_limit: float | None = None,
     rate_limit_remaining: float | None = None,
     rate_limit_reset: float | None = None,
+    path: str | None = None,
+    content_type: str = "",
+    raw_text: str = "",
 ) -> RelataError:
     """Map an HTTP error response to the most-specific SDK exception.
 
@@ -82,6 +134,18 @@ def _classify_error(
         body.get("detail") or body.get("error")
         or body.get("message") or "unknown server error"
     )
+    # #2321 (ADR-0261): a bare 404 with no detail text against an
+    # admin/platform-only path almost always means this client is pointed at
+    # the data-plane listener rather than the loopbound admin listener those
+    # routes are exclusively mounted on — surface a hint instead of an
+    # uninformative bare 404/"unknown server error".
+    if (
+        status_code == 404
+        and path is not None
+        and _is_admin_only_path(path)
+        and _response_detail_is_blank(content_type, raw_text)
+    ):
+        detail = _admin_listener_hint(path)
     lower_detail = detail.lower()
 
     # Shared kwargs for every subclass.
@@ -199,19 +263,43 @@ class HttpTransport:
         retry_backoff: float = _DEFAULT_RETRY_BACKOFF,
         retry_on: frozenset[int] = _DEFAULT_RETRY_ON,
         compress: bool = False,
+        admin_base_url: str | None = None,
     ) -> None:
+        headers = _build_headers(bearer_token, extra_headers, compress=compress)
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
-            headers=_build_headers(bearer_token, extra_headers, compress=compress),
+            headers=headers,
             timeout=timeout,
             transport=transport,
         )
+        # #2321 (ADR-0261): /admin/* and /platform/* requests route to a
+        # second client bound to admin_base_url when supplied -- those routes
+        # are mounted only on the loopbound admin control-plane listener,
+        # never the main data-plane listener base_url usually targets.
+        # ``None`` (the default) preserves prior behaviour: every request
+        # goes to base_url, unchanged.
+        self._admin_client: httpx.Client | None = None
+        if admin_base_url is not None:
+            self._admin_client = httpx.Client(
+                base_url=admin_base_url.rstrip("/"),
+                headers=headers,
+                timeout=timeout,
+                transport=transport,
+            )
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._retry_on = retry_on
 
     def _request_id(self) -> str:
         return str(uuid.uuid4())
+
+    def _client_for(self, path: str) -> httpx.Client:
+        """Resolve the httpx client a request to ``path`` should use:
+        the admin client for ``/admin/*``/``/platform/*`` when configured,
+        the ordinary client otherwise (unchanged behaviour when unset)."""
+        if self._admin_client is not None and _is_admin_only_path(path):
+            return self._admin_client
+        return self._client
 
     def _send_with_retry(
         self,
@@ -223,9 +311,10 @@ class HttpTransport:
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Send an HTTP request with retry + request_id propagation."""
+        client = self._client_for(path)
         # If the caller already set X-Request-ID in the default headers bag,
         # respect it — only generate a per-attempt UUID when no default exists.
-        has_default_rid = "x-request-id" in {k.lower() for k in self._client.headers}
+        has_default_rid = "x-request-id" in {k.lower() for k in client.headers}
         last_exc: RelataError | None = None
         for attempt in range(self._max_retries + 1):
             req_headers: dict[str, str] = {}
@@ -235,17 +324,17 @@ class HttpTransport:
                 req_headers.update(headers)
             try:
                 if method == "GET":
-                    resp = self._client.get(path, headers=req_headers)
+                    resp = client.get(path, headers=req_headers)
                 elif method == "DELETE":
-                    resp = self._client.delete(path, headers=req_headers)
+                    resp = client.delete(path, headers=req_headers)
                 elif json_payload is not None:
-                    resp = self._client.request(
+                    resp = client.request(
                         method, path, json=json_payload, headers=req_headers
                     )
                 elif content is not None:
-                    resp = self._client.request(method, path, content=content, headers=req_headers)
+                    resp = client.request(method, path, content=content, headers=req_headers)
                 else:
-                    resp = self._client.request(method, path, headers=req_headers)
+                    resp = client.request(method, path, headers=req_headers)
             except httpx.ConnectError as exc:
                 last_exc = ConnectionError(
                     f"Cannot connect to Relata server: {exc}. "
@@ -311,6 +400,8 @@ class HttpTransport:
 
     def close(self) -> None:
         self._client.close()
+        if self._admin_client is not None:
+            self._admin_client.close()
 
     @staticmethod
     def _handle(resp: httpx.Response) -> dict[str, Any]:
@@ -334,6 +425,9 @@ class HttpTransport:
             rate_limit_limit=rl_limit,
             rate_limit_remaining=rl_remaining,
             rate_limit_reset=rl_reset,
+            path=resp.request.url.path,
+            content_type=resp.headers.get("content-type", ""),
+            raw_text=resp.text,
         )
 
 
@@ -356,19 +450,38 @@ class AsyncHttpTransport:
         retry_backoff: float = _DEFAULT_RETRY_BACKOFF,
         retry_on: frozenset[int] = _DEFAULT_RETRY_ON,
         compress: bool = False,
+        admin_base_url: str | None = None,
     ) -> None:
+        headers = _build_headers(bearer_token, extra_headers, compress=compress)
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
-            headers=_build_headers(bearer_token, extra_headers, compress=compress),
+            headers=headers,
             timeout=timeout,
             transport=transport,
         )
+        # #2321 (ADR-0261): see HttpTransport.__init__ for the rationale --
+        # /admin/*|/platform/* route to a second client bound to
+        # admin_base_url when supplied; None preserves prior behaviour.
+        self._admin_client: httpx.AsyncClient | None = None
+        if admin_base_url is not None:
+            self._admin_client = httpx.AsyncClient(
+                base_url=admin_base_url.rstrip("/"),
+                headers=headers,
+                timeout=timeout,
+                transport=transport,
+            )
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._retry_on = retry_on
 
     def _request_id(self) -> str:
         return str(uuid.uuid4())
+
+    def _client_for(self, path: str) -> httpx.AsyncClient:
+        """See :meth:`HttpTransport._client_for`."""
+        if self._admin_client is not None and _is_admin_only_path(path):
+            return self._admin_client
+        return self._client
 
     async def _send_with_retry(
         self,
@@ -382,6 +495,7 @@ class AsyncHttpTransport:
         """Send an async HTTP request with retry + request_id propagation."""
         import asyncio
 
+        client = self._client_for(path)
         last_exc: RelataError | None = None
         for attempt in range(self._max_retries + 1):
             req_headers: dict[str, str] = {"X-Request-ID": self._request_id()}
@@ -389,15 +503,15 @@ class AsyncHttpTransport:
                 req_headers.update(headers)
             try:
                 if method == "GET":
-                    resp = await self._client.get(path, headers=req_headers)
+                    resp = await client.get(path, headers=req_headers)
                 elif method == "DELETE":
-                    resp = await self._client.delete(path, headers=req_headers)
+                    resp = await client.delete(path, headers=req_headers)
                 elif content is not None:
-                    resp = await self._client.request(
+                    resp = await client.request(
                         method, path, content=content, headers=req_headers
                     )
                 else:
-                    resp = await self._client.request(
+                    resp = await client.request(
                         method, path, json=json_payload or {}, headers=req_headers
                     )
             except httpx.ConnectError as exc:
@@ -454,6 +568,8 @@ class AsyncHttpTransport:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+        if self._admin_client is not None:
+            await self._admin_client.aclose()
 
     @staticmethod
     def _handle(resp: httpx.Response) -> dict[str, Any]:
@@ -477,4 +593,7 @@ class AsyncHttpTransport:
             rate_limit_limit=rl_limit,
             rate_limit_remaining=rl_remaining,
             rate_limit_reset=rl_reset,
+            path=resp.request.url.path,
+            content_type=resp.headers.get("content-type", ""),
+            raw_text=resp.text,
         )

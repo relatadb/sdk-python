@@ -80,9 +80,22 @@ class BackupClient:
         timeout: float = 120.0,
         extra_headers: dict[str, str] | None = None,
         transport: httpx.BaseTransport | None = None,
+        admin_base_url: str | None = None,
     ) -> None:
+        # #2321 (ADR-0261): every route this client wraps is /admin/*, which
+        # is mounted only on the loopbound admin control-plane listener
+        # (RELATA_ADMIN_BIND, default 127.0.0.1:9091) on a hardened
+        # server/cluster deployment -- pass admin_base_url to reach it there.
+        # Unset (the default) preserves prior behaviour: every request goes
+        # to base_url, correct when the admin listener isn't split (e.g.
+        # local/free-profile dev).
         self._t = HttpTransport(
-            base_url, bearer_token, timeout, transport=transport, extra_headers=extra_headers
+            base_url,
+            bearer_token,
+            timeout,
+            transport=transport,
+            extra_headers=extra_headers,
+            admin_base_url=admin_base_url,
         )
 
     @classmethod
@@ -92,6 +105,7 @@ class BackupClient:
             bearer_token=client._bearer_token,  # noqa: SLF001
             timeout=client._timeout,  # noqa: SLF001
             extra_headers=client._extra_headers,  # noqa: SLF001
+            admin_base_url=client._admin_base_url,  # noqa: SLF001
         )
 
     def create(
@@ -182,9 +196,16 @@ class AsyncBackupClient:
         timeout: float = 120.0,
         extra_headers: dict[str, str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        admin_base_url: str | None = None,
     ) -> None:
+        # See BackupClient.__init__ (#2321, ADR-0261).
         self._t = AsyncHttpTransport(
-            base_url, bearer_token, timeout, transport=transport, extra_headers=extra_headers
+            base_url,
+            bearer_token,
+            timeout,
+            transport=transport,
+            extra_headers=extra_headers,
+            admin_base_url=admin_base_url,
         )
 
     @classmethod
@@ -194,6 +215,7 @@ class AsyncBackupClient:
             bearer_token=client._bearer_token,  # noqa: SLF001
             timeout=client._timeout,  # noqa: SLF001
             extra_headers=client._extra_headers,  # noqa: SLF001
+            admin_base_url=client._admin_base_url,  # noqa: SLF001
         )
 
     async def create(

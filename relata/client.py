@@ -179,6 +179,15 @@ class RelataClient:
             request (e.g. ``{"X-Request-ID": "..."}`` for correlation, or
             ``{"X-Verified-Principal": "..."}`` for proxy-trust deployments).
             Caller-supplied headers win over the SDK defaults.
+        admin_base_url: Base URL of the loopbound admin control-plane
+            listener (``RELATA_ADMIN_BIND``, default ``127.0.0.1:9091``).
+            Per ADR-0261, ``/admin/*`` and ``/platform/*`` routes are mounted
+            **only** there on a hardened server/cluster deployment -- set
+            this so :class:`~relata.backup.BackupClient` and
+            :class:`~relata.tenants.TenantAdminClient`'s platform-tenant
+            methods reach them. Leave unset (the default) when the admin
+            listener isn't split from the data plane (e.g. local/free-profile
+            dev) -- every request then goes to ``base_url`` unchanged.
 
     Raises:
         :class:`~relata.exceptions.AuthError`: When the server rejects the
@@ -224,8 +233,17 @@ class RelataClient:
         max_retries: int = 0,
         retry_backoff_secs: float = 0.5,
         compress: bool = False,
+        admin_base_url: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        # #2321 (ADR-0261): /admin/* and /platform/* are mounted only on the
+        # loopbound admin control-plane listener (RELATA_ADMIN_BIND, default
+        # 127.0.0.1:9091) -- never this client's main base_url on a hardened
+        # server/cluster deployment. Set admin_base_url to point BackupClient/
+        # TenantAdminClient's platform-tenant methods at that listener; leave
+        # unset (the default) when the admin listener isn't split from the
+        # data plane (e.g. local/free-profile dev) -- unchanged behaviour.
+        self._admin_base_url = admin_base_url.rstrip("/") if admin_base_url else None
         self._bearer_token = bearer_token
         self._default_purpose = purpose
         self._timeout = timeout
@@ -270,6 +288,7 @@ class RelataClient:
                 max_retries=self._max_retries,
                 retry_backoff=self._retry_backoff,
                 compress=self._compress,
+                admin_base_url=self._admin_base_url,
             )
         return self.__sync_transport
 
@@ -284,6 +303,7 @@ class RelataClient:
                 max_retries=self._max_retries,
                 retry_backoff=self._retry_backoff,
                 compress=self._compress,
+                admin_base_url=self._admin_base_url,
             )
         return self.__async_transport
 
