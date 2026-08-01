@@ -334,6 +334,18 @@ Each module inherits the parent client's auth, tenant, and purpose context:
 
 Each has an async mirror (`Async*`).
 
+**Admin-listener reachability (`admin_base_url`, #2321):** on a hardened
+`server`/`cluster` deployment, `/admin/*` and `/platform/*` are mounted only
+on the loopbound admin control-plane listener (`RELATA_ADMIN_BIND`, default
+`127.0.0.1:9091` — ADR-0261), never the main data-plane `base_url`. Pass
+`admin_base_url=` to `RelataClient` (inherited automatically by
+`BackupClient`/`TenantAdminClient.from_client(...)`) or directly to
+`BackupClient`/`TenantAdminClient` to reach those routes. Leave it unset (the
+default) on the free profile, where the admin listener isn't split from the
+data plane. A bare 404 from an admin/platform-only route with no error
+detail is rewritten into a hint pointing at this option instead of a
+confusing plain 404.
+
 ### v1.1 transport hardening (#79)
 
 - **RFC 7807 problem+json parsing** — every error carries `code`, `type_url`, `retryable`, `request_id`.
