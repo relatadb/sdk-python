@@ -40,13 +40,13 @@ def test_rfc7807_body_parsed_into_typed_exception() -> None:
         "type": "https://docs.relatadb.dev/errors/forbidden",
         "title": "Forbidden",
         "detail": "principal not authorised for Warrant",
-        "code": "RELATA.ACL.FORBIDDEN",
+        "code": "access-denied",
         "retryable": False,
         "request_id": "req-abc",
     }
     exc = _classify_error(403, body, request_id="req-abc")
     assert isinstance(exc, ForbiddenError)
-    assert exc.code == "RELATA.ACL.FORBIDDEN"
+    assert exc.code == "access-denied"
     assert exc.type_url == "https://docs.relatadb.dev/errors/forbidden"
     assert exc.retryable is False
     assert exc.request_id == "req-abc"
@@ -56,7 +56,7 @@ def test_rfc7807_429_carries_retry_after() -> None:
     from relata._http import _classify_error
     from relata.exceptions import RateLimitedError
 
-    body = {"detail": "quota exceeded", "code": "RELATA.QUOTA.EXCEEDED", "retryable": True}
+    body = {"detail": "quota exceeded", "code": "REL_QUOTA", "retryable": True}
     exc = _classify_error(429, body, retry_after=30.0)
     assert isinstance(exc, RateLimitedError)
     assert exc.retry_after == 30.0
