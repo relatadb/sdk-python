@@ -102,6 +102,41 @@ Supported: `MATCH` / `OPTIONAL MATCH`, `WHERE`, `RETURN`, `UNION` / `UNION ALL`
 writes route through the governed write door. See the
 [SQL reference](https://www.relatadb.dev/docs/reference/sql).
 
+## Hybrid search — `VectorClient.hybrid_search()`
+
+`VectorClient` wraps the server's `HYBRID_SEARCH` operator (ADR-175): supply
+`query_text` (BM25 leg), `query_embedding` + `embedding_slot` (vector leg), or
+both — when both are present the server fuses the two rankings via
+reciprocal rank fusion. This is Relata's genuine edge over a plain vector DB
+or a plain full-text engine.
+
+```python
+from relata import RelataClient
+from relata.vectors import VectorClient
+
+with RelataClient("http://localhost:9090", purpose="rag") as client:
+    vectors = VectorClient.from_client(client)
+
+    query_embedding = vectors.embed("graph retrieval")["embedding"]
+
+    hits = vectors.hybrid_search(
+        "Document",
+        query_text="graph retrieval",
+        query_embedding=query_embedding,
+        embedding_slot="_emb_text",
+        k=10,
+    )
+    for row in hits:
+        print(row["title"], row.get("_score"))
+```
+
+See `examples/hybrid_search.py` for a full runnable walkthrough (embed →
+ingest → BM25-only vs. vector-only vs. fused search). The higher-level
+`namespace().query(rank_by=["vector", "ann", "..."])` door (above) reaches the
+same fused path when both a `text` and a vector `rank_by` are supplied;
+`VectorClient.hybrid_search()` is the typed entry point when you want direct
+control over `embedding_slot` and both legs at once.
+
 ## Agent memory in three lines
 
 For agent-memory workloads, `Memory` is a Mem0-style one-liner surface over the
@@ -451,6 +486,7 @@ See the `examples/` directory:
 | `basic_query.py` | Getting started, health check, quota check |
 | `analytics.py` | Full analytics workflow: identity → cases → graph → provenance |
 | `face_search.py` | MATCH_FACE operator, threshold comparison, CCTV temporal search |
+| `hybrid_search.py` | `VectorClient.hybrid_search()` — embed, ingest, BM25-only vs. vector-only vs. fused (RRF) search |
 | `graph_traversal.py` | PATHS_BETWEEN, temporal network shift, hub detection |
 | `audit.py` | Chain verification, audit summary, anomaly detection |
 
