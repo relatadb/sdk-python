@@ -81,6 +81,7 @@ class Namespace:
         limit: int = 20,
         include_attributes: list[str] | None = None,
         consistency: str | None = None,
+        compute_attributes: dict[str, str] | None = None,
         purpose: str | None = None,
     ) -> QueryResult:
         """Typed ranked search over this namespace — see
@@ -98,6 +99,7 @@ class Namespace:
             limit=limit,
             include_attributes=include_attributes,
             consistency=consistency,
+            compute_attributes=compute_attributes,
             purpose=purpose,
         )
 
@@ -208,6 +210,7 @@ class AsyncNamespace:
         limit: int = 20,
         include_attributes: list[str] | None = None,
         consistency: str | None = None,
+        compute_attributes: dict[str, str] | None = None,
         purpose: str | None = None,
     ) -> QueryResult:
         from relata.search import AsyncSearchClient
@@ -221,6 +224,7 @@ class AsyncNamespace:
             limit=limit,
             include_attributes=include_attributes,
             consistency=consistency,
+            compute_attributes=compute_attributes,
             purpose=purpose,
         )
 

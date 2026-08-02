@@ -161,6 +161,15 @@ def test_payload_carries_filters_include_attributes_consistency_purpose():
     assert payload["purpose"] == "rag"
 
 
+def test_payload_carries_compute_attributes():
+    payload = _build_payload(
+        namespace="Doc", text="x", match_column="*", rank_by=None, filters=None,
+        limit=5, include_attributes=None, consistency=None,
+        compute_attributes={"bm25_score": "BM25()"}, purpose=None,
+    )
+    assert payload["compute_attributes"] == {"bm25_score": "BM25()"}
+
+
 def test_payload_no_text_no_rank_by_is_filter_only():
     payload = _build_payload(
         namespace="Doc", text=None, match_column="*", rank_by=None,

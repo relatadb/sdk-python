@@ -23,6 +23,8 @@ Server contract (``JsonSearchRequest``, #1983):
   ``eq | ne | gt | gte | lt | lte | like | ilike | in | between``.
 - ``include_attributes`` — column projection (default ``*``).
 - ``consistency`` — ``"strong"`` (default) | ``"eventual"``.
+- ``compute_attributes`` — side-output ranking signals per hit, e.g.
+  ``{"bm25_score": "BM25()", "snippet": "HIGHLIGHT(bio)"}`` (#1985 T3, #2465).
 
 The response is the governed ``/query`` envelope (``{rows, columns, ...}``),
 returned here as a :class:`~relata.models.QueryResult`.
@@ -120,6 +122,7 @@ class SearchClient:
         limit: int = 20,
         include_attributes: list[str] | None = None,
         consistency: str | None = None,
+        compute_attributes: dict[str, str] | None = None,
         purpose: str | None = None,
     ) -> QueryResult:
         """Run a typed search against ``namespace`` (an object type).
@@ -138,6 +141,10 @@ class SearchClient:
             limit: Max hits (server clamps to ``[1, 10000]``).
             include_attributes: Column projection (default ``*``).
             consistency: ``"strong"`` (default) | ``"eventual"``.
+            compute_attributes: Side-output ranking signals per hit,
+                ``{label: expr}`` e.g. ``{"bm25_score": "BM25()"}`` — compiles
+                to a trailing ``COMPUTE`` clause (#1985 T3). Purely additive:
+                never affects which rows match or their order.
             purpose: Optional purpose override.
 
         Returns:
@@ -154,6 +161,7 @@ class SearchClient:
             limit=limit,
             include_attributes=include_attributes,
             consistency=consistency,
+            compute_attributes=compute_attributes,
             purpose=self._purpose(purpose),
         )
         data = self._client._sync.post("/search", payload)  # noqa: SLF001
@@ -170,6 +178,7 @@ class SearchClient:
         limit: int = 20,
         include_attributes: list[str] | None = None,
         consistency: str | None = None,
+        compute_attributes: dict[str, str] | None = None,
         purpose: str | None = None,
     ) -> QueryResult:
         """Async variant of :meth:`query`."""
@@ -182,6 +191,7 @@ class SearchClient:
             limit=limit,
             include_attributes=include_attributes,
             consistency=consistency,
+            compute_attributes=compute_attributes,
             purpose=self._purpose(purpose),
         )
         data = await self._client._async.post("/search", payload)  # noqa: SLF001
@@ -209,6 +219,7 @@ class AsyncSearchClient:
         limit: int = 20,
         include_attributes: list[str] | None = None,
         consistency: str | None = None,
+        compute_attributes: dict[str, str] | None = None,
         purpose: str | None = None,
     ) -> QueryResult:
         return await self._inner.aquery(
@@ -220,6 +231,7 @@ class AsyncSearchClient:
             limit=limit,
             include_attributes=include_attributes,
             consistency=consistency,
+            compute_attributes=compute_attributes,
             purpose=purpose,
         )
 
@@ -234,6 +246,7 @@ def _build_payload(
     limit: int,
     include_attributes: list[str] | None,
     consistency: str | None,
+    compute_attributes: dict[str, str] | None = None,
     purpose: str | None,
 ) -> dict[str, object]:
     """Assemble the typed ``POST /search`` JSON body (no ``query`` key)."""
@@ -259,6 +272,8 @@ def _build_payload(
         payload["include_attributes"] = include_attributes
     if consistency:
         payload["consistency"] = consistency
+    if compute_attributes:
+        payload["compute_attributes"] = compute_attributes
     if purpose:
         payload["purpose"] = purpose
     return payload
