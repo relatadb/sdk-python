@@ -545,6 +545,13 @@ class AsyncMemory:
             cancel_threshold=cancel_threshold,
         )
 
+    async def batch_search(
+        self, queries: list[str], *, top_k: int = 5
+    ) -> list[list[dict[str, Any]]]:
+        """Async equivalent of :meth:`Memory.batch_search` — runs multiple
+        recall queries and returns the merged results (#967 Tier 4c)."""
+        return [await self.search(q, top_k=top_k) for q in queries]
+
     async def _recall(
         self,
         query: str,

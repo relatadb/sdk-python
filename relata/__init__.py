@@ -38,21 +38,28 @@ Public API
 
 from relata.a2a import A2AClient, AsyncA2AClient
 from relata.audit import AsyncAuditClient, AuditClient
+from relata.backup import AsyncBackupClient, BackupClient
 from relata.flight import AsyncFlightClient, FlightClient
 from relata.client import RelataClient
 from relata import aml
 from relata import canonical
 from relata.exceptions import (
     AuthError,
+    ConflictError,
     ConnectionError,
+    ForbiddenError,
+    NotFoundError,
     PurposeError,
     QuotaError,
+    RateLimitedError,
     RelataError,
     ServerError,
+    ValidationError,
 )
 from relata.governance import AsyncGovernanceClient, GovernanceClient
 from relata.identity import AsyncIdentityClient, IdentityClient
 from relata.ingest import AsyncIngestClient, IngestClient
+from relata.log import AsyncLogClient, LogClient
 from relata.mcp import AsyncMcpClient, McpClient
 from relata.memory import AsyncMemory, Memory
 from relata.models import (
@@ -62,6 +69,8 @@ from relata.models import (
     IngestDocumentResponse,
     QueryResult,
     ReadyReport,
+    SearchHit,
+    SearchResponse,
     Stats,
     StatusResponse,
     VersionInfo,
@@ -74,9 +83,9 @@ from relata.search import AsyncSearchClient, SearchClient
 from relata.streaming import AsyncStreamingClient, StreamingClient
 from relata.system import AsyncSystemClient, SystemClient
 from relata.tenants import AsyncTenantAdminClient, TenantAdminClient
+from relata.tokens import AsyncTokenClient, TokenClient
 from relata.vectors import AsyncVectorClient, VectorClient
-
-__version__ = "0.2.0"
+from relata._version import __version__
 
 __all__ = [
     # Client
@@ -111,6 +120,13 @@ __all__ = [
     "AsyncFlightClient",
     "TenantAdminClient",
     "AsyncTenantAdminClient",
+    # #2757: previously import-only (required an explicit submodule import)
+    "BackupClient",
+    "AsyncBackupClient",
+    "TokenClient",
+    "AsyncTokenClient",
+    "LogClient",
+    "AsyncLogClient",
     # T9 flagship retrieval surface (#1991)
     "Namespace",
     "AsyncNamespace",
@@ -129,6 +145,8 @@ __all__ = [
     "VersionInfo",
     "Stats",
     "ReadyReport",
+    "SearchHit",
+    "SearchResponse",
     # Exceptions
     "RelataError",
     "PurposeError",
@@ -136,6 +154,11 @@ __all__ = [
     "AuthError",
     "ConnectionError",
     "ServerError",
+    "ForbiddenError",
+    "NotFoundError",
+    "ConflictError",
+    "ValidationError",
+    "RateLimitedError",
     # Foundational typed surfaces (#2248 client canonical validation, #2255 AML decoders)
     "aml",
     "canonical",

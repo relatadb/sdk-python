@@ -283,6 +283,44 @@ class AsyncStreamingClient:
 
         return _gen()
 
+    async def query_arrow_raw(
+        self,
+        sql: str,
+        *,
+        purpose: str | None = None,
+    ) -> Any:  # noqa: ANN401
+        """Async equivalent of :meth:`StreamingClient.query_arrow_raw` — async
+        iterator over the raw Arrow IPC byte stream from ``POST /query/arrow``.
+
+        Usage::
+
+            async for chunk in client.streaming.query_arrow_raw(sql, purpose="x"):
+                ...
+        """
+        eff_purpose = self._purpose(purpose)
+        async_transport = self._client._async  # noqa: SLF001
+
+        async def _gen() -> Any:  # noqa: ANN401
+            async with async_transport._client.stream(  # noqa: SLF001
+                "POST",
+                "/query/arrow",
+                json={"purpose": eff_purpose, "sql": sql},
+            ) as resp:
+                if not resp.is_success:
+                    await resp.aread()
+                    from relata._http import _classify_error
+
+                    try:
+                        body = resp.json()
+                    except Exception:
+                        body = {"error": resp.text}
+                    raise _classify_error(resp.status_code, body)
+                async for chunk in resp.aiter_bytes():
+                    if chunk:
+                        yield chunk
+
+        return _gen()
+
     async def watch(
         self,
         sql: str,

@@ -495,6 +495,11 @@ class AsyncGovernanceClient(_BaseGovernance):
     async def get_rule_tuning(self, rule_id: str) -> dict[str, Any]:
         return await self._t.get(f"/rules/{rule_id}/tuning")
 
+    async def list_retention_policies(self) -> list[dict[str, Any]]:
+        data = await self._t.get("/retention/policies")
+        policies = data.get("policies") if isinstance(data, dict) else data
+        return policies if isinstance(policies, list) else []
+
     async def list_legal_holds(self) -> list[dict[str, Any]]:
         data = await self._t.get("/retention/holds")
         holds = data.get("holds") if isinstance(data, dict) else data

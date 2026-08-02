@@ -235,6 +235,10 @@ class AsyncBackupClient:
         raw_list = resp.get("backups", []) if isinstance(resp, dict) else []
         return [BackupRef(r) for r in raw_list]
 
+    async def compact(self) -> dict[str, Any]:
+        """Async equivalent of :meth:`BackupClient.compact`."""
+        return await self._t.post("/admin/compact", {})
+
     async def restore(
         self,
         snapshot_id: str,

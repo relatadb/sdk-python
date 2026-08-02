@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 
+from relata._version import __version__
 from relata.exceptions import (
     AuthError,
     ConflictError,
@@ -238,7 +239,7 @@ def _build_headers(
     headers: dict[str, str] = {
         "Content-Type": _CONTENT_TYPE,
         "Accept": _CONTENT_TYPE,
-        "User-Agent": "relata-sdk-python/0.1.0",
+        "User-Agent": f"relata-sdk-python/{__version__}",
     }
     if not compress:
         # T9 (#1991): HTTP compression disabled by default — SDK clients are

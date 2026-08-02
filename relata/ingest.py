@@ -8,7 +8,7 @@ path the partner contract (§4) calls for.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any, AsyncIterable, Iterable
 from urllib.parse import urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport
@@ -403,6 +403,43 @@ class AsyncIngestClient:
     ) -> dict[str, Any]:
         """Async ingest OTLP/JSON metrics via ``POST /v1/metrics`` (#2252)."""
         return await self._t.post(_purpose_path("/v1/metrics", purpose or self._purpose), payload)
+
+    async def ingest_iter(
+        self,
+        object_type: str,
+        rows: AsyncIterable[dict[str, Any]] | Iterable[dict[str, Any]],
+        *,
+        purpose: str | None = None,
+        batch_size: int = 500,
+    ) -> int:
+        """Async equivalent of :meth:`IngestClient.ingest_iter`.
+
+        Accepts either a synchronous or an asynchronous iterable/iterator of
+        rows, so callers can stream from an async source (e.g. an async DB
+        cursor or an async generator) as well as a plain list. Memory is
+        O(batch_size), not O(total_rows). Returns the total number of rows
+        successfully ingested.
+        """
+        batch: list[dict[str, Any]] = []
+        total = 0
+        if hasattr(rows, "__aiter__"):
+            async for row in rows:  # type: ignore[union-attr]
+                batch.append(row)
+                if len(batch) >= batch_size:
+                    await self.bulk(object_type, batch, purpose=purpose)
+                    total += len(batch)
+                    batch = []
+        else:
+            for row in rows:  # type: ignore[union-attr]
+                batch.append(row)
+                if len(batch) >= batch_size:
+                    await self.bulk(object_type, batch, purpose=purpose)
+                    total += len(batch)
+                    batch = []
+        if batch:
+            await self.bulk(object_type, batch, purpose=purpose)
+            total += len(batch)
+        return total
 
     async def media_status(self, task_id: str) -> dict[str, Any]:
         return await self._t.get(f"/ingest/media/{task_id}")

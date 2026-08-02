@@ -320,6 +320,21 @@ class AsyncObjectClient:
         )
         return dict(HttpTransport._handle(resp))
 
+    async def typed_upsert(self, obj: Any, *, purpose: str | None = None) -> dict[str, Any]:
+        """Async equivalent of :meth:`ObjectClient.typed_upsert` — upsert a
+        typed object (Pydantic model or dataclass), validated locally before
+        the request reaches the server (#967 Tier 2a)."""
+        if hasattr(obj, "model_dump"):
+            fields = obj.model_dump()
+        elif hasattr(obj, "__dataclass_fields__"):
+            from dataclasses import asdict
+            fields = asdict(obj)
+        else:
+            fields = dict(obj)
+        object_type = fields.pop("_type", type(obj).__name__)
+        object_id = str(fields.get("_pk", fields.get("id", "")))
+        return await self.upsert(object_type, object_id, fields, purpose=purpose)
+
     async def batch_upsert(
         self,
         object_type: str,

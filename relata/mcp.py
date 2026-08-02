@@ -910,7 +910,12 @@ class McpClient:
 
 
 class AsyncMcpClient:
-    """Asynchronous MCP client — see :class:`McpClient`."""
+    """Asynchronous MCP client — see :class:`McpClient`.
+
+    Mirrors every sync convenience wrapper on :class:`McpClient` (#2757) in
+    addition to the three core methods (``initialize``/``list_tools``/
+    ``call_tool``) — the same method name, `async def`, same arguments.
+    """
 
     def __init__(
         self,
@@ -953,6 +958,770 @@ class AsyncMcpClient:
         if arguments:
             payload["arguments"] = arguments
         return unwrap_mcp(await self._t.post("/mcp/tools/call", payload))
+
+    # ------------------------------------------------------------------
+    # Async mirrors of every McpClient convenience wrapper (#2757).
+    # Same argument shapes / server tool-name mapping as the sync class.
+    # ------------------------------------------------------------------
+
+    # --- Knowledge / query ---
+
+    async def query_knowledge(self, sql: str, *, purpose: str) -> dict[str, Any]:
+        """``query`` / ``query_knowledge`` — governed SQL query."""
+        return await self.call_tool("query_knowledge", {"sql": sql, "purpose": purpose})
+
+    async def search_knowledge(
+        self,
+        query: str,
+        *,
+        purpose: str,
+        top_k: int = 10,
+    ) -> dict[str, Any]:
+        """``search_knowledge`` — hybrid BM25 + vector search."""
+        return await self.call_tool(
+            "search_knowledge",
+            {"query": query, "purpose": purpose, "limit": top_k},
+        )
+
+    async def explain_policy(self, sql: str, *, purpose: str) -> dict[str, Any]:
+        """``explain_policy`` — show the ACL / org-isolation policy that would
+        apply to ``sql`` without executing it."""
+        return await self.call_tool("explain_policy", {"sql": sql, "purpose": purpose})
+
+    async def suggest_extensions(self) -> dict[str, Any]:
+        """``suggest_extensions`` — list extension packs and their data
+        availability."""
+        return await self.call_tool("suggest_extensions", {})
+
+    # --- Entity / type discovery ---
+
+    async def list_entity_types(self) -> dict[str, Any]:
+        """``list_entity_types`` — every registered ontology type."""
+        return await self.call_tool("list_entity_types", {})
+
+    async def get_entities(
+        self,
+        object_type: str,
+        *,
+        filters: dict[str, str] | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """``get_entities`` — paginated entity list."""
+        args: dict[str, Any] = {"entity_type": object_type, "limit": limit}
+        if filters:
+            args["filters"] = filters
+        return await self.call_tool("get_entities", args)
+
+    async def search_entities(
+        self, query: str, *, entity_types: list[str] | None = None
+    ) -> dict[str, Any]:
+        """``search_entities`` — free-text entity search."""
+        args: dict[str, Any] = {"query": query}
+        if entity_types:
+            args["entity_types"] = entity_types
+        return await self.call_tool("search_entities", args)
+
+    async def get_domain_summary(self, domain: str) -> dict[str, Any]:
+        """``get_domain_summary`` — counts + freshness for a domain."""
+        return await self.call_tool("get_domain_summary", {"domain": domain})
+
+    async def find_in_social_corpus(
+        self,
+        object_type: str,
+        *,
+        text_query: str | None = None,
+        user: str | None = None,
+        top_k: int = 20,
+    ) -> dict[str, Any]:
+        """``find_in_social_corpus`` — search the ingested social-media corpus."""
+        args: dict[str, Any] = {"object_type": object_type, "top_k": top_k}
+        if text_query:
+            args["text_query"] = text_query
+        if user:
+            args["user"] = user
+        return await self.call_tool("find_in_social_corpus", args)
+
+    # --- Identity ---
+
+    async def lookup_identity(self, value: str, *, purpose: str = "analytics") -> dict[str, Any]:
+        """``lookup_identity`` — universal identity lookup."""
+        return await self.call_tool("lookup_identity", {"raw": value, "purpose": purpose})
+
+    # --- Case / investigation ---
+
+    async def get_entity_profile(self, entity_id: str, *, purpose: str) -> dict[str, Any]:
+        """``get_entity_profile`` — rich per-entity dossier."""
+        return await self.call_tool("get_entity_profile", {"name": entity_id, "purpose": purpose})
+
+    async def get_timeline(
+        self,
+        entity_id: str,
+        *,
+        purpose: str,
+        since_ns: int | None = None,
+        until_ns: int | None = None,
+    ) -> dict[str, Any]:
+        """``get_timeline`` — chronological event list for an entity."""
+        args: dict[str, Any] = {"entity": entity_id, "purpose": purpose}
+        if since_ns is not None:
+            args["since_ns"] = since_ns
+        if until_ns is not None:
+            args["until_ns"] = until_ns
+        return await self.call_tool("get_timeline", args)
+
+    async def find_connections(
+        self,
+        entity: str,
+        *,
+        purpose: str,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """``find_connections`` — surface entities connected to a target via
+        relationships or shared attributes."""
+        return await self.call_tool(
+            "find_connections",
+            {"entity": entity, "limit": limit, "purpose": purpose},
+        )
+
+    async def get_relationships(
+        self,
+        subject: str | None = None,
+        *,
+        purpose: str,
+        predicate: str | None = None,
+        object: str | None = None,  # noqa: A002 — matches the schema field name
+        source: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """``get_relationships`` — governed (subject, predicate, object) triples."""
+        args: dict[str, Any] = {"purpose": purpose, "limit": limit}
+        if subject:
+            args["subject"] = subject
+        if predicate:
+            args["predicate"] = predicate
+        if object:
+            args["object"] = object
+        if source:
+            args["source"] = source
+        return await self.call_tool("get_relationships", args)
+
+    async def add_case_note(
+        self,
+        case_id: str,
+        note: str,
+        *,
+        author: str | None = None,
+    ) -> dict[str, Any]:
+        """``add_case_note`` — append an investigative note to a case."""
+        args: dict[str, Any] = {"case_id": case_id, "note": note}
+        if author:
+            args["author"] = author
+        return await self.call_tool("add_case_note", args)
+
+    async def get_audit_trail(
+        self,
+        *,
+        purpose: str | None = None,
+        principal_filter: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """``get_audit_trail`` — the governed audit trail."""
+        args: dict[str, Any] = {"limit": limit}
+        if purpose:
+            args["purpose"] = purpose
+        if principal_filter:
+            args["principal_filter"] = principal_filter
+        return await self.call_tool("get_audit_trail", args)
+
+    async def get_case_summary(self, case_id: str, *, purpose: str) -> dict[str, Any]:
+        """``get_case_summary`` — LLM-generated narrative summary of a case."""
+        return await self.call_tool("get_case_summary", {"case_id": case_id, "purpose": purpose})
+
+    # --- RAG / ingest ---
+
+    async def rag_store_answer(
+        self,
+        question: str,
+        answer: str,
+        *,
+        source_ids: list[str] | None = None,
+        purpose: str,
+    ) -> dict[str, Any]:
+        """``rag_store_answer`` — persist a Q&A pair for downstream RAG."""
+        args: dict[str, Any] = {"question": question, "answer": answer, "purpose": purpose}
+        if source_ids:
+            args["source_ids"] = source_ids
+        return await self.call_tool("rag_store_answer", args)
+
+    async def rag_store_elements(
+        self,
+        elements: list[dict[str, Any]],
+        *,
+        purpose: str,
+    ) -> dict[str, Any]:
+        """``rag_store_elements`` — bulk persist structured RAG elements."""
+        return await self.call_tool(
+            "rag_store_elements", {"elements": elements, "purpose": purpose}
+        )
+
+    async def ingest_document(
+        self,
+        chunks_jsonl: str,
+        manifest_json: str,
+        *,
+        purpose: str,
+    ) -> dict[str, Any]:
+        """``ingest_document`` — datagrep-envelope document ingest via MCP."""
+        return await self.call_tool(
+            "ingest_document",
+            {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json, "purpose": purpose},
+        )
+
+    # --- Memory (the 10 cognitive verbs are reachable via MCP too) ---
+
+    async def remember(
+        self,
+        content: str,
+        *,
+        purpose: str,
+        confidence: float = 1.0,
+        memory_class: str = "semantic",
+    ) -> dict[str, Any]:
+        """``remember`` MCP tool — store a memory (same shape as ``Memory.add``)."""
+        return await self.call_tool(
+            "remember",
+            {
+                "content": content,
+                "purpose": purpose,
+                "confidence": confidence,
+                "memory_class": memory_class,
+            },
+        )
+
+    async def recall(
+        self,
+        query: str,
+        *,
+        purpose: str,
+        top_k: int = 5,
+        min_confidence: float | None = None,
+        recency_half_life_secs: float | None = None,
+        budget_tokens: int | None = None,
+        stability_days: float | None = None,
+        cancel_threshold: float | None = None,
+    ) -> dict[str, Any]:
+        """``recall`` MCP tool. See :meth:`McpClient.recall` for the five
+        ADR-145 retrieval-quality keyword knobs."""
+        args: dict[str, Any] = {"query": query, "purpose": purpose, "top_k": top_k}
+        if min_confidence is not None:
+            args["min_confidence"] = min_confidence
+        if recency_half_life_secs is not None:
+            args["recency_half_life_secs"] = recency_half_life_secs
+        if budget_tokens is not None:
+            args["budget_tokens"] = budget_tokens
+        if stability_days is not None:
+            args["stability_days"] = stability_days
+        if cancel_threshold is not None:
+            args["cancel_threshold"] = cancel_threshold
+        return await self.call_tool("recall", args)
+
+    async def remember_batch(
+        self, items: list[dict[str, Any]], *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """``remember_batch`` — bulk ``remember`` write (#2322)."""
+        args: dict[str, Any] = {"items": items}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("remember_batch", args)
+
+    async def recognize(self, memory_id: str, *, purpose: str | None = None) -> dict[str, Any]:
+        """``recognize`` — look up a stored memory item by id (#2322)."""
+        args: dict[str, Any] = {"id": memory_id}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("recognize", args)
+
+    async def episodes_in(
+        self, session_id: str, *, limit: int = 20, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """``episodes_in`` — list Episodes within an AgentSession (#2322)."""
+        args: dict[str, Any] = {"session_id": session_id, "limit": limit}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("episodes_in", args)
+
+    async def justify(self, memory_id: str, *, purpose: str | None = None) -> dict[str, Any]:
+        """``justify`` — provenance/audit chain for a memory object (#2322)."""
+        args: dict[str, Any] = {"id": memory_id}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("justify", args)
+
+    async def consolidate(
+        self,
+        memory_id: str,
+        content: str,
+        *,
+        confidence: float = 1.0,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``consolidate`` — supersede a memory item with an updated belief (#2322)."""
+        args: dict[str, Any] = {"id": memory_id, "content": content, "confidence": confidence}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("consolidate", args)
+
+    async def forget(
+        self, memory_id: str, *, retain_days: int = 0, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """``forget`` — apply a retention policy to a memory item (#2322)."""
+        args: dict[str, Any] = {"id": memory_id, "retain_days": retain_days}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("forget", args)
+
+    async def remember_procedure(
+        self,
+        agent_id: str,
+        name: str,
+        instruction_text: str,
+        *,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``remember_procedure`` — store a versioned agent procedure (T16/#2233, #2322)."""
+        args: dict[str, Any] = {
+            "agent_id": agent_id,
+            "name": name,
+            "instruction_text": instruction_text,
+        }
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("remember_procedure", args)
+
+    async def recall_procedure(
+        self,
+        agent_id: str,
+        *,
+        name: str | None = None,
+        all_versions: bool = False,
+        limit: int = 20,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``recall_procedure`` — read back stored procedures for an agent (T16/#2233, #2322)."""
+        args: dict[str, Any] = {"agent_id": agent_id, "all_versions": all_versions, "limit": limit}
+        if name:
+            args["name"] = name
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("recall_procedure", args)
+
+    async def associate(
+        self,
+        from_id: str,
+        to_id: str,
+        *,
+        relation: str = "related_to",
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``associate`` — link two memory items/entities with a typed relation (#2322)."""
+        args: dict[str, Any] = {"from_id": from_id, "to_id": to_id, "relation": relation}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("associate", args)
+
+    async def resolve(self, memory_id: str, *, purpose: str | None = None) -> dict[str, Any]:
+        """``resolve`` — follow a memory's supersession chain to its canonical head (#2322)."""
+        args: dict[str, Any] = {"id": memory_id}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("resolve", args)
+
+    async def summarise(
+        self,
+        *,
+        ids: list[str] | None = None,
+        session_id: str | None = None,
+        scope: str | None = None,
+        contents: list[str] | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``summarise`` — governed, provenance-stamped summary of a session/topic (#2322)."""
+        args: dict[str, Any] = {}
+        if ids:
+            args["ids"] = ids
+        if session_id:
+            args["session_id"] = session_id
+        if scope:
+            args["scope"] = scope
+        if contents:
+            args["contents"] = contents
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("summarise", args)
+
+    async def nl_query(
+        self, query: str, *, purpose: str | None = None, interpret: bool = False
+    ) -> dict[str, Any]:
+        """``nl_query`` — natural-language question translated to SQL and executed (#2322)."""
+        args: dict[str, Any] = {"query": query, "interpret": interpret}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("nl_query", args)
+
+    async def erase_subject(
+        self, subject: str, *, reason: str = "gdpr-art17-request"
+    ) -> dict[str, Any]:
+        """``erase_subject`` — GDPR Art. 17 crypto-shred erasure with a signed receipt (#2322)."""
+        return await self.call_tool("erase_subject", {"subject": subject, "reason": reason})
+
+    async def ingest_media(
+        self,
+        object_type: str,
+        *,
+        modality: str = "image",
+        codec: str | None = None,
+        bytes_b64: str | None = None,
+        text: str | None = None,
+        tenant_id: str | None = None,
+        partition_key: str | None = None,
+    ) -> dict[str, Any]:
+        """``ingest_media`` — ingest an image/audio/video (base64) or text payload (#2322)."""
+        args: dict[str, Any] = {"object_type": object_type, "modality": modality}
+        if codec:
+            args["codec"] = codec
+        if bytes_b64:
+            args["bytes_b64"] = bytes_b64
+        if text:
+            args["text"] = text
+        if tenant_id:
+            args["tenant_id"] = tenant_id
+        if partition_key:
+            args["partition_key"] = partition_key
+        return await self.call_tool("ingest_media", args)
+
+    async def similar_multimodal(
+        self,
+        entity_type: str,
+        entity_id: str,
+        *,
+        top_k: int = 10,
+        modality: str = "text",
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``similar_multimodal`` — governed cross-modal similarity search (ADR-106, #2322)."""
+        args: dict[str, Any] = {
+            "entity_type": entity_type,
+            "id": entity_id,
+            "top_k": top_k,
+            "modality": modality,
+        }
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("similar_multimodal", args)
+
+    async def hybrid_search(
+        self,
+        entity_type: str,
+        query: str,
+        *,
+        top_k: int = 10,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``hybrid_search`` — governed BM25 ⊕ vector retrieval fused via RRF (#2322)."""
+        args: dict[str, Any] = {"entity_type": entity_type, "query": query, "top_k": top_k}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("hybrid_search", args)
+
+    async def paths_between(
+        self,
+        from_id: str,
+        to_id: str,
+        *,
+        max_hops: int = 4,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """``paths_between`` — governed relationship/identity graph walk (#2322)."""
+        args: dict[str, Any] = {"from": from_id, "to": to_id, "max_hops": max_hops}
+        if purpose:
+            args["purpose"] = purpose
+        return await self.call_tool("paths_between", args)
+
+    async def list_link_types(self) -> dict[str, Any]:
+        """``list_link_types`` — every governed edge type defined in the ontology (#2322)."""
+        return await self.call_tool("list_link_types", {})
+
+    async def server_health(self) -> dict[str, Any]:
+        """``server_health`` — readiness snapshot for an ops agent (#2322)."""
+        return await self.call_tool("server_health", {})
+
+    async def job_status(self) -> dict[str, Any]:
+        """``job_status`` — list continuous detection jobs with live status (#2322)."""
+        return await self.call_tool("job_status", {})
+
+    async def metrics(self) -> dict[str, Any]:
+        """``metrics`` — operational counters for a monitoring agent (#2322)."""
+        return await self.call_tool("metrics", {})
+
+    async def list_rules(self) -> dict[str, Any]:
+        """``list_rules`` — list detection rules (ADR-162, #2322)."""
+        return await self.call_tool("list_rules", {})
+
+    async def create_rule(
+        self,
+        name: str,
+        condition_sql: str,
+        *,
+        severity: str | None = None,
+        description: str | None = None,
+        purpose: str = "security",
+    ) -> dict[str, Any]:
+        """``create_rule`` — create a detection rule (ADR-162, #2322)."""
+        args: dict[str, Any] = {
+            "name": name,
+            "condition_sql": condition_sql,
+            "purpose": purpose,
+        }
+        if severity:
+            args["severity"] = severity
+        if description:
+            args["description"] = description
+        return await self.call_tool("create_rule", args)
+
+    async def import_sigma(self, sigma_yaml: str, *, purpose: str = "security") -> dict[str, Any]:
+        """``import_sigma`` — import a Sigma detection rule (YAML) (#2322)."""
+        return await self.call_tool("import_sigma", {"yaml": sigma_yaml, "purpose": purpose})
+
+    async def list_jobs(self) -> dict[str, Any]:
+        """``list_jobs`` — list all registered detection jobs with live status (#2322)."""
+        return await self.call_tool("list_jobs", {})
+
+    async def schedule_job(self, name: str) -> dict[str, Any]:
+        """``schedule_job`` — trigger an immediate run of a named detection job (#2322)."""
+        return await self.call_tool("schedule_job", {"name": name})
+
+    async def list_workflows(self) -> dict[str, Any]:
+        """``list_workflows`` — list all registered workflow definitions (#2322)."""
+        return await self.call_tool("list_workflows", {})
+
+    async def run_workflow(self, name: str) -> dict[str, Any]:
+        """``run_workflow`` — start a workflow execution by name (#2322)."""
+        return await self.call_tool("run_workflow", {"name": name})
+
+    async def workflow_status(self, run_id: str) -> dict[str, Any]:
+        """``workflow_status`` — query step-level status of a workflow run (#2322)."""
+        return await self.call_tool("workflow_status", {"run_id": run_id})
+
+    async def trace_crypto(
+        self,
+        address: str,
+        *,
+        max_hops: int = 5,
+        min_amount: float = 0,
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``trace_crypto`` — follow a cryptocurrency address hop-by-hop (#2322)."""
+        return await self.call_tool(
+            "trace_crypto",
+            {
+                "address": address,
+                "max_hops": max_hops,
+                "min_amount": min_amount,
+                "purpose": purpose,
+            },
+        )
+
+    async def beneficial_ownership(
+        self, party: str, *, max_depth: int = 6, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``beneficial_ownership`` — trace the beneficial ownership chain for a party (#2322)."""
+        return await self.call_tool(
+            "beneficial_ownership",
+            {"party": party, "max_depth": max_depth, "purpose": purpose},
+        )
+
+    async def reconstruct_wire(
+        self, account: str, *, tolerance_pct: float = 5.0, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``reconstruct_wire`` — reconstruct a wire-transfer chain for an account (#2322)."""
+        return await self.call_tool(
+            "reconstruct_wire",
+            {"account": account, "tolerance_pct": tolerance_pct, "purpose": purpose},
+        )
+
+    async def trace_hawala(
+        self, seed: str, *, max_hops: int = 5, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``trace_hawala`` — trace informal hawala value-transfer networks (#2322)."""
+        return await self.call_tool(
+            "trace_hawala", {"seed": seed, "max_hops": max_hops, "purpose": purpose}
+        )
+
+    async def geofence(
+        self,
+        lat: float,
+        lon: float,
+        *,
+        radius_m: float = 1000,
+        target_type: str = "MovementEvent",
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``geofence`` — spatial fence query over a circular area (#2322)."""
+        return await self.call_tool(
+            "geofence",
+            {
+                "lat": lat,
+                "lon": lon,
+                "radius_m": radius_m,
+                "target_type": target_type,
+                "purpose": purpose,
+            },
+        )
+
+    async def resolve_entity_identity(
+        self, identity: str, *, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``resolve_entity_identity`` — resolve the canonical identity cluster (#2322)."""
+        return await self.call_tool(
+            "resolve_entity_identity", {"identity": identity, "purpose": purpose}
+        )
+
+    async def detect_communities(
+        self, entity_type: str, *, algo: str = "louvain", purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``detect_communities`` — Louvain/Leiden community detection (#2322)."""
+        return await self.call_tool(
+            "detect_communities",
+            {"entity_type": entity_type, "algo": algo, "purpose": purpose},
+        )
+
+    async def rank_key_nodes(
+        self,
+        entity_type: str,
+        *,
+        metric: str = "pagerank",
+        damping: float = 0.85,
+        max_iter: int = 20,
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``rank_key_nodes`` — rank entities by PageRank or centrality metric (#2322)."""
+        return await self.call_tool(
+            "rank_key_nodes",
+            {
+                "entity_type": entity_type,
+                "metric": metric,
+                "damping": damping,
+                "max_iter": max_iter,
+                "purpose": purpose,
+            },
+        )
+
+    async def hub_authority(
+        self, entity_type: str, *, max_iter: int = 20, purpose: str = "analytics"
+    ) -> dict[str, Any]:
+        """``hub_authority`` — HITS hub/authority scores for an entity type (#2322)."""
+        return await self.call_tool(
+            "hub_authority",
+            {"entity_type": entity_type, "max_iter": max_iter, "purpose": purpose},
+        )
+
+    async def predict_links(
+        self,
+        entity_type: str,
+        *,
+        from_id: str | None = None,
+        to_id: str | None = None,
+        method: str = "common_neighbors",
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``predict_links`` — score candidate edges between entities (#2322)."""
+        args: dict[str, Any] = {"entity_type": entity_type, "method": method, "purpose": purpose}
+        if from_id:
+            args["from_id"] = from_id
+        if to_id:
+            args["to_id"] = to_id
+        return await self.call_tool("predict_links", args)
+
+    async def find_scc(self, entity_type: str, *, purpose: str = "analytics") -> dict[str, Any]:
+        """``find_scc`` — find strongly connected components in an entity type's graph (#2322)."""
+        return await self.call_tool("find_scc", {"entity_type": entity_type, "purpose": purpose})
+
+    async def screen_sanctions(
+        self,
+        name: str,
+        *,
+        threshold: float | None = None,
+        purpose: str = "compliance_review",
+    ) -> dict[str, Any]:
+        """``screen_sanctions`` — screen a name/entity against sanctions lists (#2322)."""
+        args: dict[str, Any] = {"name": name, "purpose": purpose}
+        if threshold is not None:
+            args["threshold"] = threshold
+        return await self.call_tool("screen_sanctions", args)
+
+    async def aggregate_stats(
+        self,
+        entity_type: str,
+        *,
+        agg: str = "COUNT",
+        column: str = "*",
+        purpose: str = "analytics",
+    ) -> dict[str, Any]:
+        """``aggregate_stats`` — governed aggregate query over an entity type (#2322)."""
+        return await self.call_tool(
+            "aggregate_stats",
+            {"entity_type": entity_type, "agg": agg, "column": column, "purpose": purpose},
+        )
+
+    async def investigate_entity(
+        self, entity_type: str, entity_id: str, *, purpose: str = "security_incident"
+    ) -> dict[str, Any]:
+        """``investigate_entity`` — composite profile + timeline + connections + risk (#2322)."""
+        return await self.call_tool(
+            "investigate_entity",
+            {"entity_type": entity_type, "id": entity_id, "purpose": purpose},
+        )
+
+    async def find_threats(
+        self, entity_type: str, *, purpose: str = "security_incident"
+    ) -> dict[str, Any]:
+        """``find_threats`` — composite threat hunt over an entity type (#2322)."""
+        return await self.call_tool(
+            "find_threats", {"entity_type": entity_type, "purpose": purpose}
+        )
+
+    async def search_video_frames(
+        self,
+        query_id: str,
+        *,
+        media_type: str = "VideoFrame",
+        top_k: int = 20,
+        purpose: str = "security_incident",
+    ) -> dict[str, Any]:
+        """``search_video_frames`` — similarity search over video frames/segments (#2322)."""
+        return await self.call_tool(
+            "search_video_frames",
+            {
+                "query_id": query_id,
+                "media_type": media_type,
+                "top_k": top_k,
+                "purpose": purpose,
+            },
+        )
+
+    async def face_match(
+        self,
+        probe_id: str,
+        *,
+        threshold: float = 0.8,
+        top_k: int = 10,
+        purpose: str = "security_incident",
+    ) -> dict[str, Any]:
+        """``face_match`` — GATED: match a probe face against indexed media (#2322)."""
+        return await self.call_tool(
+            "face_match",
+            {"probe_id": probe_id, "threshold": threshold, "top_k": top_k, "purpose": purpose},
+        )
 
     async def close(self) -> None:
         await self._t.aclose()
