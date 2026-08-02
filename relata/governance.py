@@ -281,22 +281,28 @@ class GovernanceClient(_BaseGovernance):
 
     def request_breakglass(
         self,
-        reason: str,
+        source_id: str,
         *,
-        scope: str | None = None,
-        duration_secs: int = 4 * 60 * 60,
+        purpose: str | None = None,
+        justification: str | None = None,
     ) -> dict[str, Any]:
-        """Request emergency HUMINT breakglass access (default 4 h).
+        """Request emergency HUMINT breakglass access (fixed 4 h window).
+
+        Args:
+            source_id: The masked source ID being unmasked (e.g. ``"SRC-0042"``).
+            purpose: Declared query purpose. Server defaults to
+                ``"humint_unmask"`` when omitted.
+            justification: Free-text justification for the emergency access,
+                captured for audit.
 
         Returns the request record including ``request_id`` and ``status``.
         Approval requires two distinct officers (``approve_breakglass``).
         """
-        payload: dict[str, Any] = {
-            "reason": reason,
-            "duration_secs": duration_secs,
-        }
-        if scope is not None:
-            payload["scope"] = scope
+        payload: dict[str, Any] = {"source_id": source_id}
+        if purpose is not None:
+            payload["purpose"] = purpose
+        if justification is not None:
+            payload["justification"] = justification
         return self._t.post("/humint/breakglass/request", payload)
 
     def approve_breakglass(
@@ -519,14 +525,16 @@ class AsyncGovernanceClient(_BaseGovernance):
 
     async def request_breakglass(
         self,
-        reason: str,
+        source_id: str,
         *,
-        scope: str | None = None,
-        duration_secs: int = 4 * 60 * 60,
+        purpose: str | None = None,
+        justification: str | None = None,
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"reason": reason, "duration_secs": duration_secs}
-        if scope is not None:
-            payload["scope"] = scope
+        payload: dict[str, Any] = {"source_id": source_id}
+        if purpose is not None:
+            payload["purpose"] = purpose
+        if justification is not None:
+            payload["justification"] = justification
         return await self._t.post("/humint/breakglass/request", payload)
 
     async def approve_breakglass(

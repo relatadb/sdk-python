@@ -86,7 +86,8 @@ def test_governance_request_and_approve_breakglass() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/humint/breakglass/request":
             body = json.loads(req.content)
-            assert body["reason"] == "urgent"
+            assert body["source_id"] == "SRC-0042"
+            assert body["justification"] == "urgent triage"
             return httpx.Response(200, json={"request_id": "bg-1", "status": "pending"})
         if req.url.path == "/humint/breakglass/approve":
             body = json.loads(req.content)
@@ -95,7 +96,7 @@ def test_governance_request_and_approve_breakglass() -> None:
         return httpx.Response(404)
 
     g = GovernanceClient(BASE, transport=_wrap(handler))
-    req = g.request_breakglass("urgent", duration_secs=3600)
+    req = g.request_breakglass("SRC-0042", justification="urgent triage")
     assert req["request_id"] == "bg-1"
     app = g.approve_breakglass("bg-1")
     assert app["approvals"] == 1
