@@ -770,6 +770,89 @@ class RelataClient:
             payload["optional"] = optional
         return self._sync.patch(f"/types/{type_name}/schema", payload)
 
+    # ------------------------------------------------------------------
+    # Schema-BRANCH CRUD + typed edge definitions (#2497, #2476 ALTER stays
+    # distinct — these are the schema-BRANCH surface mirrored from the Rust
+    # flat client at crates/relata-sdk-rust/src/http.rs:2535-2570).
+    # ------------------------------------------------------------------
+
+    def list_edge_types(self) -> dict[str, object]:
+        """List registered cross-type edge definitions (ADR-007).
+
+        Wraps ``GET /types/edges``. Returns the server's edge-declaration
+        table consumed by ``PATHS_BETWEEN`` traversal.
+        """
+        return self._sync.get("/types/edges")
+
+    def register_edge_type(
+        self,
+        from_type: str,
+        to_type: str,
+        label: str,
+    ) -> dict[str, object]:
+        """Register a typed named edge for graph traversal (ADR-007).
+
+        Wraps ``POST /types/edges`` with ``{from_type, to_type, label}``.
+        """
+        return self._sync.post(
+            "/types/edges",
+            {"from_type": from_type, "to_type": to_type, "label": label},
+        )
+
+    def create_schema_branch(
+        self,
+        name: str,
+        from_branch: str,
+    ) -> dict[str, object]:
+        """Create a named schema branch off ``from_branch`` (#207).
+
+        Wraps ``POST /schema/branches/:name`` with ``{"from": from_branch}``.
+        The branch carries its own ontology / type set; mutations on it do not
+        affect the parent until merged.
+        """
+        return self._sync.post(
+            f"/schema/branches/{name}",
+            {"from": from_branch},
+        )
+
+    def delete_schema_branch(self, name: str) -> dict[str, object]:
+        """Delete a named schema branch (#207).
+
+        Wraps ``DELETE /schema/branches/:name``.
+        """
+        return self._sync.delete(f"/schema/branches/{name}")
+
+    async def alist_edge_types(self) -> dict[str, object]:
+        """Async variant of :meth:`list_edge_types`."""
+        return await self._async.get("/types/edges")
+
+    async def aregister_edge_type(
+        self,
+        from_type: str,
+        to_type: str,
+        label: str,
+    ) -> dict[str, object]:
+        """Async variant of :meth:`register_edge_type`."""
+        return await self._async.post(
+            "/types/edges",
+            {"from_type": from_type, "to_type": to_type, "label": label},
+        )
+
+    async def acreate_schema_branch(
+        self,
+        name: str,
+        from_branch: str,
+    ) -> dict[str, object]:
+        """Async variant of :meth:`create_schema_branch`."""
+        return await self._async.post(
+            f"/schema/branches/{name}",
+            {"from": from_branch},
+        )
+
+    async def adelete_schema_branch(self, name: str) -> dict[str, object]:
+        """Async variant of :meth:`delete_schema_branch`."""
+        return await self._async.delete(f"/schema/branches/{name}")
+
     def ontology_migrate(self, schema: dict[str, object]) -> dict[str, object]:
         """SHACL schema migration — register type specs, link types, property
         constraints in one governed call."""

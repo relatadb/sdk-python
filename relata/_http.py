@@ -48,6 +48,18 @@ _DEFAULT_RETRY_ON: frozenset[int] = frozenset({502, 503, 504})
 _DEFAULT_MAX_RETRIES = 0  # off by default — caller must opt in
 _DEFAULT_RETRY_BACKOFF = 0.5
 
+# HTTP verbs that are safe to retry without risk of double-execution (#2490).
+# Parity with the Rust SDK (crates/relata-sdk-rust/src/http.rs:432) and the Go
+# SDK (sdks/go/relata/client.go:1259 isIdempotent): POST/DELETE/PATCH/PUT are
+# NEVER retried — a gateway timeout after commit would double-execute
+# irreversible ops (erase_subject, fuse_identities, session_commit).
+_IDEMPOTENT_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _is_idempotent(method: str) -> bool:
+    """Whether ``method`` is safe to retry (GET/HEAD/OPTIONS only)."""
+    return method in _IDEMPOTENT_METHODS
+
 
 def _opt_float_header(headers: Any, name: str) -> float | None:
     """Parse a numeric response header to float, returning ``None`` when absent/unparseable."""
@@ -310,11 +322,19 @@ class HttpTransport:
         content: str | bytes | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Send an HTTP request with retry + request_id propagation."""
+        """Send an HTTP request with retry + request_id propagation.
+
+        Retry policy (#2490): only idempotent verbs (GET/HEAD/OPTIONS) are
+        retried, and only on transport errors (connect/timeout) or response
+        status codes in ``self._retry_on`` (502/503/504 by default). POST and
+        other non-idempotent verbs are never retried — parity with the Rust
+        and Go SDKs.
+        """
         client = self._client_for(path)
         # If the caller already set X-Request-ID in the default headers bag,
         # respect it — only generate a per-attempt UUID when no default exists.
         has_default_rid = "x-request-id" in {k.lower() for k in client.headers}
+        idempotent = _is_idempotent(method)
         last_exc: RelataError | None = None
         for attempt in range(self._max_retries + 1):
             req_headers: dict[str, str] = {}
@@ -340,7 +360,7 @@ class HttpTransport:
                     f"Cannot connect to Relata server: {exc}. "
                     "Check that the server is running and the base_url is correct."
                 )
-                if attempt < self._max_retries:
+                if idempotent and attempt < self._max_retries:
                     time.sleep(self._retry_backoff * (2**attempt))
                     continue
                 raise last_exc from exc
@@ -349,15 +369,29 @@ class HttpTransport:
                     f"Request timed out: {exc}. "
                     "Increase timeout= on RelataClient or check server health."
                 )
-                if attempt < self._max_retries:
+                if idempotent and attempt < self._max_retries:
                     time.sleep(self._retry_backoff * (2**attempt))
                     continue
                 raise last_exc from exc
 
+            # Retry on configurable status codes (502/503/504) for idempotent
+            # verbs only — non-idempotent verbs fall through to _handle which
+            # raises the classified ServerError.
+            if (
+                idempotent
+                and resp.status_code in self._retry_on
+                and attempt < self._max_retries
+            ):
+                time.sleep(self._retry_backoff * (2**attempt))
+                continue
+
             # Success or non-retryable error — return / raise via _handle.
             return self._handle(resp)
 
-        # Exhausted retries on a connection error.
+        # Exhausted retries on a retryable status code (transport errors raise
+        # directly from the except block above; only the status-code path can
+        # land here, and the final iteration's _handle call always returns or
+        # raises — so this is a defensive unreachable fallback).
         assert last_exc is not None
         raise last_exc
 
@@ -492,10 +526,15 @@ class AsyncHttpTransport:
         content: bytes | str | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Send an async HTTP request with retry + request_id propagation."""
+        """Send an async HTTP request with retry + request_id propagation.
+
+        Retry policy mirrors the sync transport (#2490): idempotent verbs
+        only (GET/HEAD/OPTIONS), on transport errors or 502/503/504.
+        """
         import asyncio
 
         client = self._client_for(path)
+        idempotent = _is_idempotent(method)
         last_exc: RelataError | None = None
         for attempt in range(self._max_retries + 1):
             req_headers: dict[str, str] = {"X-Request-ID": self._request_id()}
@@ -518,7 +557,7 @@ class AsyncHttpTransport:
                 last_exc = ConnectionError(
                     f"Cannot connect to Relata server: {exc}."
                 )
-                if attempt < self._max_retries:
+                if idempotent and attempt < self._max_retries:
                     await asyncio.sleep(self._retry_backoff * (2**attempt))
                     continue
                 raise last_exc from exc
@@ -526,10 +565,17 @@ class AsyncHttpTransport:
                 last_exc = ConnectionError(
                     f"Request timed out: {exc}."
                 )
-                if attempt < self._max_retries:
+                if idempotent and attempt < self._max_retries:
                     await asyncio.sleep(self._retry_backoff * (2**attempt))
                     continue
                 raise last_exc from exc
+            if (
+                idempotent
+                and resp.status_code in self._retry_on
+                and attempt < self._max_retries
+            ):
+                await asyncio.sleep(self._retry_backoff * (2**attempt))
+                continue
             return self._handle(resp)
         assert last_exc is not None
         raise last_exc

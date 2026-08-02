@@ -170,6 +170,149 @@ def test_no_retry_by_default() -> None:
 
 
 # ---------------------------------------------------------------------------
+# #2490 — retry on 502/503/504 for idempotent verbs only
+# ---------------------------------------------------------------------------
+
+
+def test_retry_on_503_for_get_then_succeeds() -> None:
+    """A 503 on GET is retried up to max_retries, then succeeds (#2490)."""
+    from relata._http import HttpTransport
+
+    call_count = [0]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        call_count[0] += 1
+        if call_count[0] < 3:
+            return httpx.Response(503, json={"error": "transient"})
+        return httpx.Response(200, json={"status": "ok"})
+
+    t = HttpTransport(
+        BASE, None, 5.0,
+        transport=_wrap(handler),
+        max_retries=3,
+        retry_backoff=0.001,
+    )
+    result = t.get("/health")
+    assert result["status"] == "ok"
+    assert call_count[0] == 3  # two retries then success
+
+
+def test_503_on_post_is_not_retried() -> None:
+    """POST is non-idempotent — a 503 must NOT be retried (#2490)."""
+    from relata._http import HttpTransport
+    from relata.exceptions import ServerError
+
+    call_count = [0]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        call_count[0] += 1
+        return httpx.Response(503, json={"error": "transient"})
+
+    t = HttpTransport(
+        BASE, None, 5.0,
+        transport=_wrap(handler),
+        max_retries=3,
+        retry_backoff=0.001,
+    )
+    with pytest.raises(ServerError) as exc_info:
+        t.post("/query", {"sql": "SELECT 1"})
+    assert exc_info.value.status_code == 503
+    assert call_count[0] == 1  # never retried
+
+
+def test_retry_on_504_exhausted_raises_server_error() -> None:
+    """A persistent 504 on GET exhausts retries and raises ServerError (#2490)."""
+    from relata._http import HttpTransport
+    from relata.exceptions import ServerError
+
+    call_count = [0]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        call_count[0] += 1
+        return httpx.Response(504, json={"error": "gateway timeout"})
+
+    t = HttpTransport(
+        BASE, None, 5.0,
+        transport=_wrap(handler),
+        max_retries=2,
+        retry_backoff=0.001,
+    )
+    with pytest.raises(ServerError) as exc_info:
+        t.get("/health")
+    assert exc_info.value.status_code == 504
+    assert call_count[0] == 3  # initial + 2 retries
+
+
+def test_transport_error_on_post_not_retried() -> None:
+    """POST transport errors are not retried (non-idempotent, #2490)."""
+    from relata._http import HttpTransport
+    from relata.exceptions import ConnectionError as RelataConnectionError
+
+    call_count = [0]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        call_count[0] += 1
+        raise httpx.ConnectError("boom")
+
+    t = HttpTransport(
+        BASE, None, 5.0,
+        transport=_wrap(handler),
+        max_retries=3,
+        retry_backoff=0.001,
+    )
+    with pytest.raises(RelataConnectionError):
+        t.post("/query", {"sql": "SELECT 1"})
+    assert call_count[0] == 1  # never retried
+
+
+def test_non_retryable_status_not_retried_on_get() -> None:
+    """A 404 on GET is not in _retry_on — no retry attempt (#2490)."""
+    from relata._http import HttpTransport
+    from relata.exceptions import NotFoundError
+
+    call_count = [0]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        call_count[0] += 1
+        return httpx.Response(404, json={"error": "not found"})
+
+    t = HttpTransport(
+        BASE, None, 5.0,
+        transport=_wrap(handler),
+        max_retries=3,
+        retry_backoff=0.001,
+    )
+    with pytest.raises(NotFoundError):
+        t.get("/types/Missing")
+    assert call_count[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_async_retry_on_503_for_get_then_succeeds() -> None:
+    """Async transport also retries 503 on GET (#2490)."""
+    from relata._http import AsyncHttpTransport
+
+    call_count = [0]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        call_count[0] += 1
+        if call_count[0] < 2:
+            return httpx.Response(503, json={"error": "transient"})
+        return httpx.Response(200, json={"status": "ok"})
+
+    t = AsyncHttpTransport(
+        BASE, None, 5.0,
+        transport=_wrap(handler),
+        max_retries=2,
+        retry_backoff=0.001,
+    )
+    result = await t.get("/health")
+    assert result["status"] == "ok"
+    assert call_count[0] == 2
+    await t.aclose()
+
+
+# ---------------------------------------------------------------------------
 # #89 — Adapter duck-typed shapes
 # ---------------------------------------------------------------------------
 
