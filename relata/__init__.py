@@ -38,6 +38,7 @@ Public API
 
 from relata.a2a import A2AClient, AsyncA2AClient
 from relata.audit import AsyncAuditClient, AuditClient
+from relata.flight import AsyncFlightClient, FlightClient
 from relata.client import RelataClient
 from relata import aml
 from relata import canonical
@@ -106,6 +107,8 @@ __all__ = [
     "AsyncSystemClient",
     "StreamingClient",
     "AsyncStreamingClient",
+    "FlightClient",
+    "AsyncFlightClient",
     "TenantAdminClient",
     "AsyncTenantAdminClient",
     # T9 flagship retrieval surface (#1991)
