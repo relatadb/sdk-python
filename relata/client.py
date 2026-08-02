@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from types import TracebackType
 from typing import TYPE_CHECKING
+from urllib.parse import urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport
 from relata.exceptions import PurposeError, RelataError
@@ -123,6 +124,29 @@ def _match_pdq_sql(corpus_id: str, query_hash: str, *, threshold: float) -> str:
     )
 
 
+def _similar_image_sql(
+    media_ref: str,
+    *,
+    threshold: float | None,
+    index: str | None,
+) -> str:
+    """Build a ``SELECT * FROM SIMILAR_IMAGE(...)`` ticket (#2840, PR #2859).
+
+    Mirrors the server operator registered in ``relata_query::parser``
+    (``SIMILAR_IMAGE('<media_ref>', THRESHOLD => <f>, INDEX => '<corpus>')``
+    — ``THRESHOLD`` defaults to 0.9 server-side when omitted, ``INDEX`` is
+    optional with no server default and scopes the search to a named
+    corpus/index when given).
+    """
+    sql = f"SELECT * FROM SIMILAR_IMAGE({_sql_literal(media_ref)}"
+    if threshold is not None:
+        sql += f", THRESHOLD => {float(threshold)}"
+    if index is not None:
+        sql += f", INDEX => {_sql_literal(index)}"
+    sql += ")"
+    return sql
+
+
 def _flight_ticket(sql: str, purpose: str | None) -> str:
     """Assemble an Arrow Flight ``do_get`` ticket from SQL + optional PURPOSE.
 
@@ -143,7 +167,7 @@ def _flight_endpoint_from(base_url: str, flight_endpoint: str | None) -> str:
     """
     if flight_endpoint:
         return flight_endpoint
-    from urllib.parse import urlparse, urlencode
+    from urllib.parse import urlparse
 
     host = urlparse(base_url).hostname or "localhost"
     return f"grpc://{host}:8815"
@@ -1271,6 +1295,9 @@ class RelataClient:
     # - ``MATCH_PDQ('<hash>', '<corpus>', THRESHOLD => f)``
     #   (Hamming similarity over ``MediaHash`` rows; columns ``entity_id``,
     #   ``media_type``, ``corpus_id``, ``score``, ``matcher``).
+    # - ``SIMILAR_IMAGE('<media_ref>', THRESHOLD => f, INDEX => 'corpus')``
+    #   (#2840, PR #2859 — near-duplicate/similar-image search scoped to an
+    #   optional named index/corpus; THRESHOLD defaults to 0.9 server-side).
     #
     # The MCP ``face_match`` tool is gated behind ADR-155 (#409) and returns
     # 403 — these SQL-reachable operators are the unblocked path the SDK uses.
@@ -1364,6 +1391,53 @@ class RelataClient:
     ) -> QueryResult:
         """Async variant of :meth:`match_pdq`."""
         sql = _match_pdq_sql(corpus_id, query_hash, threshold=threshold)
+        return await self.aquery(sql, purpose=purpose)
+
+    def similar_image(
+        self,
+        media_ref: str,
+        *,
+        threshold: float | None = None,
+        index: str | None = None,
+        purpose: str | None = None,
+    ) -> QueryResult:
+        """Near-duplicate / similar-image search (#2840, PR #2859).
+
+        Executes ``SELECT * FROM SIMILAR_IMAGE(...)`` through the governed
+        ``/query`` door.
+
+        Args:
+            media_ref: Reference media identifier to search from.
+            threshold: Minimum similarity in ``[0.0, 1.0]``; omitted means
+                the server default (0.9) applies.
+            index: Optional named index/corpus to scope the search to; when
+                omitted, the server searches its default scope.
+            purpose: Purpose override for this query.
+
+        Returns:
+            :class:`~relata.models.QueryResult` ranked by score desc.
+
+        Example::
+
+            result = client.similar_image(
+                "media-42", threshold=0.6, index="ncmec", purpose="investigation",
+            )
+            for row in result:
+                print(row["entity_id"], row["score"])
+        """
+        sql = _similar_image_sql(media_ref, threshold=threshold, index=index)
+        return self.query(sql, purpose=purpose)
+
+    async def asimilar_image(
+        self,
+        media_ref: str,
+        *,
+        threshold: float | None = None,
+        index: str | None = None,
+        purpose: str | None = None,
+    ) -> QueryResult:
+        """Async variant of :meth:`similar_image`."""
+        sql = _similar_image_sql(media_ref, threshold=threshold, index=index)
         return await self.aquery(sql, purpose=purpose)
 
     def health(self) -> HealthResponse:
