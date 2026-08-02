@@ -17,6 +17,42 @@ if TYPE_CHECKING:
     from relata.client import RelataClient
 
 
+def _hybrid_search_sql(
+    object_type: str,
+    query_text: str,
+    *,
+    k: int,
+    rerank: bool = False,
+    metric: str | None = None,
+    weights: tuple[float, float, float] | list[float] | None = None,
+) -> str:
+    """Build a ``HYBRID_SEARCH FROM ... QUERY ... LIMIT ...`` ticket.
+
+    Mirrors the **statement** grammar in ``relata_query::parser``
+    (``HYBRID_SEARCH FROM <type> QUERY '<text>' LIMIT <n>`` with optional
+    ``RERANK`` / ``METRIC <m>`` / ``WEIGHTS <g> <b> <v>``). The previous
+    ``SELECT * FROM HYBRID_SEARCH(from => …, query_text => …)`` TVF shape was
+    never accepted by the server (named args aren't a real grammar) — this is
+    the form that actually executes.
+
+    Caller-supplied query embeddings are **not** supported by the ``/query``
+    SQL surface (there is no vector-literal grammar; the server embeds
+    ``query_text`` server-side). Use :meth:`VectorClient.embed` for
+    text→vector instead.
+    """
+    escaped = query_text.replace("'", "''")
+    sql = f"HYBRID_SEARCH FROM {object_type} QUERY '{escaped}' LIMIT {int(k)}"
+    if rerank:
+        sql += " RERANK"
+    if metric:
+        sql += f" METRIC {metric}"
+    if weights is not None:
+        if len(weights) != 3:
+            raise ValueError("weights must be a 3-tuple/list [graph, bm25, vector]")
+        sql += f" WEIGHTS {float(weights[0])} {float(weights[1])} {float(weights[2])}"
+    return sql
+
+
 class VectorClient:
     """Synchronous typed vector client — backs onto ``RelataClient.query``.
 
@@ -74,34 +110,45 @@ class VectorClient:
         object_type: str,
         *,
         query_text: str | None = None,
-        query_embedding: list[float] | None = None,
-        embedding_slot: str | None = None,
         k: int = 10,
         purpose: str | None = None,
+        rerank: bool = False,
+        metric: str | None = None,
+        weights: tuple[float, float, float] | list[float] | None = None,
     ) -> list[dict[str, Any]]:
         """Hybrid BM25 + vector search via the ``HYBRID_SEARCH`` operator.
 
-        Caller must supply at least one of ``query_text`` (BM25 leg) or
-        ``query_embedding`` (vector leg, requires ``embedding_slot``). When
-        both are supplied the server fuses via reciprocal rank fusion
-        (ADR-175).
+        Executes ``HYBRID_SEARCH FROM <type> QUERY '<text>' LIMIT <k>`` through
+        the governed ``/query`` door so PURPOSE / ACL / cell-masking / tenant
+        isolation apply identically to a hand-written query. The server embeds
+        ``query_text`` server-side; caller-supplied embeddings are **not**
+        accepted by the ``/query`` SQL surface (there is no vector-literal
+        grammar — use :meth:`embed` for text→vector instead).
+
+        Args:
+            object_type: Type to search.
+            query_text: BM25 + vector query text (required).
+            k: Max results (server default 10).
+            purpose: Purpose override for this query.
+            rerank: Re-score the top-K via the sidecar cross-encoder (#611).
+            metric: Distance metric for the vector channel (#1330), e.g.
+                ``"cosine"`` / ``"l2"`` / ``"dotproduct"``.
+            weights: Per-query fusion weights ``[graph, bm25, vector]`` (#1338).
+
+        Example::
+
+            hits = client.hybrid_search(
+                "Document", query_text="graph database", k=5, purpose="research",
+            )
         """
-        if query_text is None and query_embedding is None:
-            raise ValueError("hybrid_search requires query_text or query_embedding")
-
-        import json
-
-        # Build the HYBRID_SEARCH TVF call. The server's TVF form accepts
-        # textual + vector queries as named parameters.
-        args: list[str] = [f"from => '{object_type}'", f"limit => {k}"]
-        if query_text is not None:
-            escaped = query_text.replace("'", "''")
-            args.append(f"query_text => '{escaped}'")
-        if query_embedding is not None and embedding_slot is not None:
-            emb_str = json.dumps(query_embedding).replace("'", "''")
-            args.append(f"query_embedding => '{emb_str}'")
-            args.append(f"embedding_slot => '{embedding_slot}'")
-        sql = f"SELECT * FROM HYBRID_SEARCH({', '.join(args)})"
+        if query_text is None:
+            raise ValueError(
+                "hybrid_search requires query_text; caller-supplied embeddings "
+                "are not supported by the /query SQL surface"
+            )
+        sql = _hybrid_search_sql(
+            object_type, query_text, k=k, rerank=rerank, metric=metric, weights=weights
+        )
         result = self._client.query(sql, purpose=self._purpose(purpose))
         return result.rows
 
@@ -243,25 +290,21 @@ class AsyncVectorClient:
         object_type: str,
         *,
         query_text: str | None = None,
-        query_embedding: list[float] | None = None,
-        embedding_slot: str | None = None,
         k: int = 10,
         purpose: str | None = None,
+        rerank: bool = False,
+        metric: str | None = None,
+        weights: tuple[float, float, float] | list[float] | None = None,
     ) -> list[dict[str, Any]]:
-        if query_text is None and query_embedding is None:
-            raise ValueError("hybrid_search requires query_text or query_embedding")
-
-        import json
-
-        args: list[str] = [f"from => '{object_type}'", f"limit => {k}"]
-        if query_text is not None:
-            escaped = query_text.replace("'", "''")
-            args.append(f"query_text => '{escaped}'")
-        if query_embedding is not None and embedding_slot is not None:
-            emb_str = json.dumps(query_embedding).replace("'", "''")
-            args.append(f"query_embedding => '{emb_str}'")
-            args.append(f"embedding_slot => '{embedding_slot}'")
-        sql = f"SELECT * FROM HYBRID_SEARCH({', '.join(args)})"
+        """Async variant of :meth:`hybrid_search`."""
+        if query_text is None:
+            raise ValueError(
+                "hybrid_search requires query_text; caller-supplied embeddings "
+                "are not supported by the /query SQL surface"
+            )
+        sql = _hybrid_search_sql(
+            object_type, query_text, k=k, rerank=rerank, metric=metric, weights=weights
+        )
         result = await self._client.aquery(sql, purpose=self._purpose(purpose))
         return result.rows
 

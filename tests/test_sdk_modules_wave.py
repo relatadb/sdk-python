@@ -569,7 +569,7 @@ def test_vector_hybrid_search_requires_text_or_embedding() -> None:
 
     client = _client_with_mock(lambda req: httpx.Response(200, json={"rows": []}))
     v = VectorClient.from_client(client)
-    with pytest.raises(ValueError, match="requires query_text or query_embedding"):
+    with pytest.raises(ValueError, match="requires query_text"):
         v.hybrid_search("Person")
 
 
@@ -584,8 +584,30 @@ def test_vector_hybrid_search_builds_tvf_sql() -> None:
 
     v = VectorClient.from_client(_client_with_mock(handler))
     v.hybrid_search("Person", query_text="alice", k=3)
+    assert seen_sql[0] == "HYBRID_SEARCH FROM Person QUERY 'alice' LIMIT 3"
+
+
+def test_vector_hybrid_search_emits_tuning_clauses() -> None:
+    from relata.vectors import VectorClient
+
+    seen_sql: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen_sql.append(json.loads(req.content)["sql"])
+        return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
+
+    v = VectorClient.from_client(_client_with_mock(handler))
+    v.hybrid_search(
+        "Document",
+        query_text="o'reilly",
+        k=5,
+        rerank=True,
+        metric="cosine",
+        weights=[0.3, 0.5, 0.2],
+    )
     assert seen_sql[0] == (
-        "SELECT * FROM HYBRID_SEARCH(from => 'Person', limit => 3, query_text => 'alice')"
+        "HYBRID_SEARCH FROM Document QUERY 'o''reilly' LIMIT 5 "
+        "RERANK METRIC cosine WEIGHTS 0.3 0.5 0.2"
     )
 
 
