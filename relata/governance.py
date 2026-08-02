@@ -231,25 +231,31 @@ class GovernanceClient(_BaseGovernance):
         case_id: str,
         object_type: str,
         *,
-        object_id: str | None = None,
-        reason: str | None = None,
+        field: str | None = None,
+        value: str | None = None,
     ) -> dict[str, Any]:
-        """Place a legal hold on ``object_type`` (optionally on a specific row).
+        """Place a legal hold on ``object_type`` (optionally scoped to rows
+        where ``field`` equals ``value``).
 
         Args:
             case_id: Caller-supplied case identifier (becomes the hold id).
             object_type: Type to hold.
-            object_id: Optional specific row id; omit for type-wide hold.
-            reason: Optional human-friendly reason.
+            field: Optional column name to scope the hold to; pass both
+                ``field`` and ``value`` together, or omit both for a
+                type-wide hold. The server's ``POST /retention/holds`` only
+                reads ``case_id``/``object_type``/``field``/``value`` — any
+                other key is silently ignored (#2465), so ``field``/``value``
+                is the only supported row-scoping mechanism.
+            value: Column value to match when ``field`` is set.
         """
         payload: dict[str, Any] = {
             "case_id": case_id,
             "object_type": object_type,
         }
-        if object_id is not None:
-            payload["object_id"] = object_id
-        if reason is not None:
-            payload["reason"] = reason
+        if field is not None:
+            payload["field"] = field
+        if value is not None:
+            payload["value"] = value
         return self._t.post("/retention/holds", payload)
 
     def lift_legal_hold(self, case_id: str) -> dict[str, Any]:
@@ -499,14 +505,14 @@ class AsyncGovernanceClient(_BaseGovernance):
         case_id: str,
         object_type: str,
         *,
-        object_id: str | None = None,
-        reason: str | None = None,
+        field: str | None = None,
+        value: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"case_id": case_id, "object_type": object_type}
-        if object_id is not None:
-            payload["object_id"] = object_id
-        if reason is not None:
-            payload["reason"] = reason
+        if field is not None:
+            payload["field"] = field
+        if value is not None:
+            payload["value"] = value
         return await self._t.post("/retention/holds", payload)
 
     async def lift_legal_hold(self, case_id: str) -> dict[str, Any]:

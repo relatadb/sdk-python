@@ -70,13 +70,13 @@ def test_governance_place_legal_hold_posts_payload() -> None:
         assert body == {
             "case_id": "case-42",
             "object_type": "Person",
-            "object_id": "p-1",
-            "reason": "investigation",
+            "field": "env",
+            "value": "prod",
         }
         return httpx.Response(200, json={"case_id": "case-42", "status": "active"})
 
     g = GovernanceClient(BASE, transport=_wrap(handler))
-    out = g.place_legal_hold("case-42", "Person", object_id="p-1", reason="investigation")
+    out = g.place_legal_hold("case-42", "Person", field="env", value="prod")
     assert out["status"] == "active"
 
 
