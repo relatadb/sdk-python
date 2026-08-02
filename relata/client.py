@@ -490,8 +490,10 @@ class RelataClient:
         import io
         import pyarrow.ipc as ipc  # type: ignore[import]
 
+        from relata.streaming import StreamingClient
+
         effective_purpose = self._resolve_purpose(purpose)
-        chunks = self.streaming.query_arrow_raw(sql, purpose=effective_purpose)
+        chunks = StreamingClient.from_client(self).query_arrow_raw(sql, purpose=effective_purpose)
         buf = io.BytesIO(b"".join(chunks))
         return ipc.open_stream(buf).read_all()
 
