@@ -94,6 +94,23 @@ class VectorClient:
         the pgvector cosine form the server understands natively. ``<=>`` is
         cosine, ``<->`` is L2, ``<#>`` is negative inner product; this helper
         uses cosine because the HNSW index is cosine-trained.
+
+        ``ef_search`` (HNSW beam width): investigated for #2756 — there is no
+        client-controllable ``ef_search`` knob anywhere in today's wire
+        contract. ``relata_query::parser``'s ``ORDER BY`` clause only accepts
+        ``column [ASC|DESC]`` (no trailing-clause grammar like
+        ``HYBRID_SEARCH``'s ``RERANK``/``METRIC``/``WEIGHTS``), and neither
+        the HTTP nor gRPC ``QueryRequest`` carries an ``ef_search`` field.
+        ``ef_search`` is exclusively an internal, auto-tuned HNSW parameter
+        (``relata-storage``'s ``HnswIndex::ef_search_default`` autotune
+        loop) with no per-query override path today. Rather than silently
+        discarding a caller-supplied value (the previous, dead-parameter
+        behavior), it is appended as a ``/* EF_SEARCH n */`` SQL comment:
+        harmless (the tokenizer strips comments before the "no trailing
+        tokens" parse check ever runs, so this can never change what
+        executes), visible in the outgoing request/query logs instead of
+        vanishing, and ready to be wired to a real per-query knob if the
+        server ever exposes one.
         """
         import json
 
@@ -102,6 +119,8 @@ class VectorClient:
             f"SELECT * FROM {object_type} "
             f"ORDER BY {embedding_slot} <=> '{emb_str}' LIMIT {k}"
         )
+        if ef_search is not None:
+            sql += f" /* EF_SEARCH {int(ef_search)} */"
         result = self._client.query(sql, purpose=self._purpose(purpose))
         return result.rows
 
@@ -273,8 +292,11 @@ class AsyncVectorClient:
         query_embedding: list[float],
         *,
         k: int = 10,
+        ef_search: int | None = None,
         purpose: str | None = None,
     ) -> list[dict[str, Any]]:
+        """See :meth:`VectorClient.knn_search` — mirrors its ``ef_search``
+        handling (appended as a ``/* EF_SEARCH n */`` SQL comment; #2756)."""
         import json
 
         emb_str = json.dumps(query_embedding)
@@ -282,6 +304,8 @@ class AsyncVectorClient:
             f"SELECT * FROM {object_type} "
             f"ORDER BY {embedding_slot} <=> '{emb_str}' LIMIT {k}"
         )
+        if ef_search is not None:
+            sql += f" /* EF_SEARCH {int(ef_search)} */"
         result = await self._client.aquery(sql, purpose=self._purpose(purpose))
         return result.rows
 
