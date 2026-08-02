@@ -1087,7 +1087,10 @@ class RelataClient:
     def graph_dijkstra(self, object_type: str, from_id: str, to_id: str, *, purpose: str | None = None) -> dict[str, object]:
         """Shortest path between two entities."""
         p = purpose or self._default_purpose or "analytics"
-        sql = f"GRAPH_DIJKSTRA('{object_type}', FROM => '{from_id}', TO => '{to_id}')"
+        sql = (
+            f"GRAPH_DIJKSTRA({_sql_literal(object_type)}, "
+            f"FROM => {_sql_literal(from_id)}, TO => {_sql_literal(to_id)})"
+        )
         return self._sync.post("/query", {"purpose": p, "sql": sql})
 
     def graph_shortest_path(
@@ -1131,7 +1134,7 @@ class RelataClient:
     def graph_pagerank(self, object_type: str, *, damping: float | None = None, max_iter: int | None = None, purpose: str | None = None) -> dict[str, object]:
         """PageRank centrality."""
         p = purpose or self._default_purpose or "analytics"
-        parts = [f"GRAPH_PAGERANK('{object_type}'"]
+        parts = [f"GRAPH_PAGERANK({_sql_literal(object_type)}"]
         if damping is not None: parts.append(f", DAMPING => {damping}")
         if max_iter is not None: parts.append(f", MAX_ITER => {max_iter}")
         parts.append(")")
@@ -1140,32 +1143,33 @@ class RelataClient:
     def graph_scc(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Strongly connected components (fraud-ring detection)."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_SCC('{object_type}')"})
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_SCC({_sql_literal(object_type)})"})
 
     def graph_cycles(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Cycle detection in the graph."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_CYCLES('{object_type}')"})
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_CYCLES({_sql_literal(object_type)})"})
 
     def graph_community(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Community detection via label propagation."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_COMMUNITY('{object_type}')"})
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_COMMUNITY({_sql_literal(object_type)})"})
 
     def graph_node_similarity(self, object_type: str, node: str, *, purpose: str | None = None) -> dict[str, object]:
         """Node similarity — find entities similar to a seed node."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_NODE_SIMILARITY('{object_type}', NODE => '{node}')"})
+        sql = f"GRAPH_NODE_SIMILARITY({_sql_literal(object_type)}, NODE => {_sql_literal(node)})"
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
 
     def graph_link_predict(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Link prediction — predict missing relationships."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_LINK_PREDICT('{object_type}')"})
+        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_LINK_PREDICT({_sql_literal(object_type)})"})
 
     def graph_triangle_count(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Triangle count — measures graph density / cohesion."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"TRIANGLE_COUNT('{object_type}')"})
+        return self._sync.post("/query", {"purpose": p, "sql": f"TRIANGLE_COUNT({_sql_literal(object_type)})"})
 
     # ------------------------------------------------------------------
     # Intelligence operators (#967)
@@ -1174,7 +1178,7 @@ class RelataClient:
     def beneficial_ownership_chain(self, party: str, *, max_depth: int | None = None, purpose: str | None = None) -> dict[str, object]:
         """Trace ownership to ultimate beneficial owner."""
         p = purpose or self._default_purpose or "compliance"
-        parts = [f"BENEFICIAL_OWNERSHIP_CHAIN('{party}'"]
+        parts = [f"BENEFICIAL_OWNERSHIP_CHAIN({_sql_literal(party)}"]
         if max_depth is not None: parts.append(f", MAX_DEPTH => {max_depth}")
         parts.append(")")
         return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
@@ -1182,7 +1186,7 @@ class RelataClient:
     def sanctions_screen(self, party: str, *, threshold: float | None = None, purpose: str | None = None) -> dict[str, object]:
         """Sanctions screening with fuzzy threshold."""
         p = purpose or self._default_purpose or "compliance"
-        parts = [f"SANCTIONS_SCREEN('{party}'"]
+        parts = [f"SANCTIONS_SCREEN({_sql_literal(party)}"]
         if threshold is not None: parts.append(f", THRESHOLD => {threshold}")
         parts.append(")")
         return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
@@ -1209,14 +1213,14 @@ class RelataClient:
     def crypto_trace(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
         """Follow cryptocurrency fund flow."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"CRYPTO_TRACE('{entity}')"})
+        return self._sync.post("/query", {"purpose": p, "sql": f"CRYPTO_TRACE({_sql_literal(entity)})"})
 
     def wire_reconstruction(
         self, account: str, *, tolerance_pct: float | None = None, purpose: str | None = None
     ) -> dict[str, object]:
         """Reconstruct a wire-transfer chain (FinINT, #2249)."""
         p = purpose or self._default_purpose or "analytics"
-        parts = [f"WIRE_RECONSTRUCTION('{account}'"]
+        parts = [f"WIRE_RECONSTRUCTION({_sql_literal(account)}"]
         if tolerance_pct is not None:
             parts.append(f", TOLERANCE_PCT => {tolerance_pct}")
         parts.append(")")
@@ -1229,24 +1233,24 @@ class RelataClient:
         p = purpose or self._default_purpose or "analytics"
         hops = 5 if max_hops is None else max(1, min(10, max_hops))
         return self._sync.post(
-            "/query", {"purpose": p, "sql": f"HAWALA_TRACE('{seed}', MAX_HOPS => {hops})"}
+            "/query", {"purpose": p, "sql": f"HAWALA_TRACE({_sql_literal(seed)}, MAX_HOPS => {hops})"}
         )
 
     def dns_tunnel_detect(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
         """DNS tunnel detection."""
         p = purpose or self._default_purpose or "security"
-        return self._sync.post("/query", {"purpose": p, "sql": f"DNS_TUNNEL_DETECT('{entity}')"})
+        return self._sync.post("/query", {"purpose": p, "sql": f"DNS_TUNNEL_DETECT({_sql_literal(entity)})"})
 
     def crime_pattern_cluster(self, area: str, *, purpose: str | None = None) -> dict[str, object]:
         """Spatial crime pattern analysis."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"CRIME_PATTERN_CLUSTER('{area}')"})
+        return self._sync.post("/query", {"purpose": p, "sql": f"CRIME_PATTERN_CLUSTER({_sql_literal(area)})"})
 
     def geofence(self, fence: str, *, target_type: str | None = None, purpose: str | None = None) -> dict[str, object]:
         """Geo-fence query — find entities within a geographic fence."""
         p = purpose or self._default_purpose or "analytics"
-        parts = [f"GEOFENCE('{fence}'"]
-        if target_type is not None: parts.append(f", TARGET_TYPE => '{target_type}'")
+        parts = [f"GEOFENCE({_sql_literal(fence)}"]
+        if target_type is not None: parts.append(f", TARGET_TYPE => {_sql_literal(target_type)}")
         parts.append(")")
         return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
 
