@@ -589,11 +589,20 @@ class RelataClient:
         filters: dict[str, str] | None = None,
         matching_strategy: str | None = None,
         typo_tolerance: dict[str, object] | None = None,
+        metric: str | None = None,
+        weights: list[float] | None = None,
     ) -> SearchResponse:
         """Full-text search over a governed object type (#670).
 
+        By default this is **BM25-only** — it never touches the vector
+        channel. Pass ``metric`` and/or ``weights`` to route the request
+        through the server's real HYBRID_SEARCH fusion (BM25 + vector
+        reciprocal-rank fusion, #1330/#1338) instead; either one alone is
+        enough (`search_handler` in `crates/relata-cli/src/serve.rs` only
+        builds the `HYBRID_SEARCH` statement when at least one is set — #2672).
+
         Args:
-            query: Free-text search string (BM25 + vector hybrid).
+            query: Free-text search string.
             type: Object type to search (e.g. ``"Person"``).
             limit: Maximum number of hits to return (server default: 20).
             facets: Field names to aggregate counts for.
@@ -603,6 +612,12 @@ class RelataClient:
                 ``"any"`` (OR, default). Controls which query terms are required (#967).
             typo_tolerance: Dict with ``enabled``, ``min_word_size``,
                 ``disable_on_words``, ``disable_on_attributes`` (#967).
+            metric: Vector distance metric for the HYBRID_SEARCH channel
+                (e.g. ``"cosine"``, ``"euclidean"``, ``"dot"``). Setting this
+                (or ``weights``) is what actually triggers hybrid fusion (#2672).
+            weights: Three-element ``[graph, bm25, vector]`` fusion weights for
+                HYBRID_SEARCH (#1338). Setting this (or ``metric``) is what
+                actually triggers hybrid fusion (#2672).
 
         Returns:
             :class:`~relata.models.SearchResponse` with ``hits``, ``total``,
@@ -610,6 +625,7 @@ class RelataClient:
 
         Example::
 
+            # Pure BM25 — never touches the vector channel.
             results = client.search(
                 "alice smith", "Person",
                 limit=10, facets=["tenant_id"], highlight=True,
@@ -617,6 +633,12 @@ class RelataClient:
             )
             for hit in results.hits:
                 print(hit.score, hit.fields.get("name"))
+
+            # Real hybrid fusion (BM25 + vector RRF) — set metric/weights.
+            hybrid = client.search(
+                "alice smith", "Person",
+                metric="cosine", weights=[0.0, 0.5, 0.5],
+            )
         """
         payload: dict[str, object] = {"query": query, "type": type, "highlight": highlight}
         if limit is not None:
@@ -629,6 +651,10 @@ class RelataClient:
             payload["matching_strategy"] = matching_strategy
         if typo_tolerance is not None:
             payload["typo_tolerance"] = typo_tolerance
+        if metric is not None:
+            payload["metric"] = metric
+        if weights is not None:
+            payload["weights"] = weights
         data = self._sync.post("/search", payload)
         return SearchResponse.model_validate(data)
 
@@ -643,8 +669,15 @@ class RelataClient:
         filters: dict[str, str] | None = None,
         matching_strategy: str | None = None,
         typo_tolerance: dict[str, object] | None = None,
+        metric: str | None = None,
+        weights: list[float] | None = None,
     ) -> SearchResponse:
-        """Async variant of :meth:`search`."""
+        """Async variant of :meth:`search`.
+
+        Like :meth:`search`, this stays BM25-only unless ``metric`` and/or
+        ``weights`` are supplied, in which case it routes through the
+        server's HYBRID_SEARCH fusion path (#2672).
+        """
         payload: dict[str, object] = {"query": query, "type": type, "highlight": highlight}
         if limit is not None:
             payload["limit"] = limit
@@ -656,6 +689,10 @@ class RelataClient:
             payload["matching_strategy"] = matching_strategy
         if typo_tolerance is not None:
             payload["typo_tolerance"] = typo_tolerance
+        if metric is not None:
+            payload["metric"] = metric
+        if weights is not None:
+            payload["weights"] = weights
         data = await self._async.post("/search", payload)
         return SearchResponse.model_validate(data)
 

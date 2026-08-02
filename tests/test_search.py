@@ -93,6 +93,57 @@ def test_search_passes_optional_params():
     assert captured["filters"] == {"tenant_id": "EUROPOL"}
 
 
+def test_search_omits_metric_and_weights_by_default():
+    # #2672: without metric/weights the request body must not carry either
+    # key, since their mere presence is what the server uses to decide
+    # whether to route through HYBRID_SEARCH.
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={**_SEARCH_PAYLOAD, "hits": []})
+
+    client = _mock_client(handler)
+    client.search("alice smith", "Person")
+    assert "metric" not in captured
+    assert "weights" not in captured
+
+
+def test_search_passes_metric_and_weights_for_hybrid_fusion():
+    # #2672: metric/weights must reach the wire so search() can actually
+    # trigger the server's HYBRID_SEARCH fusion path.
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={**_SEARCH_PAYLOAD, "hits": []})
+
+    client = _mock_client(handler)
+    client.search(
+        "alice smith", "Person",
+        metric="cosine", weights=[0.0, 0.5, 0.5],
+    )
+    assert captured["metric"] == "cosine"
+    assert captured["weights"] == [0.0, 0.5, 0.5]
+
+
+@pytest.mark.asyncio
+async def test_asearch_passes_metric_and_weights_for_hybrid_fusion():
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={**_SEARCH_PAYLOAD, "hits": []})
+
+    client = _mock_client(handler)
+    await client.asearch(
+        "alice smith", "Person",
+        metric="euclidean", weights=[0.1, 0.4, 0.5],
+    )
+    assert captured["metric"] == "euclidean"
+    assert captured["weights"] == [0.1, 0.4, 0.5]
+
+
 @pytest.mark.asyncio
 async def test_asearch_returns_typed_response():
     client = _mock_client(_handler)
