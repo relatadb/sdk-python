@@ -122,6 +122,43 @@ def test_search_knowledge_sends_limit_not_top_k() -> None:
     assert "top_k" not in args
 
 
+def test_recall_sends_adr145_retrieval_quality_params() -> None:
+    # #2674: the low-level MCP `recall` wrapper must forward the five
+    # ADR-145 retrieval-quality operators the server's `recall` handler reads
+    # (crates/relata-cli/src/serve/mcp.rs, min_confidence/recency_half_life_secs/
+    # budget_tokens/stability_days/cancel_threshold), not just top_k.
+    client, seen = _capture()
+    client.recall(
+        "hello",
+        purpose="x",
+        min_confidence=0.5,
+        recency_half_life_secs=1800.0,
+        budget_tokens=256,
+        stability_days=14.0,
+        cancel_threshold=0.99,
+    )
+    args = seen["arguments"]
+    assert args["min_confidence"] == 0.5
+    assert args["recency_half_life_secs"] == 1800.0
+    assert args["budget_tokens"] == 256
+    assert args["stability_days"] == 14.0
+    assert args["cancel_threshold"] == 0.99
+
+
+def test_recall_omits_adr145_params_when_unset() -> None:
+    client, seen = _capture()
+    client.recall("hello", purpose="x")
+    args = seen["arguments"]
+    for key in (
+        "min_confidence",
+        "recency_half_life_secs",
+        "budget_tokens",
+        "stability_days",
+        "cancel_threshold",
+    ):
+        assert key not in args
+
+
 def test_suggest_extensions_sends_no_args() -> None:
     # #341: the handler takes no arguments (it ignores any) and returns pack
     # suggestions — the previous `prefix` arg was misleading and dropped.

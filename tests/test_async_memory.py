@@ -44,6 +44,35 @@ async def test_async_add_search_forget_roundtrip() -> None:
     assert "purpose=agent" in str(seen[1].url)
 
 
+async def test_async_search_sends_adr145_params_and_detailed_surfaces_metadata() -> None:
+    """#2674: async mirror of the sync ADR-145 retrieval-quality coverage."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json=_mcp(
+                {
+                    "rows": [{"id": "mem-9", "content": "x"}],
+                    "recall_cost_tokens": 17,
+                    "cancelled": False,
+                }
+            ),
+        )
+
+    async with AsyncMemory(BASE, purpose="agent", transport=httpx.MockTransport(handler)) as m:
+        hits = await m.search("hello", min_confidence=0.4, budget_tokens=100)
+        assert hits[0]["id"] == "mem-9"
+        detailed = await m.search_detailed("hello", stability_days=3.0, cancel_threshold=0.8)
+
+    url = str(seen[0].url)
+    assert "min_confidence=0.4" in url
+    assert "budget_tokens=100" in url
+    assert detailed["recall_cost_tokens"] == 17
+    assert detailed["cancelled"] is False
+
+
 async def test_async_get_and_update() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path

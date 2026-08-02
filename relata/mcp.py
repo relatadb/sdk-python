@@ -373,9 +373,35 @@ class McpClient:
         *,
         purpose: str,
         top_k: int = 5,
+        min_confidence: float | None = None,
+        recency_half_life_secs: float | None = None,
+        budget_tokens: int | None = None,
+        stability_days: float | None = None,
+        cancel_threshold: float | None = None,
     ) -> dict[str, Any]:
-        """``recall`` MCP tool."""
-        return self.call_tool("recall", {"query": query, "purpose": purpose, "top_k": top_k})
+        """``recall`` MCP tool.
+
+        The five keyword-only knobs are the ADR-145 retrieval-quality
+        operators: ``min_confidence`` (CONFIDENCE), ``recency_half_life_secs``
+        (RECENCY), ``budget_tokens`` (BUDGET), ``stability_days``
+        (FORGETTING_CURVE), ``cancel_threshold`` (CANCEL_WHEN). Each defaults
+        to ``None``, which omits it from the tool call so the server applies
+        its own default. The raw envelope this returns carries the read-only
+        ``recall_cost_tokens``/``cancelled`` fields once unwrapped (see
+        :func:`unwrap_mcp`).
+        """
+        args: dict[str, Any] = {"query": query, "purpose": purpose, "top_k": top_k}
+        if min_confidence is not None:
+            args["min_confidence"] = min_confidence
+        if recency_half_life_secs is not None:
+            args["recency_half_life_secs"] = recency_half_life_secs
+        if budget_tokens is not None:
+            args["budget_tokens"] = budget_tokens
+        if stability_days is not None:
+            args["stability_days"] = stability_days
+        if cancel_threshold is not None:
+            args["cancel_threshold"] = cancel_threshold
+        return self.call_tool("recall", args)
 
     def remember_batch(
         self, items: list[dict[str, Any]], *, purpose: str | None = None

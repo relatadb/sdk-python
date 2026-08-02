@@ -148,6 +148,13 @@ from relata import Memory
 with Memory("http://localhost:9090", purpose="agent-notes") as m:
     mem_id = m.add("Alice prefers dark mode")     # store
     hits = m.search("ui preferences", top_k=5)    # recall (confidence × recency × relevance)
+
+    # ADR-145 retrieval-quality operators (#2674): bound recall by token
+    # budget and confidence so one call can't blow an agent's context window.
+    # `search_detailed` also surfaces the read-only `recall_cost_tokens`/
+    # `cancelled` response fields.
+    detailed = m.search_detailed("ui preferences", min_confidence=0.5, budget_tokens=200)
+
     m.forget(mem_id)                              # governed retract, not a hard delete
 ```
 

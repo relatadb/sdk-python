@@ -48,6 +48,47 @@ def _unwrap(resp: dict[str, Any]) -> dict[str, Any]:
     return resp
 
 
+def _recall_params(
+    query: str,
+    purpose: str,
+    *,
+    top_k: int,
+    session_id: str | None,
+    default_session_id: str,
+    as_of: str | None,
+    min_confidence: float | None,
+    recency_half_life_secs: float | None,
+    budget_tokens: int | None,
+    stability_days: float | None,
+    cancel_threshold: float | None,
+) -> dict[str, str]:
+    """Build the ``GET /memory/recall`` query params.
+
+    Includes the five ADR-145 retrieval-quality operators — ``min_confidence``
+    (CONFIDENCE), ``recency_half_life_secs`` (RECENCY), ``budget_tokens``
+    (BUDGET), ``stability_days`` (FORGETTING_CURVE), ``cancel_threshold``
+    (CANCEL_WHEN) — each omitted when ``None`` so the server applies its own
+    default. Shared by :class:`Memory` and :class:`AsyncMemory`.
+    """
+    params: dict[str, str] = {"q": query, "purpose": purpose, "top_k": str(top_k)}
+    sid = session_id if session_id is not None else default_session_id
+    if sid:
+        params["session_id"] = sid
+    if as_of:
+        params["as_of"] = as_of
+    if min_confidence is not None:
+        params["min_confidence"] = str(min_confidence)
+    if recency_half_life_secs is not None:
+        params["recency_half_life_secs"] = str(recency_half_life_secs)
+    if budget_tokens is not None:
+        params["budget_tokens"] = str(budget_tokens)
+    if stability_days is not None:
+        params["stability_days"] = str(stability_days)
+    if cancel_threshold is not None:
+        params["cancel_threshold"] = str(cancel_threshold)
+    return params
+
+
 def _batch_items(
     items: list[str | dict[str, Any]],
     default_session: str,
@@ -167,25 +208,100 @@ class Memory:
         top_k: int = 5,
         session_id: str | None = None,
         as_of: str | None = None,
+        min_confidence: float | None = None,
+        recency_half_life_secs: float | None = None,
+        budget_tokens: int | None = None,
+        stability_days: float | None = None,
+        cancel_threshold: float | None = None,
     ) -> list[dict[str, Any]]:
         """Recall memories ranked by confidence × recency × relevance.
 
         Returns the ranked rows (each with ``id``, ``content``, ``confidence``,
         ``score``, ``memory_class``).
+
+        The five keyword-only knobs are the ADR-145 retrieval-quality
+        operators (REST/MCP params on ``recall``): ``min_confidence``
+        (CONFIDENCE), ``recency_half_life_secs`` (RECENCY), ``budget_tokens``
+        (BUDGET), ``stability_days`` (FORGETTING_CURVE), and
+        ``cancel_threshold`` (CANCEL_WHEN). Each defaults to ``None``, which
+        omits it from the request so the server applies its own default. Use
+        :meth:`search_detailed` instead of ``search`` to also observe the
+        read-only ``recall_cost_tokens``/``cancelled`` response fields these
+        knobs produce.
         """
-        params: dict[str, str] = {
-            "q": query,
-            "purpose": self._purpose,
-            "top_k": str(top_k),
-        }
-        sid = session_id if session_id is not None else self._session_id
-        if sid:
-            params["session_id"] = sid
-        if as_of:
-            params["as_of"] = as_of
-        result = _unwrap(self._t.get("/memory/recall?" + urlencode(params)))
+        result = self._recall(
+            query,
+            top_k=top_k,
+            session_id=session_id,
+            as_of=as_of,
+            min_confidence=min_confidence,
+            recency_half_life_secs=recency_half_life_secs,
+            budget_tokens=budget_tokens,
+            stability_days=stability_days,
+            cancel_threshold=cancel_threshold,
+        )
         rows = result.get("rows")
         return rows if isinstance(rows, list) else []
+
+    def search_detailed(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        session_id: str | None = None,
+        as_of: str | None = None,
+        min_confidence: float | None = None,
+        recency_half_life_secs: float | None = None,
+        budget_tokens: int | None = None,
+        stability_days: float | None = None,
+        cancel_threshold: float | None = None,
+    ) -> dict[str, Any]:
+        """Like :meth:`search` but returns the full recall envelope.
+
+        Includes ``rows`` plus the read-only ``recall_cost_tokens`` (BUDGET's
+        running token total) and ``cancelled`` (CANCEL_WHEN short-circuit
+        flag) fields, so callers can observe the effect of the ADR-145 knobs,
+        not just set them.
+        """
+        return self._recall(
+            query,
+            top_k=top_k,
+            session_id=session_id,
+            as_of=as_of,
+            min_confidence=min_confidence,
+            recency_half_life_secs=recency_half_life_secs,
+            budget_tokens=budget_tokens,
+            stability_days=stability_days,
+            cancel_threshold=cancel_threshold,
+        )
+
+    def _recall(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        session_id: str | None,
+        as_of: str | None,
+        min_confidence: float | None,
+        recency_half_life_secs: float | None,
+        budget_tokens: int | None,
+        stability_days: float | None,
+        cancel_threshold: float | None,
+    ) -> dict[str, Any]:
+        params = _recall_params(
+            query,
+            self._purpose,
+            top_k=top_k,
+            session_id=session_id,
+            default_session_id=self._session_id,
+            as_of=as_of,
+            min_confidence=min_confidence,
+            recency_half_life_secs=recency_half_life_secs,
+            budget_tokens=budget_tokens,
+            stability_days=stability_days,
+            cancel_threshold=cancel_threshold,
+        )
+        return _unwrap(self._t.get("/memory/recall?" + urlencode(params)))
 
     def batch_search(self, queries: list[str], *, top_k: int = 5) -> list[list[dict[str, Any]]]:
         """Run multiple recall queries and return merged results (#967 Tier 4c)."""
@@ -376,17 +492,86 @@ class AsyncMemory:
         top_k: int = 5,
         session_id: str | None = None,
         as_of: str | None = None,
+        min_confidence: float | None = None,
+        recency_half_life_secs: float | None = None,
+        budget_tokens: int | None = None,
+        stability_days: float | None = None,
+        cancel_threshold: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Recall memories ranked by confidence × recency × relevance."""
-        params: dict[str, str] = {"q": query, "purpose": self._purpose, "top_k": str(top_k)}
-        sid = session_id if session_id is not None else self._session_id
-        if sid:
-            params["session_id"] = sid
-        if as_of:
-            params["as_of"] = as_of
-        result = _unwrap(await self._t.get("/memory/recall?" + urlencode(params)))
+        """Recall memories ranked by confidence × recency × relevance.
+
+        See :meth:`Memory.search` for the five ADR-145 retrieval-quality
+        keyword knobs. Use :meth:`search_detailed` to also observe
+        ``recall_cost_tokens``/``cancelled``.
+        """
+        result = await self._recall(
+            query,
+            top_k=top_k,
+            session_id=session_id,
+            as_of=as_of,
+            min_confidence=min_confidence,
+            recency_half_life_secs=recency_half_life_secs,
+            budget_tokens=budget_tokens,
+            stability_days=stability_days,
+            cancel_threshold=cancel_threshold,
+        )
         rows = result.get("rows")
         return rows if isinstance(rows, list) else []
+
+    async def search_detailed(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        session_id: str | None = None,
+        as_of: str | None = None,
+        min_confidence: float | None = None,
+        recency_half_life_secs: float | None = None,
+        budget_tokens: int | None = None,
+        stability_days: float | None = None,
+        cancel_threshold: float | None = None,
+    ) -> dict[str, Any]:
+        """Like :meth:`search` but returns the full recall envelope (see
+        :meth:`Memory.search_detailed`)."""
+        return await self._recall(
+            query,
+            top_k=top_k,
+            session_id=session_id,
+            as_of=as_of,
+            min_confidence=min_confidence,
+            recency_half_life_secs=recency_half_life_secs,
+            budget_tokens=budget_tokens,
+            stability_days=stability_days,
+            cancel_threshold=cancel_threshold,
+        )
+
+    async def _recall(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        session_id: str | None,
+        as_of: str | None,
+        min_confidence: float | None,
+        recency_half_life_secs: float | None,
+        budget_tokens: int | None,
+        stability_days: float | None,
+        cancel_threshold: float | None,
+    ) -> dict[str, Any]:
+        params = _recall_params(
+            query,
+            self._purpose,
+            top_k=top_k,
+            session_id=session_id,
+            default_session_id=self._session_id,
+            as_of=as_of,
+            min_confidence=min_confidence,
+            recency_half_life_secs=recency_half_life_secs,
+            budget_tokens=budget_tokens,
+            stability_days=stability_days,
+            cancel_threshold=cancel_threshold,
+        )
+        return _unwrap(await self._t.get("/memory/recall?" + urlencode(params)))
 
     async def get(self, memory_id: str) -> dict[str, Any] | None:
         """Fetch a single memory by id, or ``None`` if not found."""

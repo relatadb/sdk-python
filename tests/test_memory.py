@@ -118,6 +118,81 @@ def test_search_unwraps_rows() -> None:
     assert "top_k=2" in seen["url"]
 
 
+def test_search_sends_adr145_retrieval_quality_params() -> None:
+    """#2674: CONFIDENCE/RECENCY/BUDGET/FORGETTING_CURVE/CANCEL_WHEN must be
+    reachable from ``Memory.search`` as query params on ``GET /memory/recall``."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=_mcp({"rows": [], "count": 0}))
+
+    with _memory(handler) as m:
+        m.search(
+            "ui preferences",
+            min_confidence=0.6,
+            recency_half_life_secs=3600.0,
+            budget_tokens=500,
+            stability_days=7.0,
+            cancel_threshold=0.95,
+        )
+
+    url = seen["url"]
+    assert "min_confidence=0.6" in url
+    assert "recency_half_life_secs=3600" in url
+    assert "budget_tokens=500" in url
+    assert "stability_days=7" in url
+    assert "cancel_threshold=0.95" in url
+
+
+def test_search_omits_adr145_params_when_unset() -> None:
+    """Omitted knobs must not appear in the query string at all (so the
+    server applies its own defaults rather than an SDK-invented sentinel)."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=_mcp({"rows": [], "count": 0}))
+
+    with _memory(handler) as m:
+        m.search("ui preferences")
+
+    url = seen["url"]
+    for key in (
+        "min_confidence",
+        "recency_half_life_secs",
+        "budget_tokens",
+        "stability_days",
+        "cancel_threshold",
+    ):
+        assert key not in url
+
+
+def test_search_detailed_surfaces_recall_cost_tokens_and_cancelled() -> None:
+    """#2674: the read-only BUDGET/CANCEL_WHEN response fields must be
+    observable, not just settable."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=_mcp(
+                {
+                    "rows": [{"id": "a", "content": "x"}],
+                    "count": 1,
+                    "recall_cost_tokens": 42,
+                    "cancelled": True,
+                }
+            ),
+        )
+
+    with _memory(handler) as m:
+        result = m.search_detailed("ui preferences", budget_tokens=50, cancel_threshold=0.9)
+
+    assert result["recall_cost_tokens"] == 42
+    assert result["cancelled"] is True
+    assert [h["id"] for h in result["rows"]] == ["a"]
+
+
 def test_search_empty_when_no_rows() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_mcp({"count": 0, "query": "x"}))
