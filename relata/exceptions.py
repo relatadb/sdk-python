@@ -24,8 +24,18 @@ class RelataError(Exception):
         message: Human-readable error description.
         status_code: HTTP status code from the server, or ``None`` for
             client-side errors (e.g. network failures, validation errors).
-        code: Dotted problem+json ``code`` (e.g. ``"RELATA.QUERY.PURPOSE_REQUIRED"``)
-            or ``None`` when the server emits the legacy ``{"error": "..."}`` shape.
+        code: The server's RFC 7807 problem+json ``code`` extension field, or
+            ``None`` when the response is the legacy ``{"error": "..."}``
+            shape. Two vocabularies exist in real responses (#2555): most
+            HTTP errors (auth/ACL/ingest/admin/...) use kebab-case, e.g.
+            ``"access-denied"``, ``"parse-error"`` (catalogue:
+            ``docs/api/error-codes.md``); `/query`'s planner/execution
+            errors use the ``QueryError``-derived ``REL_*`` form, e.g.
+            ``"REL_PARSE"``, ``"REL_ACL"`` (catalogue:
+            ``docs/src/end-users/error-codes.md``). Match on the literal
+            string rather than assuming either form — do not rely on
+            dotted-form codes like ``"RELATA.QUERY.PURPOSE_REQUIRED"``,
+            which were never implemented server-side.
         type_url: RFC 7807 ``type`` URL linking to the error docs.
         retryable: ``True`` when the server says the request can be retried.
         request_id: The ``X-Request-ID`` from the response, when available.
