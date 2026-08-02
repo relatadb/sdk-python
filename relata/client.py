@@ -143,7 +143,7 @@ def _flight_endpoint_from(base_url: str, flight_endpoint: str | None) -> str:
     """
     if flight_endpoint:
         return flight_endpoint
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, urlencode
 
     host = urlparse(base_url).hostname or "localhost"
     return f"grpc://{host}:8815"
@@ -745,6 +745,31 @@ class RelataClient:
         """Get type detail (properties, owner, row count)."""
         return self._sync.get(f"/types/{name}")
 
+    def schema_alter(
+        self,
+        type_name: str,
+        action: str,
+        column: str,
+        *,
+        new_column: str | None = None,
+        col_type: str | None = None,
+        optional: bool | None = None,
+    ) -> dict[str, object]:
+        """Online schema evolution — ``PATCH /types/:name/schema`` (#1307).
+
+        ``action`` is ``"add"`` | ``"drop"`` | ``"rename"`` | ``"retype"``;
+        ``column`` is the target column; ``new_column`` / ``col_type`` /
+        ``optional`` apply to the relevant actions.
+        """
+        payload: dict[str, object] = {"action": action, "column": column}
+        if new_column is not None:
+            payload["new_column"] = new_column
+        if col_type is not None:
+            payload["col_type"] = col_type
+        if optional is not None:
+            payload["optional"] = optional
+        return self._sync.patch(f"/types/{type_name}/schema", payload)
+
     def ontology_migrate(self, schema: dict[str, object]) -> dict[str, object]:
         """SHACL schema migration — register type specs, link types, property
         constraints in one governed call."""
@@ -918,6 +943,44 @@ class RelataClient:
         p = purpose or self._default_purpose or "analytics"
         sql = f"GRAPH_DIJKSTRA('{object_type}', FROM => '{from_id}', TO => '{to_id}')"
         return self._sync.post("/query", {"purpose": p, "sql": sql})
+
+    def graph_shortest_path(
+        self,
+        from_id: str,
+        to_id: str,
+        *,
+        max_hops: int | None = None,
+    ) -> dict[str, object]:
+        """Shortest path via the governed ``GET /graph/shortest-path`` door.
+
+        Unlike :meth:`graph_dijkstra` (a SQL operator), this exposes the HTTP
+        door's ``max_hops`` ceiling (#2344).
+        """
+        params = {"from": from_id, "to": to_id}
+        if max_hops is not None:
+            params["max_hops"] = max_hops
+        return self._sync.get(f"/graph/shortest-path?{urlencode(params)}")
+
+    def graph_traverse(
+        self,
+        from_id: str,
+        *,
+        direction: str | None = None,
+        max_depth: int | None = None,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        """Breadth-first traversal via the governed ``GET /graph/traverse`` door.
+
+        ``direction`` is ``"out"`` | ``"in"`` | ``"both"`` (server default out).
+        """
+        params = {"from": from_id}
+        if direction is not None:
+            params["direction"] = direction
+        if max_depth is not None:
+            params["max_depth"] = max_depth
+        if limit is not None:
+            params["limit"] = limit
+        return self._sync.get(f"/graph/traverse?{urlencode(params)}")
 
     def graph_pagerank(self, object_type: str, *, damping: float | None = None, max_iter: int | None = None, purpose: str | None = None) -> dict[str, object]:
         """PageRank centrality."""
