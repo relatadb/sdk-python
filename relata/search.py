@@ -16,9 +16,13 @@ Server contract (``JsonSearchRequest``, #1983):
 
 - ``from`` (alias ``type``) — object type.
 - ``rank_by`` — ``["bm25"|"text", "<column>", "<query text>"]`` (BM25 full-text
-  + ``ORDER BY _score DESC``) or ``["vector", "ann", "<query text>"]``
-  (HYBRID_SEARCH). The typed shape is detected by the **absence** of a
-  top-level ``query`` key — so this client never sends one for typed calls.
+  + ``ORDER BY _score DESC``), ``["field_weight", {"<field>": <weight>, ...},
+  "<query text>"]`` (BM25F per-field weighting — ``MATCH(*, ...)`` +
+  ``RANK BY FIELD_WEIGHT(...)``, #2676; e.g. ``rank_by=["field_weight",
+  {"title": 3.0, "body": 1.0, "tags": 5.0}, "database"]``), or
+  ``["vector", "ann", "<query text>"]`` (HYBRID_SEARCH). The typed shape is
+  detected by the **absence** of a top-level ``query`` key — so this client
+  never sends one for typed calls.
 - ``filters`` — ``[{field, op, value}]`` with ops
   ``eq | ne | gt | gte | lt | lte | like | ilike | in | between``.
 - ``include_attributes`` — column projection (default ``*``).
@@ -78,9 +82,10 @@ def _normalise_rank_by(rank_by: list[Any] | None) -> list[Any] | None:
     """Pass-through validation of a ``rank_by`` directive.
 
     The server accepts the array forms ``["bm25","col","text"]``,
-    ``["text","col","text"]``, and ``["vector","ann","text"]``. Each element is
-    sent verbatim; we only sanity-check the shape so a malformed directive
-    fails fast on the client rather than as a 400 round-trip.
+    ``["text","col","text"]``, ``["field_weight",{"title":3.0,...},"text"]``
+    (#2676), and ``["vector","ann","text"]``. Each element is sent verbatim;
+    we only sanity-check the shape so a malformed directive fails fast on the
+    client rather than as a 400 round-trip.
     """
     if rank_by is None:
         return None
@@ -90,7 +95,9 @@ def _normalise_rank_by(rank_by: list[Any] | None) -> list[Any] | None:
         return None
     mode = rank_by[0]
     if not isinstance(mode, str):
-        raise ValueError("rank_by[0] must be a string mode: 'bm25' | 'text' | 'vector'")
+        raise ValueError(
+            "rank_by[0] must be a string mode: 'bm25' | 'text' | 'field_weight' | 'vector'"
+        )
     return rank_by
 
 
@@ -135,7 +142,9 @@ class SearchClient:
             match_column: Column for the ``text`` BM25 match (default ``"*"``
                 = whole-row match, mirroring the legacy ``/search`` default).
             rank_by: Explicit ranking directive — ``["bm25","title","..."]``,
-                ``["vector","ann","..."]``. See module docstring.
+                ``["field_weight",{"title":3.0,...},"..."]`` (BM25F per-field
+                weighting, #2676), ``["vector","ann","..."]``. See module
+                docstring.
             filters: ``[{field, op, value}]`` (ops ``eq/ne/gt/gte/lt/lte/like/
                 ilike/in/between``) or equality dict ``{field: value}``.
             limit: Max hits (server clamps to ``[1, 10000]``).
