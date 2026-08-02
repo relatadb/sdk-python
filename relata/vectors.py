@@ -148,6 +148,55 @@ class VectorClient:
             payload["model"] = model
         return self._client._sync.post("/embed/batch", payload)  # noqa: SLF001
 
+    def _embed_media(
+        self, modality: str, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"bytes_b64": bytes_b64}
+        if model is not None:
+            payload["model"] = model
+        return self._client._sync.post(f"/embed/{modality}", payload)  # noqa: SLF001
+
+    def embed_image(
+        self, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed a single image via ``POST /embed/image`` (#2444, ADR-0276).
+
+        ``bytes_b64`` is the base64-encoded image. Uses the server's
+        configured embedder's sidecar (``RELATA_ACCEL_ENDPOINT``, ADR-177);
+        raises :class:`~relata.exceptions.RelataError` (503) when the active
+        embedder does not support media. Returns
+        ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        return self._embed_media("image", bytes_b64, model=model)
+
+    def embed_face(
+        self, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed a single face crop via ``POST /embed/face`` (#2444, ADR-0276).
+
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        return self._embed_media("face", bytes_b64, model=model)
+
+    def embed_audio(
+        self, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed a single audio clip via ``POST /embed/audio`` (#2444, ADR-0276).
+
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        return self._embed_media("audio", bytes_b64, model=model)
+
+    def embed_video(
+        self, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed a single video clip/keyframe via ``POST /embed/video``
+        (#2444, ADR-0276).
+
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        return self._embed_media("video", bytes_b64, model=model)
+
 
 class AsyncVectorClient:
     """Asynchronous typed vector client — see :class:`VectorClient`."""
@@ -253,3 +302,48 @@ class AsyncVectorClient:
         if model is not None:
             payload["model"] = model
         return await self._client._async.post("/embed/batch", payload)  # noqa: SLF001
+
+    async def _embed_media(
+        self, modality: str, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"bytes_b64": bytes_b64}
+        if model is not None:
+            payload["model"] = model
+        return await self._client._async.post(f"/embed/{modality}", payload)  # noqa: SLF001
+
+    async def embed_image(
+        self, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed a single image via ``POST /embed/image`` (#2444, ADR-0276).
+
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        return await self._embed_media("image", bytes_b64, model=model)
+
+    async def embed_face(
+        self, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed a single face crop via ``POST /embed/face`` (#2444, ADR-0276).
+
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        return await self._embed_media("face", bytes_b64, model=model)
+
+    async def embed_audio(
+        self, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed a single audio clip via ``POST /embed/audio`` (#2444, ADR-0276).
+
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        return await self._embed_media("audio", bytes_b64, model=model)
+
+    async def embed_video(
+        self, bytes_b64: str, *, model: str | None = None
+    ) -> dict[str, Any]:
+        """Embed a single video clip/keyframe via ``POST /embed/video``
+        (#2444, ADR-0276).
+
+        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
+        """
+        return await self._embed_media("video", bytes_b64, model=model)
