@@ -78,6 +78,14 @@ def _purpose_path(base: str, purpose: str | None) -> str:
     return base
 
 
+def _detect_headers(detect_packs: str | None) -> dict[str, str]:
+    """Build the ``X-Detect-Packs`` header for a per-call SmartIngest override
+    (#2258 SI-3). ``None``/empty → no override (empty dict spreads cleanly)."""
+    if detect_packs:
+        return {"X-Detect-Packs": detect_packs}
+    return {}
+
+
 class IngestClient:
     """Synchronous bulk-ingest client."""
 
@@ -127,15 +135,46 @@ class IngestClient:
         rows: list[dict[str, Any]],
         *,
         purpose: str | None = None,
+        detect_packs: str | None = None,
+        on_conflict: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        """Bulk-ingest ``rows`` as NDJSON. Returns the server receipt."""
+        """Bulk-ingest ``rows``. Returns the server receipt.
+
+        Per-call controls:
+        - ``detect_packs`` — SmartIngest detector-pack override (#2258 SI-3),
+          sent as the ``X-Detect-Packs`` header. ``"none"`` disables SmartIngest
+          for this call; a comma-separated list (e.g. ``"network,financial"``)
+          selects packs. Requires the ``IngestDetectOverride`` ACL grant.
+        - ``on_conflict`` — when set (``"upsert"`` | ``"skip"`` | ``"error"``),
+          routes to ``POST /ingest/bulk`` so conflict resolution + ``tenant_id``
+          take effect.
+        - ``tenant_id`` — tenant scope (only honoured on the ``/ingest/bulk`` door).
+        """
         import json
 
+        if on_conflict is not None:
+            objects = [{**r, "_type": object_type} for r in rows]
+            payload: dict[str, Any] = {
+                "objects": objects,
+                "on_conflict": on_conflict,
+            }
+            eff_purpose = purpose or self._purpose
+            if eff_purpose:
+                payload["purpose"] = eff_purpose
+            if tenant_id is not None:
+                payload["tenant_id"] = tenant_id
+            resp = self._t._client.post(  # noqa: SLF001
+                "/ingest/bulk",
+                content=json.dumps(payload),
+                headers={"Content-Type": "application/json", **_detect_headers(detect_packs)},
+            )
+            return _handle_raw(resp)
         body = "\n".join(json.dumps(r) for r in rows)
         resp = self._t._client.post(  # noqa: SLF001 — raw NDJSON body
             f"/ingest?{self._params(object_type, purpose)}",
             content=body,
-            headers={"Content-Type": "application/x-ndjson"},
+            headers={"Content-Type": "application/x-ndjson", **_detect_headers(detect_packs)},
         )
         return _handle_raw(resp)
 
@@ -145,12 +184,17 @@ class IngestClient:
         csv_text: str,
         *,
         purpose: str | None = None,
+        detect_packs: str | None = None,
     ) -> dict[str, Any]:
-        """Bulk-ingest a CSV string. The server parses it server-side."""
+        """Bulk-ingest a CSV string. The server parses it server-side.
+
+        ``detect_packs`` is a per-call SmartIngest override (``X-Detect-Packs``
+        header, #2258 SI-3): ``"none"`` disables, ``"network,financial"`` selects.
+        """
         resp = self._t._client.post(  # noqa: SLF001
             f"/ingest?{self._params(object_type, purpose)}",
             content=csv_text,
-            headers={"Content-Type": "text/csv"},
+            headers={"Content-Type": "text/csv", **_detect_headers(detect_packs)},
         )
         return _handle_raw(resp)
 
@@ -282,14 +326,32 @@ class AsyncIngestClient:
         rows: list[dict[str, Any]],
         *,
         purpose: str | None = None,
+        detect_packs: str | None = None,
+        on_conflict: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
+        """Async variant of :meth:`bulk` (per-call SmartIngest + conflict controls)."""
         import json
 
+        if on_conflict is not None:
+            objects = [{**r, "_type": object_type} for r in rows]
+            payload: dict[str, Any] = {"objects": objects, "on_conflict": on_conflict}
+            eff_purpose = purpose or self._purpose
+            if eff_purpose:
+                payload["purpose"] = eff_purpose
+            if tenant_id is not None:
+                payload["tenant_id"] = tenant_id
+            resp = await self._t._client.post(  # noqa: SLF001
+                "/ingest/bulk",
+                content=json.dumps(payload),
+                headers={"Content-Type": "application/json", **_detect_headers(detect_packs)},
+            )
+            return _handle_raw(resp)
         body = "\n".join(json.dumps(r) for r in rows)
         resp = await self._t._client.post(  # noqa: SLF001
             f"/ingest?{self._params(object_type, purpose)}",
             content=body,
-            headers={"Content-Type": "application/x-ndjson"},
+            headers={"Content-Type": "application/x-ndjson", **_detect_headers(detect_packs)},
         )
         return _handle_raw(resp)
 
@@ -299,11 +361,13 @@ class AsyncIngestClient:
         csv_text: str,
         *,
         purpose: str | None = None,
+        detect_packs: str | None = None,
     ) -> dict[str, Any]:
+        """Async variant of :meth:`bulk_csv`."""
         resp = await self._t._client.post(  # noqa: SLF001
             f"/ingest?{self._params(object_type, purpose)}",
             content=csv_text,
-            headers={"Content-Type": "text/csv"},
+            headers={"Content-Type": "text/csv", **_detect_headers(detect_packs)},
         )
         return _handle_raw(resp)
 
