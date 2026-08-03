@@ -566,20 +566,14 @@ class RelataClient:
             )
             df = tbl.to_pandas()
         """
-        import pyarrow.flight as flight  # type: ignore[import]
+        from relata.flight import FlightClient
 
-        endpoint = _flight_endpoint_from(self._base_url, flight_endpoint)
-        ticket_sql = _flight_ticket(sql, purpose)
-        bearer = bearer_token if bearer_token is not None else self._bearer_token
-
-        client = flight.FlightClient(endpoint)
-        options = flight.FlightCallOptions()
-        if bearer:
-            options = flight.FlightCallOptions(
-                headers=[(b"authorization", f"Bearer {bearer}".encode())]
-            )
-        reader = client.do_get(flight.Ticket(ticket_sql.encode("utf-8")), options)
-        return reader.read_all()
+        return FlightClient.from_client(self).query_flight(
+            sql,
+            flight_endpoint=flight_endpoint,
+            purpose=purpose,
+            bearer_token=bearer_token,
+        )
 
     async def aquery_flight(
         self,

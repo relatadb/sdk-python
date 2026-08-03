@@ -29,6 +29,7 @@ The Flight door is enabled server-side with ``RELATA_FLIGHT_ENABLE=true``
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -71,6 +72,36 @@ def resolve_flight_endpoint(base_url: str, flight_endpoint: str | None) -> str:
 
     host = urlparse(base_url).hostname or "localhost"
     return f"grpc://{host}:{DEFAULT_FLIGHT_PORT}"
+
+
+def flight_call_headers(
+    client: RelataClient, bearer_token: str | None
+) -> list[tuple[bytes, bytes]]:
+    """Build the Arrow Flight gRPC metadata for a call (#3213).
+
+    Previously the Flight door only threaded ``authorization`` — the
+    tenant/acting-as/delegated-by scope configured on the client was silently
+    dropped, so on a multi-tenant cluster the server fell back to
+    default-tenant resolution (silent cross-tenant exposure). This mirrors the
+    HTTP door's ``_build_headers``: it threads the bearer plus the client's
+    ``_extra_headers`` bag (tenant / acting-as / delegated-by / caller-supplied
+    headers), lowercased for gRPC metadata, and adds a per-request
+    ``x-request-id``. Caller-supplied headers win over the SDK defaults.
+
+    ``bearer_token`` overrides the client's own token when not ``None``
+    (matching :meth:`FlightClient.query_flight`'s ``bearer_token`` argument).
+    """
+    bearer = bearer_token if bearer_token is not None else client._bearer_token  # noqa: SLF001
+    headers: dict[str, str] = {}
+    if bearer:
+        headers["authorization"] = f"Bearer {bearer}"
+    extra = client._extra_headers  # noqa: SLF001
+    if extra:
+        for key, value in extra.items():
+            headers[key.lower()] = value
+    if "x-request-id" not in headers:
+        headers["x-request-id"] = str(uuid.uuid4())
+    return [(k.encode("utf-8"), v.encode("utf-8")) for k, v in headers.items()]
 
 
 class FlightClient:
@@ -119,14 +150,10 @@ class FlightClient:
 
         endpoint = resolve_flight_endpoint(self._client._base_url, flight_endpoint)  # noqa: SLF001
         ticket_sql = flight_ticket(sql, purpose)
-        bearer = bearer_token if bearer_token is not None else self._client._bearer_token  # noqa: SLF001
+        headers = flight_call_headers(self._client, bearer_token)
 
         client = flight.FlightClient(endpoint)
-        options = flight.FlightCallOptions()
-        if bearer:
-            options = flight.FlightCallOptions(
-                headers=[(b"authorization", f"Bearer {bearer}".encode())]
-            )
+        options = flight.FlightCallOptions(headers=headers)
         reader = client.do_get(flight.Ticket(ticket_sql.encode("utf-8")), options)
         return reader.read_all()
 

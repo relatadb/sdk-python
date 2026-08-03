@@ -255,6 +255,67 @@ def test_flight_endpoint_explicit_override_wins() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# #3213 — Flight call metadata threads tenant/acting-as/delegated-by.
+# Pure unit tests (no pyarrow): the Flight door must receive the same scope
+# the HTTP door does, or a multi-tenant cluster silently falls back to the
+# default tenant.
+# ---------------------------------------------------------------------------
+
+
+def test_flight_metadata_threads_tenant_scope() -> None:
+    from relata import RelataClient
+    from relata.flight import flight_call_headers
+
+    client = RelataClient(
+        BASE,
+        bearer_token="tok",
+        tenant="acme",
+        acting_as="agent-1",
+        delegated_by="root-org",
+        headers={"X-Verified-Principal": "svc-a"},
+    )
+    headers = dict(flight_call_headers(client, None))
+    assert headers[b"authorization"] == b"Bearer tok"
+    assert headers[b"x-relata-tenant-id"] == b"acme"
+    assert headers[b"x-acting-as"] == b"agent-1"
+    assert headers[b"x-delegated-by"] == b"root-org"
+    assert headers[b"x-verified-principal"] == b"svc-a"
+    # Per-request correlation id is always present.
+    assert b"x-request-id" in headers
+    assert headers[b"x-request-id"]
+
+
+def test_flight_metadata_bearer_override_wins() -> None:
+    from relata import RelataClient
+    from relata.flight import flight_call_headers
+
+    client = RelataClient(BASE, bearer_token="tok", tenant="acme")
+    headers = dict(flight_call_headers(client, "override-tok"))
+    assert headers[b"authorization"] == b"Bearer override-tok"
+    assert headers[b"x-relata-tenant-id"] == b"acme"
+
+
+def test_flight_metadata_unauthenticated_still_threads_tenant() -> None:
+    from relata import RelataClient
+    from relata.flight import flight_call_headers
+
+    client = RelataClient(BASE, tenant="acme")
+    headers = dict(flight_call_headers(client, None))
+    assert b"authorization" not in headers
+    assert headers[b"x-relata-tenant-id"] == b"acme"
+    assert b"x-request-id" in headers
+
+
+def test_flight_metadata_caller_request_id_wins() -> None:
+    from relata import RelataClient
+    from relata.flight import flight_call_headers
+
+    client = RelataClient(BASE, headers={"X-Request-ID": "pinned-rid"})
+    headers = dict(flight_call_headers(client, None))
+    assert headers[b"x-request-id"] == b"pinned-rid"
+
+
 def test_query_flight_requires_pyarrow(monkeypatch: pytest.MonkeyPatch) -> None:
     """If pyarrow is not importable the method raises ImportError, not a crash."""
     import builtins
