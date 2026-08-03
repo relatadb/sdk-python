@@ -53,6 +53,7 @@ from relata.exceptions import (
     QuotaError,
     RateLimitedError,
     RelataError,
+    ResponseTooLargeError,
     ServerError,
     ValidationError,
 )
@@ -159,6 +160,7 @@ __all__ = [
     "ConflictError",
     "ValidationError",
     "RateLimitedError",
+    "ResponseTooLargeError",
     # Foundational typed surfaces (#2248 client canonical validation, #2255 AML decoders)
     "aml",
     "canonical",

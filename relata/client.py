@@ -30,7 +30,12 @@ from types import TracebackType
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
-from relata._http import AsyncHttpTransport, HttpTransport, path_segment
+from relata._http import (
+    DEFAULT_MAX_RESPONSE_BYTES,
+    AsyncHttpTransport,
+    HttpTransport,
+    path_segment,
+)
 from relata.exceptions import PurposeError, RelataError
 from relata.models import (
     AuditCountResponse,
@@ -212,6 +217,10 @@ class RelataClient:
             methods reach them. Leave unset (the default) when the admin
             listener isn't split from the data plane (e.g. local/free-profile
             dev) -- every request then goes to ``base_url`` unchanged.
+        max_response_bytes: Cap on how much of any single response body the
+            client will buffer (default ~64 MiB, #3214). A larger body raises
+            :class:`~relata.exceptions.ResponseTooLargeError` instead of being
+            read — defending the client from OOM via a malicious/buggy server.
 
     Raises:
         :class:`~relata.exceptions.AuthError`: When the server rejects the
@@ -258,6 +267,7 @@ class RelataClient:
         retry_backoff_secs: float = 0.5,
         compress: bool = False,
         admin_base_url: str | None = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         # #2321 (ADR-0261): /admin/* and /platform/* are mounted only on the
@@ -277,6 +287,9 @@ class RelataClient:
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff_secs
         self._compress = compress
+        # #3214: per-response buffering cap — a malicious/buggy server cannot
+        # OOM the client (default ~64 MiB; parity with Rust #3198).
+        self._max_response_bytes = max_response_bytes
 
         # Compose the static extra-headers bag: tenant/delegation first, then
         # caller-supplied headers win. Per-call overrides (tenant=, acting_as=,
@@ -313,6 +326,7 @@ class RelataClient:
                 retry_backoff=self._retry_backoff,
                 compress=self._compress,
                 admin_base_url=self._admin_base_url,
+                max_response_bytes=self._max_response_bytes,
             )
         return self.__sync_transport
 
@@ -328,6 +342,7 @@ class RelataClient:
                 retry_backoff=self._retry_backoff,
                 compress=self._compress,
                 admin_base_url=self._admin_base_url,
+                max_response_bytes=self._max_response_bytes,
             )
         return self.__async_transport
 
@@ -382,16 +397,28 @@ class RelataClient:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """Close the underlying sync HTTP connection pool."""
+        """Close the underlying sync HTTP connection pool and drop the bearer
+        credential (#3214). The client is not usable after this."""
         if self.__sync_transport is not None:
             self.__sync_transport.close()
             self.__sync_transport = None
+        # The async transport may still be open (two-phase teardown) — strip
+        # its Authorization header so the secret does not linger there either.
+        if self.__async_transport is not None:
+            self.__async_transport.clear_credentials()
+        # Zeroize: drop our reference to the secret so it does not linger on
+        # the (long-lived) client object after shutdown.
+        self._bearer_token = None
 
     async def aclose(self) -> None:
-        """Close the underlying async HTTP connection pool."""
+        """Close the underlying async HTTP connection pool and drop the bearer
+        credential (#3214). The client is not usable after this."""
         if self.__async_transport is not None:
             await self.__async_transport.aclose()
             self.__async_transport = None
+        if self.__sync_transport is not None:
+            self.__sync_transport.clear_credentials()
+        self._bearer_token = None
 
     # ------------------------------------------------------------------
     # Sync API

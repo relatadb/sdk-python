@@ -26,12 +26,18 @@ from relata.exceptions import (
     PurposeError,
     RateLimitedError,
     RelataError,
+    ResponseTooLargeError,
     ServerError,
     ValidationError,
 )
 
 # Request / response content-type we always send and expect.
 _CONTENT_TYPE = "application/json"
+
+#: Default response-body cap (~64 MiB) — a malicious/buggy server can no
+#: longer OOM the client by streaming an unbounded body (#3214, parity with
+#: Rust #3198). Override via ``RelataClient(max_response_bytes=...)``.
+DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
 
 def path_segment(value: str) -> str:
@@ -83,6 +89,25 @@ def _opt_float_header(headers: Any, name: str) -> float | None:
         return float(raw) if raw is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _check_content_length(resp: httpx.Response, max_bytes: int) -> None:
+    """Reject early when the advertised ``Content-Length`` exceeds the cap
+    (#3214) — before buffering a byte of an oversized body."""
+    raw = resp.headers.get("content-length")
+    if raw is None:
+        return
+    try:
+        length = int(raw)
+    except ValueError:
+        return
+    if length > max_bytes:
+        raise ResponseTooLargeError(
+            f"Response body of {length} bytes exceeds the max_response_bytes "
+            f"cap of {max_bytes} bytes; refusing to buffer it (#3214).",
+            max_bytes=max_bytes,
+            content_length=length,
+        )
 
 
 # #2321 (ADR-0261): paths mounted only on the loopbound admin control-plane
@@ -291,6 +316,7 @@ class HttpTransport:
         retry_on: frozenset[int] = _DEFAULT_RETRY_ON,
         compress: bool = False,
         admin_base_url: str | None = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
         headers = _build_headers(bearer_token, extra_headers, compress=compress)
         self._client = httpx.Client(
@@ -316,6 +342,8 @@ class HttpTransport:
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._retry_on = retry_on
+        # #3214: response-body cap enforced on every buffered read.
+        self._max_response_bytes = max_response_bytes
 
     def _request_id(self) -> str:
         return str(uuid.uuid4())
@@ -358,18 +386,13 @@ class HttpTransport:
             if headers:
                 req_headers.update(headers)
             try:
-                if method == "GET":
-                    resp = client.get(path, headers=req_headers)
-                elif method == "DELETE":
-                    resp = client.delete(path, headers=req_headers)
-                elif json_payload is not None:
-                    resp = client.request(
-                        method, path, json=json_payload, headers=req_headers
-                    )
-                elif content is not None:
-                    resp = client.request(method, path, content=content, headers=req_headers)
-                else:
-                    resp = client.request(method, path, headers=req_headers)
+                # Stream every request so the response cap can be enforced while
+                # reading — a body larger than max_response_bytes is rejected
+                # without ever being fully buffered (#3214).
+                req = client.build_request(
+                    method, path, json=json_payload, content=content, headers=req_headers
+                )
+                resp = client.send(req, stream=True)
             except httpx.ConnectError as exc:
                 last_exc = ConnectionError(
                     f"Cannot connect to Relata server: {exc}. "
@@ -389,19 +412,22 @@ class HttpTransport:
                     continue
                 raise last_exc from exc
 
-            # Retry on configurable status codes (502/503/504) for idempotent
-            # verbs only — non-idempotent verbs fall through to _handle which
-            # raises the classified ServerError.
-            if (
-                idempotent
-                and resp.status_code in self._retry_on
-                and attempt < self._max_retries
-            ):
-                time.sleep(self._retry_backoff * (2**attempt))
-                continue
+            try:
+                # Retry on configurable status codes (502/503/504) for idempotent
+                # verbs only — non-idempotent verbs fall through to _handle which
+                # raises the classified ServerError.
+                if (
+                    idempotent
+                    and resp.status_code in self._retry_on
+                    and attempt < self._max_retries
+                ):
+                    time.sleep(self._retry_backoff * (2**attempt))
+                    continue
 
-            # Success or non-retryable error — return / raise via _handle.
-            return self._handle(resp)
+                # Success or non-retryable error — return / raise via _handle.
+                return self._handle(resp)
+            finally:
+                resp.close()
 
         # Exhausted retries on a retryable status code (transport errors raise
         # directly from the except block above; only the status-code path can
@@ -424,16 +450,19 @@ class HttpTransport:
         content: bytes | str,
         *,
         content_type: str = "application/x-ndjson",
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """POST a raw (non-JSON) body — used by NDJSON/CSV ingest paths.
 
         The ``Content-Type`` header is set per ``content_type`` (overriding the
-        default ``application/json``). Response handling + retry + error
-        classification are identical to :meth:`post`.
+        default ``application/json``); ``extra_headers`` are merged on top
+        (e.g. ``X-Detect-Packs``). Response handling + retry + error
+        classification + the response-body cap are identical to :meth:`post`.
         """
-        return self._send_with_retry(
-            "POST", path, content=content, headers={"Content-Type": content_type}
-        )
+        headers = {"Content-Type": content_type}
+        if extra_headers:
+            headers.update(extra_headers)
+        return self._send_with_retry("POST", path, content=content, headers=headers)
 
     def delete(self, path: str) -> dict[str, Any]:
         """Perform a DELETE request and return the decoded JSON body."""
@@ -452,14 +481,45 @@ class HttpTransport:
         if self._admin_client is not None:
             self._admin_client.close()
 
-    @staticmethod
-    def _handle(resp: httpx.Response) -> dict[str, Any]:
+    def clear_credentials(self) -> None:
+        """Drop the ``Authorization`` header from the live client(s) (#3214) —
+        called on close so the bearer does not linger in the default header
+        bag of a transport that is torn down in two phases (sync + async)."""
+        self._client.headers.pop("Authorization", None)
+        if self._admin_client is not None:
+            self._admin_client.headers.pop("Authorization", None)
+
+    def _read_capped(self, resp: httpx.Response) -> bytes:
+        """Read the (streaming) response body, refusing to buffer more than
+        ``max_response_bytes`` (#3214). Raises :class:`ResponseTooLargeError`
+        the moment the cap is exceeded — the body is never fully buffered."""
+        max_bytes = self._max_response_bytes
+        _check_content_length(resp, max_bytes)
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_bytes():
+            total += len(chunk)
+            if total > max_bytes:
+                raise ResponseTooLargeError(
+                    f"Response body exceeded the max_response_bytes cap of "
+                    f"{max_bytes} bytes; aborted the read (#3214).",
+                    max_bytes=max_bytes,
+                    content_length=None,
+                )
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    def _handle(self, resp: httpx.Response) -> dict[str, Any]:
+        raw = self._read_capped(resp)
+        raw_text = raw.decode("utf-8", errors="replace") if raw else ""
         if resp.is_success:
-            return resp.json()  # type: ignore[no-any-return]
+            return json.loads(raw)  # type: ignore[no-any-return]
         try:
-            body: dict[str, Any] = resp.json()
+            body: dict[str, Any] = json.loads(raw)
+            if not isinstance(body, dict):
+                raise ValueError("error body is not a JSON object")
         except Exception:
-            body = {"error": resp.text or "empty response"}
+            body = {"error": raw_text or "empty response"}
         request_id = resp.headers.get("x-request-id")
         retry_after_hdr = resp.headers.get("retry-after")
         retry_after = float(retry_after_hdr) if retry_after_hdr else None
@@ -476,7 +536,7 @@ class HttpTransport:
             rate_limit_reset=rl_reset,
             path=resp.request.url.path,
             content_type=resp.headers.get("content-type", ""),
-            raw_text=resp.text,
+            raw_text=raw_text,
         )
 
 
@@ -500,6 +560,7 @@ class AsyncHttpTransport:
         retry_on: frozenset[int] = _DEFAULT_RETRY_ON,
         compress: bool = False,
         admin_base_url: str | None = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
         headers = _build_headers(bearer_token, extra_headers, compress=compress)
         self._client = httpx.AsyncClient(
@@ -522,6 +583,8 @@ class AsyncHttpTransport:
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
         self._retry_on = retry_on
+        # #3214: response-body cap enforced on every buffered read.
+        self._max_response_bytes = max_response_bytes
 
     def _request_id(self) -> str:
         return str(uuid.uuid4())
@@ -556,18 +619,19 @@ class AsyncHttpTransport:
             if headers:
                 req_headers.update(headers)
             try:
-                if method == "GET":
-                    resp = await client.get(path, headers=req_headers)
-                elif method == "DELETE":
-                    resp = await client.delete(path, headers=req_headers)
-                elif content is not None:
-                    resp = await client.request(
-                        method, path, content=content, headers=req_headers
-                    )
+                # Stream every request so the response cap can be enforced while
+                # reading — a body larger than max_response_bytes is rejected
+                # without ever being fully buffered (#3214).
+                if content is not None:
+                    req = client.build_request(method, path, content=content, headers=req_headers)
                 else:
-                    resp = await client.request(
-                        method, path, json=json_payload or {}, headers=req_headers
-                    )
+                    # Parity with the prior async behaviour: POST/PUT/PATCH
+                    # always carry a JSON body ({} when no payload is given).
+                    body_json = json_payload
+                    if body_json is None and method not in ("GET", "HEAD", "DELETE"):
+                        body_json = {}
+                    req = client.build_request(method, path, json=body_json, headers=req_headers)
+                resp = await client.send(req, stream=True)
             except httpx.ConnectError as exc:
                 last_exc = ConnectionError(
                     f"Cannot connect to Relata server: {exc}."
@@ -584,14 +648,17 @@ class AsyncHttpTransport:
                     await asyncio.sleep(self._retry_backoff * (2**attempt))
                     continue
                 raise last_exc from exc
-            if (
-                idempotent
-                and resp.status_code in self._retry_on
-                and attempt < self._max_retries
-            ):
-                await asyncio.sleep(self._retry_backoff * (2**attempt))
-                continue
-            return self._handle(resp)
+            try:
+                if (
+                    idempotent
+                    and resp.status_code in self._retry_on
+                    and attempt < self._max_retries
+                ):
+                    await asyncio.sleep(self._retry_backoff * (2**attempt))
+                    continue
+                return await self._handle(resp)
+            finally:
+                await resp.aclose()
         assert last_exc is not None
         raise last_exc
 
@@ -609,11 +676,17 @@ class AsyncHttpTransport:
         content: bytes | str,
         *,
         content_type: str = "application/x-ndjson",
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Async POST a raw (non-JSON) body — NDJSON/CSV ingest path."""
-        return await self._send_with_retry(
-            "POST", path, content=content, headers={"Content-Type": content_type}
-        )
+        """Async POST a raw (non-JSON) body — NDJSON/CSV ingest path.
+
+        ``extra_headers`` are merged on top of the ``Content-Type`` header
+        (e.g. ``X-Detect-Packs``); response handling mirrors :meth:`post`.
+        """
+        headers = {"Content-Type": content_type}
+        if extra_headers:
+            headers.update(extra_headers)
+        return await self._send_with_retry("POST", path, content=content, headers=headers)
 
     async def delete(self, path: str) -> dict[str, Any]:
         """Perform an async DELETE request."""
@@ -632,14 +705,44 @@ class AsyncHttpTransport:
         if self._admin_client is not None:
             await self._admin_client.aclose()
 
-    @staticmethod
-    def _handle(resp: httpx.Response) -> dict[str, Any]:
+    def clear_credentials(self) -> None:
+        """Drop the ``Authorization`` header from the live client(s) (#3214).
+
+        See :meth:`HttpTransport.clear_credentials`.
+        """
+        self._client.headers.pop("Authorization", None)
+        if self._admin_client is not None:
+            self._admin_client.headers.pop("Authorization", None)
+
+    async def _read_capped(self, resp: httpx.Response) -> bytes:
+        """Async twin of :meth:`HttpTransport._read_capped` (#3214)."""
+        max_bytes = self._max_response_bytes
+        _check_content_length(resp, max_bytes)
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in resp.aiter_bytes():
+            total += len(chunk)
+            if total > max_bytes:
+                raise ResponseTooLargeError(
+                    f"Response body exceeded the max_response_bytes cap of "
+                    f"{max_bytes} bytes; aborted the read (#3214).",
+                    max_bytes=max_bytes,
+                    content_length=None,
+                )
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    async def _handle(self, resp: httpx.Response) -> dict[str, Any]:
+        raw = await self._read_capped(resp)
+        raw_text = raw.decode("utf-8", errors="replace") if raw else ""
         if resp.is_success:
-            return resp.json()  # type: ignore[no-any-return]
+            return json.loads(raw)  # type: ignore[no-any-return]
         try:
-            body: dict[str, Any] = resp.json()
+            body: dict[str, Any] = json.loads(raw)
+            if not isinstance(body, dict):
+                raise ValueError("error body is not a JSON object")
         except Exception:
-            body = {"error": resp.text or "empty response"}
+            body = {"error": raw_text or "empty response"}
         request_id = resp.headers.get("x-request-id")
         retry_after_hdr = resp.headers.get("retry-after")
         retry_after = float(retry_after_hdr) if retry_after_hdr else None
@@ -656,5 +759,5 @@ class AsyncHttpTransport:
             rate_limit_reset=rl_reset,
             path=resp.request.url.path,
             content_type=resp.headers.get("content-type", ""),
-            raw_text=resp.text,
+            raw_text=raw_text,
         )

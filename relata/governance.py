@@ -407,8 +407,10 @@ class GovernanceClient(_BaseGovernance):
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """Close the underlying HTTP connection pool."""
+        """Close the underlying HTTP connection pool and drop the bearer
+        credential (#3214)."""
         self._t.close()
+        self._bearer_token = None
 
     def __enter__(self) -> GovernanceClient:
         return self
@@ -599,6 +601,7 @@ class AsyncGovernanceClient(_BaseGovernance):
 
     async def close(self) -> None:
         await self._t.aclose()
+        self._bearer_token = None
 
     async def __aenter__(self) -> AsyncGovernanceClient:
         return self

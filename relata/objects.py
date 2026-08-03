@@ -111,13 +111,11 @@ class ObjectClient:
             params["purpose"] = eff_purpose
         if on_conflict != "upsert":
             params["on_conflict"] = on_conflict
-        headers = {"Content-Type": "application/x-ndjson"}
-        resp = self._t._client.post(  # noqa: SLF001 — needs raw httpx for non-JSON body
+        return self._t.post_raw(
             "/ingest?" + urlencode(params),
-            content=body,
-            headers=headers,
+            body,
+            content_type="application/x-ndjson",
         )
-        return dict(HttpTransport._handle(resp))
 
     def typed_upsert(self, obj: Any, *, purpose: str | None = None) -> dict[str, Any]:
         """Upsert a typed object (Pydantic model or dataclass). Field names
@@ -237,13 +235,11 @@ class ObjectClient:
         if eff_purpose:
             params["purpose"] = eff_purpose
         body = _row_to_ndjson([{"id": object_id, "_deleted": True}])
-        headers = {"Content-Type": "application/x-ndjson"}
-        resp = self._t._client.post(  # noqa: SLF001
+        self._t.post_raw(
             "/ingest?" + urlencode(params),
-            content=body,
-            headers=headers,
+            body,
+            content_type="application/x-ndjson",
         )
-        HttpTransport._handle(resp)
 
     def close(self) -> None:
         self._t.close()
@@ -312,13 +308,11 @@ class AsyncObjectClient:
             params["purpose"] = eff_purpose
         if on_conflict != "upsert":
             params["on_conflict"] = on_conflict
-        headers = {"Content-Type": "application/x-ndjson"}
-        resp = await self._t._client.post(  # noqa: SLF001
+        return await self._t.post_raw(
             "/ingest?" + urlencode(params),
-            content=body,
-            headers=headers,
+            body,
+            content_type="application/x-ndjson",
         )
-        return dict(HttpTransport._handle(resp))
 
     async def typed_upsert(self, obj: Any, *, purpose: str | None = None) -> dict[str, Any]:
         """Async equivalent of :meth:`ObjectClient.typed_upsert` — upsert a
@@ -392,13 +386,11 @@ class AsyncObjectClient:
         if eff_purpose:
             params["purpose"] = eff_purpose
         body = _row_to_ndjson([{"id": object_id, "_deleted": True}])
-        headers = {"Content-Type": "application/x-ndjson"}
-        resp = await self._t._client.post(  # noqa: SLF001
+        await self._t.post_raw(
             "/ingest?" + urlencode(params),
-            content=body,
-            headers=headers,
+            body,
+            content_type="application/x-ndjson",
         )
-        HttpTransport._handle(resp)
 
     async def close(self) -> None:
         await self._t.aclose()

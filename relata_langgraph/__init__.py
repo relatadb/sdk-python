@@ -297,10 +297,12 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         """
         super().__init__(serde=serde)
         self.endpoint = endpoint.rstrip("/")
-        self.token = token or ""
+        # #3214: the credential is private — no public accessor, and close()
+        # clears it.
+        self._token = token or ""
         headers = {"Content-Type": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         self._client = httpx.Client(
             base_url=self.endpoint,
             headers=headers,
@@ -310,8 +312,9 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         self._codec = _RelataCodec(self.serde)
 
     def close(self) -> None:
-        """Close the underlying HTTP client."""
+        """Close the underlying HTTP client and clear the bearer token (#3214)."""
         self._client.close()
+        self._token = ""
 
     def __enter__(self) -> RelataCheckpointer:
         return self
@@ -525,10 +528,12 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
         """See `RelataCheckpointer.__init__` — identical arguments, async transport."""
         super().__init__(serde=serde)
         self.endpoint = endpoint.rstrip("/")
-        self.token = token or ""
+        # #3214: the credential is private — no public accessor, and aclose()
+        # clears it.
+        self._token = token or ""
         headers = {"Content-Type": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         self._client = httpx.AsyncClient(
             base_url=self.endpoint,
             headers=headers,
@@ -538,8 +543,9 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
         self._codec = _RelataCodec(self.serde)
 
     async def aclose(self) -> None:
-        """Close the underlying async HTTP client."""
+        """Close the underlying async HTTP client and clear the bearer token (#3214)."""
         await self._client.aclose()
+        self._token = ""
 
     async def __aenter__(self) -> AsyncRelataCheckpointer:
         return self

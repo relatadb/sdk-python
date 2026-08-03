@@ -58,7 +58,9 @@ class S3Client:
         region: str = "us-east-1",
     ) -> None:
         self.endpoint_url = endpoint_url.rstrip("/")
-        self.bearer_token = bearer_token
+        # #3214: the credential is private — no public accessor, and
+        # :meth:`close` clears it.
+        self._bearer_token = bearer_token
         self.tenant = tenant
         self.region = region
 
@@ -91,7 +93,7 @@ class S3Client:
         # access key and the secret key so boto3's SigV4 signing path produces
         # a deterministic Authorization header the server's bearer gate will
         # accept; the explicit extra header is the authoritative bearer.
-        creds = self.bearer_token or "relata-anonymous"
+        creds = self._bearer_token or "relata-anonymous"
         return boto3.client(
             "s3",
             endpoint_url=self.endpoint_url,
@@ -116,8 +118,8 @@ class S3Client:
         import httpx
 
         headers: dict[str, str] = {}
-        if self.bearer_token:
-            headers["Authorization"] = f"Bearer {self.bearer_token}"
+        if self._bearer_token:
+            headers["Authorization"] = f"Bearer {self._bearer_token}"
         if self.tenant:
             headers["X-Relata-Tenant-Id"] = self.tenant
         return httpx.Client(
@@ -125,6 +127,15 @@ class S3Client:
             headers=headers,
             timeout=timeout,
         )
+
+    def close(self) -> None:
+        """Clear the bearer credential (#3214).
+
+        boto3/httpx resources handed out earlier keep their own copies of the
+        credential until they are closed; this drops the SDK's copy so it does
+        not linger on the client object.
+        """
+        self._bearer_token = None
 
 
 class AsyncS3Client:
@@ -148,7 +159,9 @@ class AsyncS3Client:
         region: str = "us-east-1",
     ) -> None:
         self.endpoint_url = endpoint_url.rstrip("/")
-        self.bearer_token = bearer_token
+        # #3214: the credential is private — no public accessor, and
+        # :meth:`aclose` clears it.
+        self._bearer_token = bearer_token
         self.tenant = tenant
         self.region = region
 
@@ -174,7 +187,7 @@ class AsyncS3Client:
                 "Install with `pip install aiobotocore`."
             ) from exc
 
-        creds = self.bearer_token or "relata-anonymous"
+        creds = self._bearer_token or "relata-anonymous"
         session = get_session()
         return session.create_client(
             "s3",
@@ -188,3 +201,7 @@ class AsyncS3Client:
                 retries={"max_attempts": 3, "mode": "standard"},
             ),
         )
+
+    async def aclose(self) -> None:
+        """Clear the bearer credential (#3214). See :meth:`S3Client.close`."""
+        self._bearer_token = None

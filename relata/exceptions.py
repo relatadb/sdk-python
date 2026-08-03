@@ -144,6 +144,25 @@ class ConnectionError(RelataError):
         super().__init__(message, status_code=None)
 
 
+class ResponseTooLargeError(RelataError):
+    """Raised when a response body exceeds the transport's ``max_response_bytes``
+    cap (#3214) — protects the client from OOM via a malicious/buggy server.
+
+    Attributes:
+        max_bytes: The configured response cap that was exceeded.
+        content_length: The advertised ``Content-Length`` when the server sent
+            one (``None`` for chunked/unannounced bodies — the cap is enforced
+            on the bytes actually read in that case).
+    """
+
+    def __init__(
+        self, message: str, *, max_bytes: int, content_length: int | None = None
+    ) -> None:
+        super().__init__(message, status_code=None)
+        self.max_bytes = max_bytes
+        self.content_length = content_length
+
+
 class ServerError(RelataError):
     """Raised when the server returns an unexpected 5xx error."""
 

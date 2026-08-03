@@ -19,19 +19,6 @@ if TYPE_CHECKING:
     from relata.client import RelataClient
 
 
-def _handle_raw(resp: httpx.Response) -> dict[str, Any]:
-    """Static-method equivalent of HttpTransport._handle for raw-response paths."""
-    if resp.is_success:
-        return resp.json()  # type: ignore[no-any-return]
-    try:
-        body: dict[str, Any] = resp.json()
-    except Exception:
-        body = {"error": resp.text or "empty response"}
-    from relata._http import _classify_error
-
-    raise _classify_error(resp.status_code, body)
-
-
 # ── CDR / OTLP ingest helpers (#2252) ──────────────────────────────────────────
 
 # Canonical CDR column → accepted aliases (mirrors the server's
@@ -164,19 +151,19 @@ class IngestClient:
                 payload["purpose"] = eff_purpose
             if tenant_id is not None:
                 payload["tenant_id"] = tenant_id
-            resp = self._t._client.post(  # noqa: SLF001
+            return self._t.post_raw(
                 "/ingest/bulk",
-                content=json.dumps(payload),
-                headers={"Content-Type": "application/json", **_detect_headers(detect_packs)},
+                json.dumps(payload),
+                content_type="application/json",
+                extra_headers=_detect_headers(detect_packs),
             )
-            return _handle_raw(resp)
         body = "\n".join(json.dumps(r) for r in rows)
-        resp = self._t._client.post(  # noqa: SLF001 — raw NDJSON body
+        return self._t.post_raw(
             f"/ingest?{self._params(object_type, purpose)}",
-            content=body,
-            headers={"Content-Type": "application/x-ndjson", **_detect_headers(detect_packs)},
+            body,
+            content_type="application/x-ndjson",
+            extra_headers=_detect_headers(detect_packs),
         )
-        return _handle_raw(resp)
 
     def bulk_csv(
         self,
@@ -191,12 +178,12 @@ class IngestClient:
         ``detect_packs`` is a per-call SmartIngest override (``X-Detect-Packs``
         header, #2258 SI-3): ``"none"`` disables, ``"network,financial"`` selects.
         """
-        resp = self._t._client.post(  # noqa: SLF001
+        return self._t.post_raw(
             f"/ingest?{self._params(object_type, purpose)}",
-            content=csv_text,
-            headers={"Content-Type": "text/csv", **_detect_headers(detect_packs)},
+            csv_text,
+            content_type="text/csv",
+            extra_headers=_detect_headers(detect_packs),
         )
-        return _handle_raw(resp)
 
     def ingest_cdr(
         self,
@@ -213,12 +200,11 @@ class IngestClient:
         server-side — pass it here or via the client's default purpose.
         """
         csv_text = _rows_to_cdr_csv(rows)
-        resp = self._t._client.post(  # noqa: SLF001 — raw CSV body
+        return self._t.post_raw(
             _purpose_path("/ingest/cdr", purpose or self._purpose),
-            content=csv_text,
-            headers={"Content-Type": "text/csv"},
+            csv_text,
+            content_type="text/csv",
         )
-        return _handle_raw(resp)
 
     def otlp_traces(self, payload: dict[str, Any], *, purpose: str | None = None) -> dict[str, Any]:
         """Ingest OTLP/JSON traces via ``POST /v1/traces`` (#2252)."""
@@ -341,19 +327,19 @@ class AsyncIngestClient:
                 payload["purpose"] = eff_purpose
             if tenant_id is not None:
                 payload["tenant_id"] = tenant_id
-            resp = await self._t._client.post(  # noqa: SLF001
+            return await self._t.post_raw(
                 "/ingest/bulk",
-                content=json.dumps(payload),
-                headers={"Content-Type": "application/json", **_detect_headers(detect_packs)},
+                json.dumps(payload),
+                content_type="application/json",
+                extra_headers=_detect_headers(detect_packs),
             )
-            return _handle_raw(resp)
         body = "\n".join(json.dumps(r) for r in rows)
-        resp = await self._t._client.post(  # noqa: SLF001
+        return await self._t.post_raw(
             f"/ingest?{self._params(object_type, purpose)}",
-            content=body,
-            headers={"Content-Type": "application/x-ndjson", **_detect_headers(detect_packs)},
+            body,
+            content_type="application/x-ndjson",
+            extra_headers=_detect_headers(detect_packs),
         )
-        return _handle_raw(resp)
 
     async def bulk_csv(
         self,
@@ -364,12 +350,12 @@ class AsyncIngestClient:
         detect_packs: str | None = None,
     ) -> dict[str, Any]:
         """Async variant of :meth:`bulk_csv`."""
-        resp = await self._t._client.post(  # noqa: SLF001
+        return await self._t.post_raw(
             f"/ingest?{self._params(object_type, purpose)}",
-            content=csv_text,
-            headers={"Content-Type": "text/csv", **_detect_headers(detect_packs)},
+            csv_text,
+            content_type="text/csv",
+            extra_headers=_detect_headers(detect_packs),
         )
-        return _handle_raw(resp)
 
     async def ingest_cdr(
         self,
@@ -379,12 +365,11 @@ class AsyncIngestClient:
     ) -> dict[str, Any]:
         """Async ingest CDR (call detail records) via ``POST /ingest/cdr`` (#2252)."""
         csv_text = _rows_to_cdr_csv(rows)
-        resp = await self._t._client.post(  # noqa: SLF001 — raw CSV body
+        return await self._t.post_raw(
             _purpose_path("/ingest/cdr", purpose or self._purpose),
-            content=csv_text,
-            headers={"Content-Type": "text/csv"},
+            csv_text,
+            content_type="text/csv",
         )
-        return _handle_raw(resp)
 
     async def otlp_traces(
         self, payload: dict[str, Any], *, purpose: str | None = None
