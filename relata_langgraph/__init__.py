@@ -254,6 +254,58 @@ def _matches_filter(metadata: CheckpointMetadata, filter_: dict[str, Any] | None
     return all(value == metadata.get(key) for key, value in filter_.items())
 
 
+def _scope_headers(
+    tenant: str | None, acting_as: str | None, delegated_by: str | None
+) -> dict[str, str]:
+    """Tenant/delegation scope headers for the checkpoint door (#3216).
+
+    Without ``X-Relata-Tenant-Id`` a multi-tenant cluster either rejects
+    checkpoint PUTs (401/403) or — worse — persists them under the default
+    tenant, cross-readable by any thread that knows the id.
+    """
+    headers: dict[str, str] = {}
+    if tenant:
+        headers["X-Relata-Tenant-Id"] = tenant
+    if acting_as:
+        headers["X-Acting-As"] = acting_as
+    if delegated_by:
+        headers["X-Delegated-By"] = delegated_by
+    return headers
+
+
+def _raise_for_status(resp: httpx.Response) -> None:
+    """Raise the typed :class:`relata.exceptions.RelataError` for a non-2xx
+    checkpoint response (#3216).
+
+    Replaces ``httpx.Response.raise_for_status()``, which raised a raw
+    ``httpx.HTTPStatusError`` and discarded the RFC 7807 ``code`` /
+    ``type_url`` / ``retryable`` / ``retry_after`` fields — so
+    ``except RelataError`` never caught checkpoint-door failures and a 429
+    lost its ``retry_after``.
+    """
+    if resp.is_success:
+        return
+    from relata._http import _classify_error
+
+    try:
+        body: dict[str, Any] = resp.json()
+        if not isinstance(body, dict):
+            raise ValueError("error body is not a JSON object")
+    except Exception:
+        body = {"error": resp.text or "empty response"}
+    retry_after_hdr = resp.headers.get("retry-after")
+    retry_after = float(retry_after_hdr) if retry_after_hdr else None
+    raise _classify_error(
+        resp.status_code,
+        body,
+        request_id=resp.headers.get("x-request-id"),
+        retry_after=retry_after,
+        path=resp.request.url.path,
+        content_type=resp.headers.get("content-type", ""),
+        raw_text=resp.text,
+    )
+
+
 def _require_thread_id(config: RunnableConfig | None) -> tuple[str, str]:
     if config is None or not config.get("configurable", {}).get("thread_id"):
         raise ValueError(
@@ -279,6 +331,9 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         endpoint: str,
         token: str | None = None,
         *,
+        tenant: str | None = None,
+        acting_as: str | None = None,
+        delegated_by: str | None = None,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 30.0,
         serde: SerializerProtocol | None = None,
@@ -290,6 +345,13 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
                       (e.g. ``"http://localhost:9090"``).
             token: Bearer token for authentication. Omit (or pass an empty
                    string) in unauthenticated dev mode.
+            tenant: Tenant / organisation id sent as ``X-Relata-Tenant-Id``
+                    on every checkpoint request (#3216). Required for
+                    multi-tenant deployments — without it writes are rejected
+                    or land under the default tenant.
+            acting_as: Delegation principal sent as ``X-Acting-As`` (#3216).
+            delegated_by: Delegation chain root sent as ``X-Delegated-By``
+                    (#3216).
             transport: Optional httpx transport (injected in tests).
             timeout: Per-request timeout in seconds.
             serde: Optional LangGraph serializer override; defaults to
@@ -300,9 +362,13 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         # #3214: the credential is private — no public accessor, and close()
         # clears it.
         self._token = token or ""
+        self._tenant = tenant
+        self._acting_as = acting_as
+        self._delegated_by = delegated_by
         headers = {"Content-Type": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+        headers.update(_scope_headers(tenant, acting_as, delegated_by))
         self._client = httpx.Client(
             base_url=self.endpoint,
             headers=headers,
@@ -326,19 +392,19 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
 
     def _put(self, path: str, body: dict[str, Any]) -> None:
         resp = self._client.put(path, json=body)
-        resp.raise_for_status()
+        _raise_for_status(resp)
 
     def _get(self, path: str) -> dict[str, Any] | None:
         resp = self._client.get(path)
         if resp.status_code == _NOT_FOUND:
             return None
-        resp.raise_for_status()
+        _raise_for_status(resp)
         state: dict[str, Any] = resp.json()["state"]
         return state
 
     def _list_ids(self, thread_id: str, checkpoint_ns: str) -> list[str]:
         resp = self._client.get(f"/a2a/checkpoints/{_thread_segment(thread_id)}")
-        resp.raise_for_status()
+        _raise_for_status(resp)
         out: list[str] = []
         for seg in resp.json().get("checkpoints", []):
             ns, checkpoint_id = _split_checkpoint_segment(seg)
@@ -521,6 +587,9 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
         endpoint: str,
         token: str | None = None,
         *,
+        tenant: str | None = None,
+        acting_as: str | None = None,
+        delegated_by: str | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 30.0,
         serde: SerializerProtocol | None = None,
@@ -531,9 +600,13 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
         # #3214: the credential is private — no public accessor, and aclose()
         # clears it.
         self._token = token or ""
+        self._tenant = tenant
+        self._acting_as = acting_as
+        self._delegated_by = delegated_by
         headers = {"Content-Type": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+        headers.update(_scope_headers(tenant, acting_as, delegated_by))
         self._client = httpx.AsyncClient(
             base_url=self.endpoint,
             headers=headers,
@@ -557,19 +630,19 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
 
     async def _put(self, path: str, body: dict[str, Any]) -> None:
         resp = await self._client.put(path, json=body)
-        resp.raise_for_status()
+        _raise_for_status(resp)
 
     async def _get(self, path: str) -> dict[str, Any] | None:
         resp = await self._client.get(path)
         if resp.status_code == _NOT_FOUND:
             return None
-        resp.raise_for_status()
+        _raise_for_status(resp)
         state: dict[str, Any] = resp.json()["state"]
         return state
 
     async def _list_ids(self, thread_id: str, checkpoint_ns: str) -> list[str]:
         resp = await self._client.get(f"/a2a/checkpoints/{_thread_segment(thread_id)}")
-        resp.raise_for_status()
+        _raise_for_status(resp)
         out: list[str] = []
         for seg in resp.json().get("checkpoints", []):
             ns, checkpoint_id = _split_checkpoint_segment(seg)

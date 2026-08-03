@@ -209,6 +209,107 @@ def test_auth_header_sent() -> None:
     cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000bb"), {}, {})
 
 
+# -- #3216: tenant scope headers + typed error classification ----------------
+
+
+def test_tenant_header_sent_on_put() -> None:
+    """Acceptance: `RelataCheckpointer(..., tenant="acme")` PUT carries
+    `X-Relata-Tenant-Id: acme`."""
+    fake = FakeCheckpointStore()
+
+    def check(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("X-Relata-Tenant-Id") == "acme"
+        return fake(request)
+
+    cp = RelataCheckpointer(BASE, "tok", tenant="acme", transport=httpx.MockTransport(check))
+    config = {"configurable": {"thread_id": "t6"}}
+    cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000cc"), {}, {})
+
+
+def test_acting_as_and_delegated_by_headers_sent() -> None:
+    fake = FakeCheckpointStore()
+
+    def check(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("X-Relata-Tenant-Id") == "acme"
+        assert request.headers.get("X-Acting-As") == "agent-1"
+        assert request.headers.get("X-Delegated-By") == "root-org"
+        return fake(request)
+
+    cp = RelataCheckpointer(
+        BASE, "tok", tenant="acme", acting_as="agent-1", delegated_by="root-org",
+        transport=httpx.MockTransport(check),
+    )
+    config = {"configurable": {"thread_id": "t7"}}
+    cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000dd"), {}, {})
+
+
+async def test_async_tenant_header_sent_on_put() -> None:
+    fake = FakeCheckpointStore()
+
+    def check(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("X-Relata-Tenant-Id") == "acme"
+        return fake(request)
+
+    async with AsyncRelataCheckpointer(
+        BASE, "tok", tenant="acme", transport=httpx.MockTransport(check)
+    ) as cp:
+        config = {"configurable": {"thread_id": "t8"}}
+        await cp.aput(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000ee"), {}, {})
+
+
+def test_429_surfaces_as_rate_limited_error_with_retry_after() -> None:
+    """Acceptance: a mocked 429 surfaces as `RateLimitedError` with `retry_after`."""
+    from relata.exceptions import RateLimitedError, RelataError
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={"code": "rate-limited", "detail": "slow down", "retryable": True},
+            headers={"Retry-After": "7"},
+        )
+
+    cp = RelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(handler))
+    config = {"configurable": {"thread_id": "t9"}}
+    with pytest.raises(RateLimitedError) as exc:
+        cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000ff"), {}, {})
+    assert exc.value.retry_after == 7.0
+    assert exc.value.code == "rate-limited"
+    assert isinstance(exc.value, RelataError)  # catchable via `except RelataError`
+
+
+def test_403_surfaces_as_forbidden_error() -> None:
+    from relata.exceptions import ForbiddenError
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"code": "access-denied", "detail": "no"})
+
+    cp = RelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(handler))
+    config = {"configurable": {"thread_id": "t10"}}
+    with pytest.raises(ForbiddenError) as exc:
+        cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000001aa"), {}, {})
+    assert exc.value.code == "access-denied"
+
+
+async def test_async_429_surfaces_as_rate_limited_error() -> None:
+    from relata.exceptions import RateLimitedError
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"detail": "slow down"}, headers={"Retry-After": "3"})
+
+    async with AsyncRelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(handler)) as cp:
+        config = {"configurable": {"thread_id": "t11"}}
+        with pytest.raises(RateLimitedError) as exc:
+            await cp.aput(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000001bb"), {}, {})
+        assert exc.value.retry_after == 3.0
+
+
+def test_get_tuple_still_returns_none_on_404() -> None:
+    """The 404->None contract is preserved alongside typed error mapping."""
+    cp = RelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(FakeCheckpointStore()))
+    config = {"configurable": {"thread_id": "t12", "checkpoint_id": "missing"}}
+    assert cp.get_tuple(config) is None
+
+
 # -- real StateGraph.compile(checkpointer=...) conformance -------------------
 
 
