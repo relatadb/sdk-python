@@ -15,12 +15,38 @@ with disconnect/reconnect backoff for SSE.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
+from relata.query import _validate_sql_identifier
+
 if TYPE_CHECKING:
     from relata.client import RelataClient
+
+#: ``watch_stream(since=)`` is a decimal ``system_from`` ns cursor interpolated
+#: into the watch SQL — restrict it to ASCII digits (#3211).
+_SINCE_RE = re.compile(r"^[0-9]+$")
+
+
+def _validate_since(since: str) -> str:
+    """Return ``since`` unchanged if it is a decimal ns timestamp, else raise
+    ``ValueError`` (#3211)."""
+    if not _SINCE_RE.match(since):
+        raise ValueError(
+            f"Invalid since cursor: {since!r}. Must be a decimal system_from ns "
+            "timestamp (digits only). This is a SQL-injection defence — see #3211."
+        )
+    return since
+
+
+def _watch_stream_sql(type: str, since: str | None) -> str:  # noqa: A002
+    """Build the ``watch_stream`` SQL with validated identifier/cursor (#3211)."""
+    sql = f"SELECT * FROM {_validate_sql_identifier(type, kind='object type')}"
+    if since:
+        sql += f" WHERE system_from > {_validate_since(since)}"
+    return sql
 
 
 class StreamingClient:
@@ -215,11 +241,9 @@ class StreamingClient:
         """
         from urllib.parse import urlencode
 
-        sql = f"SELECT * FROM {type}"
-        if since:
-            sql += f" WHERE system_from > {since}"
+        sql = _watch_stream_sql(type, since)
         params = urlencode({"sql": sql, "purpose": "watch"})
-        yield from self._sse_stream(f"/watch/stream?{params}", reconnect=reconnect)
+        return self._sse_stream(f"/watch/stream?{params}", reconnect=reconnect)
 
     def alerts(self, *, reconnect: bool = True) -> Iterator[dict[str, Any]]:
         """SSE consumer for ``GET /alerts/stream``. Yields alert events
@@ -374,9 +398,7 @@ class AsyncStreamingClient:
         """
         from urllib.parse import urlencode
 
-        sql = f"SELECT * FROM {type}"
-        if since:
-            sql += f" WHERE system_from > {since}"
+        sql = _watch_stream_sql(type, since)
         params = urlencode({"sql": sql, "purpose": "watch"})
         async_transport = self._client._async  # noqa: SLF001
 

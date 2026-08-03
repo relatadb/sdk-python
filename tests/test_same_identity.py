@@ -1,7 +1,8 @@
 """Tests for ``RelataClient.same_identity`` (#2246).
 
-Verifies the SQL emitted to ``POST /query`` (``SAME_IDENTITY('<a>', '<b>')``)
-and the boolean decode of the ``match`` verdict across the true / false / empty
+Verifies the SQL emitted to ``POST /query`` (``SAME_IDENTITY($1, $2)`` with
+the values bound via the server-side parameterized path — #3211) and the
+boolean decode of the ``match`` verdict across the true / false / empty
 cases. Uses ``httpx.MockTransport`` — no live server required.
 """
 
@@ -52,7 +53,8 @@ def test_same_identity_true_decodes_match_and_emits_sql() -> None:
 
     client = _mock_client(handler)
     assert client.same_identity("+111", "a@b.com") is True
-    assert captured["sql"] == "SAME_IDENTITY('+111', 'a@b.com')"
+    assert captured["sql"] == "SAME_IDENTITY($1, $2)"
+    assert captured["params"] == ["+111", "a@b.com"]
     assert captured["purpose"] == "analytics"
 
 
@@ -75,7 +77,7 @@ def test_same_identity_false_and_empty_return_false() -> None:
     assert _mock_client(empty_handler).same_identity("x", "y") is False
 
 
-def test_same_identity_escapes_single_quotes() -> None:
+def test_same_identity_binds_single_quotes_as_params() -> None:
     captured: dict[str, object] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -83,4 +85,6 @@ def test_same_identity_escapes_single_quotes() -> None:
         return httpx.Response(200, json={"data": [{"match": False}]})
 
     _mock_client(handler).same_identity("o'brien", "x'y")
-    assert captured["sql"] == "SAME_IDENTITY('o''brien', 'x''y')"
+    # Values are bound as $1/$2 — never interpolated, so no escaping needed (#3211).
+    assert captured["sql"] == "SAME_IDENTITY($1, $2)"
+    assert captured["params"] == ["o'brien", "x'y"]

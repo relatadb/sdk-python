@@ -964,35 +964,43 @@ class RelataClient:
         best match), ``"cluster"`` (server default — same as
         :meth:`identity_cluster`), or ``"fuse"`` (merge overlapping
         clusters). Omit to use the server default (``cluster``).
+
+        ``value`` is bound as ``$1`` via the server-side parameterized path —
+        never interpolated into the SQL text (#3211).
         """
         p = purpose or self._default_purpose or "analytics"
-        escaped = value.replace(chr(39), chr(39) + chr(39))
-        sql = f"RESOLVE_IDENTITY('{escaped}')"
+        if mode is not None and mode not in ("canonical", "cluster", "fuse"):
+            raise ValueError(
+                f"mode must be one of 'canonical', 'cluster', 'fuse'; got {mode!r}"
+            )
+        sql = "RESOLVE_IDENTITY($1)"
         if mode is not None:
-            if mode not in ("canonical", "cluster", "fuse"):
-                raise ValueError(
-                    f"mode must be one of 'canonical', 'cluster', 'fuse'; got {mode!r}"
-                )
-            sql = f"RESOLVE_IDENTITY('{escaped}', MODE => '{mode}')"
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
+            sql = f"RESOLVE_IDENTITY($1, MODE => '{mode}')"
+        return self._sync.post("/query", {"purpose": p, "sql": sql, "params": [value]})
 
     def detect_identities(self, text: str, *, purpose: str | None = None) -> dict[str, object]:
         """Detect identities in free text via SmartIngest.
-        Executes ``DETECT_IDENTITIES('<text>')``."""
+        Executes ``DETECT_IDENTITIES('<text>')`` — ``text`` is bound as ``$1``
+        via the server-side parameterized path (#3211)."""
         p = purpose or self._default_purpose or "analytics"
-        sql = f"DETECT_IDENTITIES('{text.replace(chr(39), chr(39)+chr(39))}')"
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
+        return self._sync.post(
+            "/query", {"purpose": p, "sql": "DETECT_IDENTITIES($1)", "params": [text]}
+        )
 
     def erase_subject(
         self, subject: str, *, reason: str = "gdpr-art17-request", purpose: str | None = None,
     ) -> dict[str, object]:
         """GDPR Art. 17 erasure: crypto-shred every row, vector, and blob
-        linked to a subject. **Irreversible.**"""
+        linked to a subject. **Irreversible.**
+
+        ``subject``/``reason`` are bound as ``$1``/``$2`` via the server-side
+        parameterized path (#3211).
+        """
         p = purpose or self._default_purpose or "gdpr-erasure"
-        s = subject.replace(chr(39), chr(39) + chr(39))
-        r = reason.replace(chr(39), chr(39) + chr(39))
-        sql = f"ERASE SUBJECT '{s}' REASON '{r}' CERTIFY"
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
+        return self._sync.post(
+            "/query",
+            {"purpose": p, "sql": "ERASE SUBJECT $1 REASON $2 CERTIFY", "params": [subject, reason]},
+        )
 
     # ------------------------------------------------------------------
     # SPARQL, sessions & cluster (#967 Tier 2d)
@@ -1047,37 +1055,47 @@ class RelataClient:
     # ------------------------------------------------------------------
 
     def identity_cluster(self, value: str, *, purpose: str | None = None) -> dict[str, object]:
-        """Resolve an identity to its full cluster of linked identifiers."""
+        """Resolve an identity to its full cluster of linked identifiers.
+
+        ``value`` is bound as ``$1`` via the server-side parameterized path
+        (#3211).
+        """
         p = purpose or self._default_purpose or "analytics"
-        v = value.replace("'", "''")
-        return self._sync.post("/query", {"purpose": p, "sql": f"RESOLVE_IDENTITY('{v}', MODE => 'cluster')"})
+        return self._sync.post(
+            "/query",
+            {"purpose": p, "sql": "RESOLVE_IDENTITY($1, MODE => 'cluster')", "params": [value]},
+        )
 
     def same_identity(self, a: str, b: str, *, purpose: str | None = None) -> bool:
         """Predicate: do two identifiers resolve to the same entity?
 
         Executes ``SAME_IDENTITY('<a>', '<b>')`` via ``POST /query`` and
-        returns the ``match`` verdict (#2246).
+        returns the ``match`` verdict (#2246). Both values are bound as
+        ``$1``/``$2`` via the server-side parameterized path (#3211).
         """
         p = purpose or self._default_purpose or "analytics"
-        ca = a.replace("'", "''")
-        cb = b.replace("'", "''")
-        sql = f"SAME_IDENTITY('{ca}', '{cb}')"
-        data = self._sync.post("/query", {"purpose": p, "sql": sql})
+        data = self._sync.post(
+            "/query", {"purpose": p, "sql": "SAME_IDENTITY($1, $2)", "params": [a, b]}
+        )
         rows = data.get("data") or []
         return bool(rows and rows[0].get("match"))
 
     def fuse_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
         """Ontological merge of two identities — writes an IdentityLink with
-        link_type='fused' and returns the merged cluster (#967)."""
+        link_type='fused' and returns the merged cluster (#967). Values are
+        bound as ``$1``/``$2`` (#3211)."""
         p = purpose or self._default_purpose or "analytics"
-        a = id_a.replace("'", "''")
-        b = id_b.replace("'", "''")
-        return self._sync.post("/query", {"purpose": p, "sql": f"FUSE_IDENTITIES('{a}', '{b}')"})
+        return self._sync.post(
+            "/query", {"purpose": p, "sql": "FUSE_IDENTITIES($1, $2)", "params": [id_a, id_b]}
+        )
+
     def split_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
-        """Ontological unmerge — inverse of fuse_identities (#967)."""
+        """Ontological unmerge — inverse of fuse_identities (#967). Values are
+        bound as ``$1``/``$2`` (#3211)."""
         p = purpose or self._default_purpose or "analytics"
-        a = id_a.replace("'", "''"); b = id_b.replace("'", "''")
-        return self._sync.post("/query", {"purpose": p, "sql": f"SPLIT_IDENTITIES('{a}', '{b}')"})
+        return self._sync.post(
+            "/query", {"purpose": p, "sql": "SPLIT_IDENTITIES($1, $2)", "params": [id_a, id_b]}
+        )
 
 
     # ------------------------------------------------------------------

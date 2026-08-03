@@ -13,8 +13,26 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from relata.query import _validate_sql_identifier
+
 if TYPE_CHECKING:
     from relata.client import RelataClient
+
+#: Distance metrics the server's HYBRID_SEARCH ``METRIC`` clause accepts
+#: (allowlisted so ``metric`` can never inject SQL — #3211).
+_ALLOWED_METRICS = frozenset({"cosine", "l2", "dotproduct"})
+
+
+def _validate_metric(metric: str) -> str:
+    """Return ``metric`` unchanged if it is a known distance metric, else
+    raise ``ValueError`` (#3211)."""
+    if metric not in _ALLOWED_METRICS:
+        raise ValueError(
+            f"Invalid metric: {metric!r}. Must be one of: "
+            f"{', '.join(sorted(_ALLOWED_METRICS))}. "
+            "This is a SQL-injection defence — see #3211."
+        )
+    return metric
 
 
 def _hybrid_search_sql(
@@ -25,7 +43,7 @@ def _hybrid_search_sql(
     rerank: bool = False,
     metric: str | None = None,
     weights: tuple[float, float, float] | list[float] | None = None,
-) -> str:
+) -> tuple[str, list[str]]:
     """Build a ``HYBRID_SEARCH FROM ... QUERY ... LIMIT ...`` ticket.
 
     Mirrors the **statement** grammar in ``relata_query::parser``
@@ -35,22 +53,27 @@ def _hybrid_search_sql(
     never accepted by the server (named args aren't a real grammar) — this is
     the form that actually executes.
 
+    ``object_type`` is validated against the identifier allowlist and
+    ``metric`` against :data:`_ALLOWED_METRICS` (#3211); ``query_text`` is
+    returned as a bind parameter (``$1``) for the server-side parameterized
+    path instead of being interpolated. Returns ``(sql, params)``.
+
     Caller-supplied query embeddings are **not** supported by the ``/query``
     SQL surface (there is no vector-literal grammar; the server embeds
     ``query_text`` server-side). Use :meth:`VectorClient.embed` for
     text→vector instead.
     """
-    escaped = query_text.replace("'", "''")
-    sql = f"HYBRID_SEARCH FROM {object_type} QUERY '{escaped}' LIMIT {int(k)}"
+    _validate_sql_identifier(object_type, kind="object_type")
+    sql = f"HYBRID_SEARCH FROM {object_type} QUERY $1 LIMIT {int(k)}"
     if rerank:
         sql += " RERANK"
     if metric:
-        sql += f" METRIC {metric}"
+        sql += f" METRIC {_validate_metric(metric)}"
     if weights is not None:
         if len(weights) != 3:
             raise ValueError("weights must be a 3-tuple/list [graph, bm25, vector]")
         sql += f" WEIGHTS {float(weights[0])} {float(weights[1])} {float(weights[2])}"
-    return sql
+    return sql, [query_text]
 
 
 class VectorClient:
@@ -114,10 +137,12 @@ class VectorClient:
         """
         import json
 
+        _validate_sql_identifier(object_type, kind="object_type")
+        _validate_sql_identifier(embedding_slot, kind="embedding_slot")
         emb_str = json.dumps(query_embedding)
         sql = (
             f"SELECT * FROM {object_type} "
-            f"ORDER BY {embedding_slot} <=> '{emb_str}' LIMIT {k}"
+            f"ORDER BY {embedding_slot} <=> '{emb_str}' LIMIT {int(k)}"
         )
         if ef_search is not None:
             sql += f" /* EF_SEARCH {int(ef_search)} */"
@@ -165,10 +190,10 @@ class VectorClient:
                 "hybrid_search requires query_text; caller-supplied embeddings "
                 "are not supported by the /query SQL surface"
             )
-        sql = _hybrid_search_sql(
+        sql, params = _hybrid_search_sql(
             object_type, query_text, k=k, rerank=rerank, metric=metric, weights=weights
         )
-        result = self._client.query(sql, purpose=self._purpose(purpose))
+        result = self._client.query_params(sql, params, purpose=self._purpose(purpose))
         return result.rows
 
     def similar_to(
@@ -181,13 +206,16 @@ class VectorClient:
     ) -> list[dict[str, Any]]:
         """Multi-vector similarity (``SIMILAR TO``) — ranks by max-pool cosine
         over every ``_emb_*`` slot on the reference row (#1013).
+
+        ``reference_id`` is bound as ``$1`` via the server-side parameterized
+        path (#3211).
         """
-        escaped = reference_id.replace("'", "''")
+        _validate_sql_identifier(object_type, kind="object_type")
         sql = (
             f"SELECT * FROM SIMILAR TO {object_type} "
-            f"WHERE id = '{escaped}' LIMIT {k}"
+            f"WHERE id = $1 LIMIT {int(k)}"
         )
-        result = self._client.query(sql, purpose=self._purpose(purpose))
+        result = self._client.query_params(sql, [reference_id], purpose=self._purpose(purpose))
         return result.rows
 
     def embed(self, text: str, *, model: str | None = None) -> dict[str, Any]:
@@ -299,10 +327,12 @@ class AsyncVectorClient:
         handling (appended as a ``/* EF_SEARCH n */`` SQL comment; #2756)."""
         import json
 
+        _validate_sql_identifier(object_type, kind="object_type")
+        _validate_sql_identifier(embedding_slot, kind="embedding_slot")
         emb_str = json.dumps(query_embedding)
         sql = (
             f"SELECT * FROM {object_type} "
-            f"ORDER BY {embedding_slot} <=> '{emb_str}' LIMIT {k}"
+            f"ORDER BY {embedding_slot} <=> '{emb_str}' LIMIT {int(k)}"
         )
         if ef_search is not None:
             sql += f" /* EF_SEARCH {int(ef_search)} */"
@@ -326,10 +356,10 @@ class AsyncVectorClient:
                 "hybrid_search requires query_text; caller-supplied embeddings "
                 "are not supported by the /query SQL surface"
             )
-        sql = _hybrid_search_sql(
+        sql, params = _hybrid_search_sql(
             object_type, query_text, k=k, rerank=rerank, metric=metric, weights=weights
         )
-        result = await self._client.aquery(sql, purpose=self._purpose(purpose))
+        result = await self._client.aquery_params(sql, params, purpose=self._purpose(purpose))
         return result.rows
 
     async def similar_to(
@@ -340,12 +370,14 @@ class AsyncVectorClient:
         k: int = 10,
         purpose: str | None = None,
     ) -> list[dict[str, Any]]:
-        escaped = reference_id.replace("'", "''")
+        _validate_sql_identifier(object_type, kind="object_type")
         sql = (
             f"SELECT * FROM SIMILAR TO {object_type} "
-            f"WHERE id = '{escaped}' LIMIT {k}"
+            f"WHERE id = $1 LIMIT {int(k)}"
         )
-        result = await self._client.aquery(sql, purpose=self._purpose(purpose))
+        result = await self._client.aquery_params(
+            sql, [reference_id], purpose=self._purpose(purpose)
+        )
         return result.rows
 
     async def embed(self, text: str, *, model: str | None = None) -> dict[str, Any]:

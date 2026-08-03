@@ -129,7 +129,8 @@ class IdentityClient:
         purpose: str,
     ) -> dict[str, Any]:
         """Issue ``ERASE SUBJECT '<id>' REASON '<r>' [CERTIFY]`` via the parent
-        client's query path. Returns the server's Art. 17 receipt.
+        client's query path. Returns the server's Art. 17 receipt. ``subject_identity``
+        and ``reason`` are bound as ``$1``/``$2`` (#3211).
 
         Pairs with #61 — today the server does governed-tombstone only (the
         DEK survives). Once #61 ships the per-subject DEK destroy, this same
@@ -141,13 +142,14 @@ class IdentityClient:
         # the actual call is documented for the caller to make via
         # ``client.query(...)`` using the SQL built here.
         certify_kw = " CERTIFY" if certify else ""
-        sql = (
-            f"ERASE SUBJECT '{subject_identity.replace(chr(39), chr(39) + chr(39))}' "
-            f"REASON '{reason.replace(chr(39), chr(39) + chr(39))}'{certify_kw}"
-        )
+        # subject/reason are bound as $1/$2 via the server-side parameterized
+        # path — never interpolated into the SQL text (#3211).
+        sql = f"ERASE SUBJECT $1 REASON $2{certify_kw}"
         # We send via /query on this client's transport — the caller's purpose
         # is required and is forwarded as the body purpose.
-        return self._t.post("/query", {"purpose": purpose, "sql": sql})
+        return self._t.post(
+            "/query", {"purpose": purpose, "sql": sql, "params": [subject_identity, reason]}
+        )
 
     def close(self) -> None:
         self._t.close()
@@ -251,11 +253,10 @@ class AsyncIdentityClient:
         purpose: str,
     ) -> dict[str, Any]:
         certify_kw = " CERTIFY" if certify else ""
-        sql = (
-            f"ERASE SUBJECT '{subject_identity.replace(chr(39), chr(39) + chr(39))}' "
-            f"REASON '{reason.replace(chr(39), chr(39) + chr(39))}'{certify_kw}"
+        sql = f"ERASE SUBJECT $1 REASON $2{certify_kw}"
+        return await self._t.post(
+            "/query", {"purpose": purpose, "sql": sql, "params": [subject_identity, reason]}
         )
-        return await self._t.post("/query", {"purpose": purpose, "sql": sql})
 
     async def close(self) -> None:
         await self._t.aclose()

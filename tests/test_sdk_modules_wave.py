@@ -321,8 +321,9 @@ def test_identity_erase_subject_builds_sql() -> None:
 
     c = IdentityClient(BASE, transport=_wrap(handler))
     c.erase_subject("alice@example.com", "gdpr-art-17", certify=True, purpose="gdpr")
-    assert "ERASE SUBJECT 'alice@example.com'" in seen[0]["sql"]
+    assert "ERASE SUBJECT $1 REASON $2" in seen[0]["sql"]
     assert "CERTIFY" in seen[0]["sql"]
+    assert seen[0]["params"] == ["alice@example.com", "gdpr-art-17"]
     assert seen[0]["purpose"] == "gdpr"
 
 
@@ -474,7 +475,8 @@ def test_resolve_identity_omits_mode_by_default() -> None:
 
     client = _client_with_mock(handler)
     client.resolve_identity("alice@example.com")
-    assert seen[0]["sql"] == "RESOLVE_IDENTITY('alice@example.com')"
+    assert seen[0]["sql"] == "RESOLVE_IDENTITY($1)"
+    assert seen[0]["params"] == ["alice@example.com"]
 
 
 def test_resolve_identity_supports_canonical_and_fuse_modes() -> None:
@@ -486,10 +488,12 @@ def test_resolve_identity_supports_canonical_and_fuse_modes() -> None:
 
     client = _client_with_mock(handler)
     client.resolve_identity("alice@example.com", mode="canonical")
-    assert seen[0]["sql"] == "RESOLVE_IDENTITY('alice@example.com', MODE => 'canonical')"
+    assert seen[0]["sql"] == "RESOLVE_IDENTITY($1, MODE => 'canonical')"
+    assert seen[0]["params"] == ["alice@example.com"]
 
     client.resolve_identity("alice@example.com", mode="fuse")
-    assert seen[1]["sql"] == "RESOLVE_IDENTITY('alice@example.com', MODE => 'fuse')"
+    assert seen[1]["sql"] == "RESOLVE_IDENTITY($1, MODE => 'fuse')"
+    assert seen[1]["params"] == ["alice@example.com"]
 
 
 def test_resolve_identity_rejects_invalid_mode() -> None:
@@ -576,24 +580,25 @@ def test_vector_hybrid_search_requires_text_or_embedding() -> None:
 def test_vector_hybrid_search_builds_tvf_sql() -> None:
     from relata.vectors import VectorClient
 
-    seen_sql: list[str] = []
+    seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        seen_sql.append(json.loads(req.content)["sql"])
+        seen.append(json.loads(req.content))
         return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
 
     v = VectorClient.from_client(_client_with_mock(handler))
     v.hybrid_search("Person", query_text="alice", k=3)
-    assert seen_sql[0] == "HYBRID_SEARCH FROM Person QUERY 'alice' LIMIT 3"
+    assert seen[0]["sql"] == "HYBRID_SEARCH FROM Person QUERY $1 LIMIT 3"
+    assert seen[0]["params"] == ["alice"]
 
 
 def test_vector_hybrid_search_emits_tuning_clauses() -> None:
     from relata.vectors import VectorClient
 
-    seen_sql: list[str] = []
+    seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        seen_sql.append(json.loads(req.content)["sql"])
+        seen.append(json.loads(req.content))
         return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
 
     v = VectorClient.from_client(_client_with_mock(handler))
@@ -605,24 +610,27 @@ def test_vector_hybrid_search_emits_tuning_clauses() -> None:
         metric="cosine",
         weights=[0.3, 0.5, 0.2],
     )
-    assert seen_sql[0] == (
-        "HYBRID_SEARCH FROM Document QUERY 'o''reilly' LIMIT 5 "
+    assert seen[0]["sql"] == (
+        "HYBRID_SEARCH FROM Document QUERY $1 LIMIT 5 "
         "RERANK METRIC cosine WEIGHTS 0.3 0.5 0.2"
     )
+    # query_text is bound, never interpolated — the quote needs no escaping (#3211).
+    assert seen[0]["params"] == ["o'reilly"]
 
 
 def test_vector_similar_to_builds_sql() -> None:
     from relata.vectors import VectorClient
 
-    seen_sql: list[str] = []
+    seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        seen_sql.append(json.loads(req.content)["sql"])
+        seen.append(json.loads(req.content))
         return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
 
     v = VectorClient.from_client(_client_with_mock(handler))
     v.similar_to("Person", "p-1", k=2)
-    assert seen_sql[0] == "SELECT * FROM SIMILAR TO Person WHERE id = 'p-1' LIMIT 2"
+    assert seen[0]["sql"] == "SELECT * FROM SIMILAR TO Person WHERE id = $1 LIMIT 2"
+    assert seen[0]["params"] == ["p-1"]
 
 
 # ---------------------------------------------------------------------------

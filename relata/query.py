@@ -57,6 +57,23 @@ def _validate_identifier(name: str, *, kind: str = "identifier") -> str:
     return name
 
 
+# Strict single-segment identifier allowlist (no dotted names) for identifiers
+# interpolated into operator SQL by the vector / streaming helpers (#3211).
+_STRICT_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_sql_identifier(name: str, *, kind: str = "identifier") -> str:
+    """Return ``name`` unchanged if it matches the strict identifier allowlist,
+    else raise ``ValueError``. Guards every identifier interpolated into SQL
+    sent to ``/query`` (#3211)."""
+    if not name or not _STRICT_IDENTIFIER_RE.match(name):
+        raise ValueError(
+            f"Invalid {kind}: {name!r}. Must match {_STRICT_IDENTIFIER_RE.pattern}. "
+            "This is a SQL-injection defence — see #3211."
+        )
+    return name
+
+
 def _validate_where_condition(condition: str) -> str:
     """Refuse ``where()`` conditions that contain statement-break tokens.
     This is a **stopgap** (not parameter binding) — it catches the common
