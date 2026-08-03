@@ -13,10 +13,31 @@ that ships today.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from relata.client import RelataClient
+
+#: HMAC info string used to derive the door-scoped SigV4 secret (#3215).
+_S3_DOOR_SIGV4_INFO = b"relata-s3-door"
+
+
+def derive_s3_door_secret(bearer_token: str) -> str:
+    """Derive the S3-door-scoped SigV4 secret from the platform bearer (#3215).
+
+    ``HMAC-SHA256(bearer, "relata-s3-door")`` (hex). boto3's SigV4 signer
+    embeds HMAC material derived from the secret key into every signed
+    request's ``Authorization`` header — that material is replayable from any
+    S3 access log. Deriving the secret per-door means a leaked S3 request log
+    exposes only the S3 door's credential, not the platform bearer that opens
+    every other door. The derivation is deterministic, so the server is
+    configured with the same value via ``RELATA_S3_SECRET_KEY``.
+    """
+    return hmac.new(
+        bearer_token.encode("utf-8"), _S3_DOOR_SIGV4_INFO, hashlib.sha256
+    ).hexdigest()
 
 
 class S3Client:
@@ -34,10 +55,21 @@ class S3Client:
             obj = s3.get_object(Bucket="acme-intel", Key="report.pdf")
             data = obj["Body"].read()
 
-    The bearer token becomes both the ``aws_access_key_id`` and the
-    ``aws_secret_access_key`` (RelataDB's S3 door does not split them) and is
-    also sent as ``Authorization: Bearer`` via ``extra_headers`` so the same
-    credential works for both boto3's SigV4 path and the bearer-only gate.
+    The bearer token becomes the ``aws_access_key_id`` (the S3 door checks the
+    SigV4 ``Credential=`` access-key field against it), while the
+    ``aws_secret_access_key`` is the door-scoped derivation
+    ``HMAC-SHA256(bearer, "relata-s3-door")`` (#3215) — never the bearer
+    itself, so a leaked S3 request log does not leak the platform credential.
+
+    .. warning::
+        SigV4 signs every request with HMAC material derived from the secret
+        key, and that material travels in the ``Authorization`` header of
+        every S3 request — it ends up in any S3 access/proxy log. The
+        door-scoped derivation bounds the blast radius to the S3 door (rotate
+        the bearer, or the door secret, independently), but treat S3 request
+        logs as credential material. The server must be configured with the
+        same derived secret (``RELATA_S3_SECRET_KEY=<derive_s3_door_secret(bearer)>``)
+        or SigV4 signature verification will reject these requests.
 
     For an air-gapped / no-boto3 deployment, use :meth:`httpx` which returns a
     plain ``httpx.Client`` pre-configured against the door.
@@ -89,16 +121,23 @@ class S3Client:
                 "a zero-dependency httpx-based client."
             ) from exc
 
-        # The bearer token is the single credential. We pass it as both the
-        # access key and the secret key so boto3's SigV4 signing path produces
-        # a deterministic Authorization header the server's bearer gate will
-        # accept; the explicit extra header is the authoritative bearer.
-        creds = self._bearer_token or "relata-anonymous"
+        # The bearer token is the access key (the door matches the SigV4
+        # ``Credential=`` field against it), but the SigV4 SECRET is the
+        # door-scoped derivation HMAC-SHA256(bearer, "relata-s3-door") (#3215):
+        # boto3 embeds HMAC material derived from the secret into every signed
+        # request, and that material is replayable from S3 access logs — it
+        # must never be the platform bearer itself.
+        if self._bearer_token:
+            access_key = self._bearer_token
+            secret_key = derive_s3_door_secret(self._bearer_token)
+        else:
+            access_key = "relata-anonymous"
+            secret_key = "relata-anonymous"
         return boto3.client(
             "s3",
             endpoint_url=self.endpoint_url,
-            aws_access_key_id=creds,
-            aws_secret_access_key=creds,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
             region_name=self.region,
             config=Config(
                 # RelataDB's S3 door uses path-style addressing.
@@ -187,13 +226,19 @@ class AsyncS3Client:
                 "Install with `pip install aiobotocore`."
             ) from exc
 
-        creds = self._bearer_token or "relata-anonymous"
+        # Door-scoped SigV4 secret — see S3Client.boto3() (#3215).
+        if self._bearer_token:
+            access_key = self._bearer_token
+            secret_key = derive_s3_door_secret(self._bearer_token)
+        else:
+            access_key = "relata-anonymous"
+            secret_key = "relata-anonymous"
         session = get_session()
         return session.create_client(
             "s3",
             endpoint_url=self.endpoint_url,
-            aws_access_key_id=creds,
-            aws_secret_access_key=creds,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
             region_name=self.region,
             config=Config(
                 s3={"addressing_style": "path"},
