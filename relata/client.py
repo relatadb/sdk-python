@@ -30,7 +30,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 from relata.exceptions import PurposeError, RelataError
 from relata.models import (
     AuditCountResponse,
@@ -802,11 +802,11 @@ class RelataClient:
 
     def deregister_type(self, name: str) -> dict[str, object]:
         """Deregister a custom type. Admin token required."""
-        return self._sync.delete(f"/types/{name}")
+        return self._sync.delete(f"/types/{path_segment(name)}")
 
     def type_detail(self, name: str) -> dict[str, object]:
         """Get type detail (properties, owner, row count)."""
-        return self._sync.get(f"/types/{name}")
+        return self._sync.get(f"/types/{path_segment(name)}")
 
     def schema_alter(
         self,
@@ -831,7 +831,7 @@ class RelataClient:
             payload["col_type"] = col_type
         if optional is not None:
             payload["optional"] = optional
-        return self._sync.patch(f"/types/{type_name}/schema", payload)
+        return self._sync.patch(f"/types/{path_segment(type_name)}/schema", payload)
 
     # ------------------------------------------------------------------
     # Schema-BRANCH CRUD + typed edge definitions (#2497, #2476 ALTER stays
@@ -874,7 +874,7 @@ class RelataClient:
         affect the parent until merged.
         """
         return self._sync.post(
-            f"/schema/branches/{name}",
+            f"/schema/branches/{path_segment(name)}",
             {"from": from_branch},
         )
 
@@ -883,7 +883,7 @@ class RelataClient:
 
         Wraps ``DELETE /schema/branches/:name``.
         """
-        return self._sync.delete(f"/schema/branches/{name}")
+        return self._sync.delete(f"/schema/branches/{path_segment(name)}")
 
     async def alist_edge_types(self) -> dict[str, object]:
         """Async variant of :meth:`list_edge_types`."""
@@ -908,13 +908,13 @@ class RelataClient:
     ) -> dict[str, object]:
         """Async variant of :meth:`create_schema_branch`."""
         return await self._async.post(
-            f"/schema/branches/{name}",
+            f"/schema/branches/{path_segment(name)}",
             {"from": from_branch},
         )
 
     async def adelete_schema_branch(self, name: str) -> dict[str, object]:
         """Async variant of :meth:`delete_schema_branch`."""
-        return await self._async.delete(f"/schema/branches/{name}")
+        return await self._async.delete(f"/schema/branches/{path_segment(name)}")
 
     def ontology_migrate(self, schema: dict[str, object]) -> dict[str, object]:
         """SHACL schema migration — register type specs, link types, property
@@ -1008,7 +1008,8 @@ class RelataClient:
 
     def export_data(self, object_type: str, *, format: str = "json") -> dict[str, object]:
         """Bulk export all rows of a type (#967 Tier 5c)."""
-        return self._sync.get(f"/export?type={object_type}&format={format}&purpose=export")
+        qs = urlencode({"type": object_type, "format": format, "purpose": "export"})
+        return self._sync.get(f"/export?{qs}")
 
     def register_webhook(self, url: str, event_types: list[str] | None = None) -> dict[str, object]:
         """Register a webhook for push notifications (#967 Tier 5b)."""
@@ -1020,7 +1021,7 @@ class RelataClient:
 
     def delete_webhook(self, webhook_id: str) -> dict[str, object]:
         """Delete a webhook."""
-        return self._sync.delete(f"/webhooks/{webhook_id}")
+        return self._sync.delete(f"/webhooks/{path_segment(webhook_id)}")
 
     def sparql(self, query: str) -> dict[str, object]:
         """Execute a SPARQL query."""
@@ -1036,19 +1037,19 @@ class RelataClient:
 
     def cluster_drain(self, node_id: str) -> dict[str, object]:
         """Drain a node for maintenance."""
-        return self._sync.post(f"/cluster/drain/{node_id}", {})
+        return self._sync.post(f"/cluster/drain/{path_segment(node_id)}", {})
 
     def session_diff(self, session_id: str) -> dict[str, object]:
         """View uncommitted session changes."""
-        return self._sync.get(f"/session/{session_id}/diff")
+        return self._sync.get(f"/session/{path_segment(session_id)}/diff")
 
     def session_commit(self, session_id: str) -> dict[str, object]:
         """Commit a session's draft writes."""
-        return self._sync.post(f"/session/{session_id}/commit", {})
+        return self._sync.post(f"/session/{path_segment(session_id)}/commit", {})
 
     def session_discard(self, session_id: str) -> dict[str, object]:
         """Discard uncommitted session changes."""
-        return self._sync.delete(f"/session/{session_id}/draft")
+        return self._sync.delete(f"/session/{path_segment(session_id)}/draft")
 
     # ------------------------------------------------------------------
     # Entity merge, dedup & identity resolution (#967)

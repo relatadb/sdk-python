@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 
 if TYPE_CHECKING:
     import httpx
@@ -82,23 +82,23 @@ class TenantAdminClient:
 
     def get(self, tenant_id: str) -> dict[str, Any]:
         """Get a tenant's details. Wraps ``GET /platform/tenants/:id``."""
-        return self._t.get(f"/platform/tenants/{tenant_id}")
+        return self._t.get(f"/platform/tenants/{path_segment(tenant_id)}")
 
     def delete(self, tenant_id: str) -> dict[str, Any]:
         """Delete a tenant. Wraps ``DELETE /platform/tenants/:id``."""
-        return self._t.delete(f"/platform/tenants/{tenant_id}")
+        return self._t.delete(f"/platform/tenants/{path_segment(tenant_id)}")
 
     def set_tier(self, tenant_id: str, tier: str) -> dict[str, Any]:
         """Change a tenant's tier. Wraps ``PATCH /platform/tenants/:id/tier``."""
-        return self._t.patch(f"/platform/tenants/{tenant_id}/tier", {"tier": tier})
+        return self._t.patch(f"/platform/tenants/{path_segment(tenant_id)}/tier", {"tier": tier})
 
     def suspend(self, tenant_id: str) -> dict[str, Any]:
         """Suspend a tenant. Wraps ``POST /platform/tenants/:id/suspend``."""
-        return self._t.post(f"/platform/tenants/{tenant_id}/suspend", {})
+        return self._t.post(f"/platform/tenants/{path_segment(tenant_id)}/suspend", {})
 
     def reactivate(self, tenant_id: str) -> dict[str, Any]:
         """Reactivate a suspended tenant."""
-        return self._t.post(f"/platform/tenants/{tenant_id}/reactivate", {})
+        return self._t.post(f"/platform/tenants/{path_segment(tenant_id)}/reactivate", {})
 
     # ------------------------------------------------------------------
     # Per-tenant quota + usage
@@ -106,11 +106,11 @@ class TenantAdminClient:
 
     def set_quota(self, tenant_id: str, quota: int) -> dict[str, Any]:
         """Set the cost-unit quota for a tenant. Wraps ``PUT /tenants/:id/quota``."""
-        return self._t.put(f"/tenants/{tenant_id}/quota", {"quota": quota})
+        return self._t.put(f"/tenants/{path_segment(tenant_id)}/quota", {"quota": quota})
 
     def tenant_usage(self, tenant_id: str) -> dict[str, Any]:
         """Get a specific tenant's usage."""
-        return self._t.get(f"/tenants/{tenant_id}/usage")
+        return self._t.get(f"/tenants/{path_segment(tenant_id)}/usage")
 
     # ------------------------------------------------------------------
     # Sharing agreements (ADR-132)
@@ -118,7 +118,7 @@ class TenantAdminClient:
 
     def list_sharing(self, tenant_id: str) -> list[dict[str, Any]]:
         """List the sharing agreements for a tenant."""
-        data = self._t.get(f"/tenants/{tenant_id}/sharing")
+        data = self._t.get(f"/tenants/{path_segment(tenant_id)}/sharing")
         agreements = data.get("agreements") if isinstance(data, dict) else data
         return agreements if isinstance(agreements, list) else []
 
@@ -140,7 +140,7 @@ class TenantAdminClient:
         }
         if expires_ns is not None:
             payload["expires_ns"] = expires_ns
-        return self._t.post(f"/tenants/{tenant_id}/sharing", payload)
+        return self._t.post(f"/tenants/{path_segment(tenant_id)}/sharing", payload)
 
     # ------------------------------------------------------------------
     # Platform-wide
@@ -210,28 +210,28 @@ class AsyncTenantAdminClient:
         return await self._t.post("/platform/tenants", payload)
 
     async def get(self, tenant_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/platform/tenants/{tenant_id}")
+        return await self._t.get(f"/platform/tenants/{path_segment(tenant_id)}")
 
     async def delete(self, tenant_id: str) -> dict[str, Any]:
-        return await self._t.delete(f"/platform/tenants/{tenant_id}")
+        return await self._t.delete(f"/platform/tenants/{path_segment(tenant_id)}")
 
     async def set_tier(self, tenant_id: str, tier: str) -> dict[str, Any]:
-        return await self._t.patch(f"/platform/tenants/{tenant_id}/tier", {"tier": tier})
+        return await self._t.patch(f"/platform/tenants/{path_segment(tenant_id)}/tier", {"tier": tier})
 
     async def suspend(self, tenant_id: str) -> dict[str, Any]:
-        return await self._t.post(f"/platform/tenants/{tenant_id}/suspend", {})
+        return await self._t.post(f"/platform/tenants/{path_segment(tenant_id)}/suspend", {})
 
     async def reactivate(self, tenant_id: str) -> dict[str, Any]:
-        return await self._t.post(f"/platform/tenants/{tenant_id}/reactivate", {})
+        return await self._t.post(f"/platform/tenants/{path_segment(tenant_id)}/reactivate", {})
 
     async def set_quota(self, tenant_id: str, quota: int) -> dict[str, Any]:
-        return await self._t.put(f"/tenants/{tenant_id}/quota", {"quota": quota})
+        return await self._t.put(f"/tenants/{path_segment(tenant_id)}/quota", {"quota": quota})
 
     async def tenant_usage(self, tenant_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/tenants/{tenant_id}/usage")
+        return await self._t.get(f"/tenants/{path_segment(tenant_id)}/usage")
 
     async def list_sharing(self, tenant_id: str) -> list[dict[str, Any]]:
-        data = await self._t.get(f"/tenants/{tenant_id}/sharing")
+        data = await self._t.get(f"/tenants/{path_segment(tenant_id)}/sharing")
         agreements = data.get("agreements") if isinstance(data, dict) else data
         return agreements if isinstance(agreements, list) else []
 
@@ -251,7 +251,7 @@ class AsyncTenantAdminClient:
         }
         if expires_ns is not None:
             payload["expires_ns"] = expires_ns
-        return await self._t.post(f"/tenants/{tenant_id}/sharing", payload)
+        return await self._t.post(f"/tenants/{path_segment(tenant_id)}/sharing", payload)
 
     async def platform_usage(self) -> dict[str, Any]:
         return await self._t.get("/platform/usage")

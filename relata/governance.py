@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 
 if TYPE_CHECKING:
     import httpx
@@ -143,9 +143,11 @@ class GovernanceClient(_BaseGovernance):
 
     def list_rules(self, *, object_type: str | None = None) -> list[dict[str, Any]]:
         """List detection rules. Optional ``object_type`` filter."""
+        from urllib.parse import urlencode
+
         path = "/rules"
         if object_type:
-            path += f"?object_type={object_type}"
+            path += "?" + urlencode({"object_type": object_type})
         data = self._t.get(path)
         rules = data.get("rules") if isinstance(data, dict) else data
         return rules if isinstance(rules, list) else []
@@ -160,14 +162,12 @@ class GovernanceClient(_BaseGovernance):
         ``purpose`` is mandatory server-side (``POST /rules?purpose=<p>``) —
         pass it here or set a default on the parent ``RelataClient``.
         """
-        from urllib.parse import quote
-
         eff = self._effective_purpose(purpose)
-        return self._t.post(f"/rules?purpose={quote(eff)}", rule)
+        return self._t.post(f"/rules?purpose={path_segment(eff)}", rule)
 
     def disable_rule(self, rule_id: str) -> dict[str, Any]:
         """Disable (logically delete) a rule by id."""
-        return self._t.delete(f"/rules/{rule_id}")
+        return self._t.delete(f"/rules/{path_segment(rule_id)}")
 
     def import_sigma(
         self, sigma_yaml: str, *, purpose: str | None = None
@@ -179,18 +179,18 @@ class GovernanceClient(_BaseGovernance):
         as a query param and the raw YAML text as the request body — not a
         JSON envelope.
         """
-        from urllib.parse import quote
-
         eff = self._effective_purpose(purpose)
         return self._t.post_raw(
-            f"/rules/sigma?purpose={quote(eff)}",
+            f"/rules/sigma?purpose={path_segment(eff)}",
             sigma_yaml,
             content_type="application/x-yaml",
         )
 
     def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
         """Temporarily disable a rule for ``duration_secs`` (#967)."""
-        return self._t.post(f"/rules/{rule_id}/snooze", {"duration_secs": duration_secs})
+        return self._t.post(
+            f"/rules/{path_segment(rule_id)}/snooze", {"duration_secs": duration_secs}
+        )
 
     def suppress_rule(
         self, rule_id: str, entity_id: str, *, condition: str | None = None
@@ -200,15 +200,15 @@ class GovernanceClient(_BaseGovernance):
         payload: dict[str, Any] = {"entity_id": entity_id}
         if condition is not None:
             payload["condition"] = condition
-        return self._t.post(f"/rules/{rule_id}/suppress", payload)
+        return self._t.post(f"/rules/{path_segment(rule_id)}/suppress", payload)
 
     def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
         """Add an exception entry so specific matches are ignored (#967)."""
-        return self._t.post(f"/rules/{rule_id}/exceptions", exception)
+        return self._t.post(f"/rules/{path_segment(rule_id)}/exceptions", exception)
 
     def get_rule_tuning(self, rule_id: str) -> dict[str, Any]:
         """Retrieve the tuning state (snoozes, suppressions, exceptions) (#967)."""
-        return self._t.get(f"/rules/{rule_id}/tuning")
+        return self._t.get(f"/rules/{path_segment(rule_id)}/tuning")
 
     # ------------------------------------------------------------------
     # Retention (#74)
@@ -260,7 +260,7 @@ class GovernanceClient(_BaseGovernance):
 
     def lift_legal_hold(self, case_id: str) -> dict[str, Any]:
         """Lift (remove) a legal hold by case id."""
-        return self._t.delete(f"/retention/holds/{case_id}")
+        return self._t.delete(f"/retention/holds/{path_segment(case_id)}")
 
     def list_worm_policies(self) -> list[dict[str, Any]]:
         """List WORM (write-once-read-many) retention policies."""
@@ -277,7 +277,7 @@ class GovernanceClient(_BaseGovernance):
         """Set WORM retention for ``object_type``. Rows cannot be mutated or
         purged until ``retention_secs`` elapses from their ``system_from``."""
         return self._t.post(
-            f"/retention/worm/{object_type}",
+            f"/retention/worm/{path_segment(object_type)}",
             {"retention_secs": retention_secs},
         )
 
@@ -330,7 +330,7 @@ class GovernanceClient(_BaseGovernance):
 
     def breakglass_status(self, request_id: str) -> dict[str, Any]:
         """Look up the status of a breakglass request."""
-        return self._t.get(f"/humint/breakglass/status/{request_id}")
+        return self._t.get(f"/humint/breakglass/status/{path_segment(request_id)}")
 
     # ------------------------------------------------------------------
     # Alerts (#74)
@@ -371,7 +371,7 @@ class GovernanceClient(_BaseGovernance):
             payload["assignee"] = assignee
         if note is not None:
             payload["note"] = note
-        return self._t.patch(f"/alerts/update/{alert_id}", payload)
+        return self._t.patch(f"/alerts/update/{path_segment(alert_id)}", payload)
 
     # ------------------------------------------------------------------
     # DSAR (#74, #79)
@@ -448,9 +448,11 @@ class AsyncGovernanceClient(_BaseGovernance):
         )
 
     async def list_rules(self, *, object_type: str | None = None) -> list[dict[str, Any]]:
+        from urllib.parse import urlencode
+
         path = "/rules"
         if object_type:
-            path += f"?object_type={object_type}"
+            path += "?" + urlencode({"object_type": object_type})
         data = await self._t.get(path)
         rules = data.get("rules") if isinstance(data, dict) else data
         return rules if isinstance(rules, list) else []
@@ -458,28 +460,26 @@ class AsyncGovernanceClient(_BaseGovernance):
     async def create_rule(
         self, rule: dict[str, Any], *, purpose: str | None = None
     ) -> dict[str, Any]:
-        from urllib.parse import quote
-
         eff = self._effective_purpose(purpose)
-        return await self._t.post(f"/rules?purpose={quote(eff)}", rule)
+        return await self._t.post(f"/rules?purpose={path_segment(eff)}", rule)
 
     async def disable_rule(self, rule_id: str) -> dict[str, Any]:
-        return await self._t.delete(f"/rules/{rule_id}")
+        return await self._t.delete(f"/rules/{path_segment(rule_id)}")
 
     async def import_sigma(
         self, sigma_yaml: str, *, purpose: str | None = None
     ) -> dict[str, Any]:
-        from urllib.parse import quote
-
         eff = self._effective_purpose(purpose)
         return await self._t.post_raw(
-            f"/rules/sigma?purpose={quote(eff)}",
+            f"/rules/sigma?purpose={path_segment(eff)}",
             sigma_yaml,
             content_type="application/x-yaml",
         )
 
     async def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
-        return await self._t.post(f"/rules/{rule_id}/snooze", {"duration_secs": duration_secs})
+        return await self._t.post(
+            f"/rules/{path_segment(rule_id)}/snooze", {"duration_secs": duration_secs}
+        )
 
     async def suppress_rule(
         self, rule_id: str, entity_id: str, *, condition: str | None = None
@@ -487,13 +487,13 @@ class AsyncGovernanceClient(_BaseGovernance):
         payload: dict[str, Any] = {"entity_id": entity_id}
         if condition is not None:
             payload["condition"] = condition
-        return await self._t.post(f"/rules/{rule_id}/suppress", payload)
+        return await self._t.post(f"/rules/{path_segment(rule_id)}/suppress", payload)
 
     async def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
-        return await self._t.post(f"/rules/{rule_id}/exceptions", exception)
+        return await self._t.post(f"/rules/{path_segment(rule_id)}/exceptions", exception)
 
     async def get_rule_tuning(self, rule_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/rules/{rule_id}/tuning")
+        return await self._t.get(f"/rules/{path_segment(rule_id)}/tuning")
 
     async def list_retention_policies(self) -> list[dict[str, Any]]:
         data = await self._t.get("/retention/policies")
@@ -521,7 +521,7 @@ class AsyncGovernanceClient(_BaseGovernance):
         return await self._t.post("/retention/holds", payload)
 
     async def lift_legal_hold(self, case_id: str) -> dict[str, Any]:
-        return await self._t.delete(f"/retention/holds/{case_id}")
+        return await self._t.delete(f"/retention/holds/{path_segment(case_id)}")
 
     async def list_worm_policies(self) -> list[dict[str, Any]]:
         data = await self._t.get("/retention/worm")
@@ -530,7 +530,7 @@ class AsyncGovernanceClient(_BaseGovernance):
 
     async def set_worm_policy(self, object_type: str, *, retention_secs: int) -> dict[str, Any]:
         return await self._t.post(
-            f"/retention/worm/{object_type}",
+            f"/retention/worm/{path_segment(object_type)}",
             {"retention_secs": retention_secs},
         )
 
@@ -560,7 +560,7 @@ class AsyncGovernanceClient(_BaseGovernance):
         return await self._t.post("/humint/breakglass/approve", payload)
 
     async def breakglass_status(self, request_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/humint/breakglass/status/{request_id}")
+        return await self._t.get(f"/humint/breakglass/status/{path_segment(request_id)}")
 
     async def list_alerts(
         self,

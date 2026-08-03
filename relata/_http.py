@@ -12,6 +12,7 @@ import json
 import time
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -31,6 +32,19 @@ from relata.exceptions import (
 
 # Request / response content-type we always send and expect.
 _CONTENT_TYPE = "application/json"
+
+
+def path_segment(value: str) -> str:
+    """Percent-encode a caller-supplied identifier for safe use as ONE URL path
+    segment (#3212).
+
+    Every helper that interpolates an id into ``f"/x/{id}"`` must route it
+    through this so ``../``, ``?``, ``#``, ``&``, ``/`` can neither traverse the
+    path nor smuggle query params. ``safe=""`` encodes even ``/`` — the encoded
+    value can never span multiple segments. Mirrors the Rust SDK's
+    ``path_segment`` and the Go/TS ``pathSegment`` helpers (parity with #3200).
+    """
+    return quote(str(value), safe="")
 
 # Server-side error messages that signal a missing/invalid purpose.
 _PURPOSE_HINTS = frozenset(

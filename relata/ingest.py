@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, AsyncIterable, Iterable
 from urllib.parse import urlencode
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 
 if TYPE_CHECKING:
     import httpx
@@ -265,7 +265,7 @@ class IngestClient:
 
     def media_status(self, task_id: str) -> dict[str, Any]:
         """Poll the status of a multipart media upload (paired with #76)."""
-        return self._t.get(f"/ingest/media/{task_id}")
+        return self._t.get(f"/ingest/media/{path_segment(task_id)}")
 
     def close(self) -> None:
         self._t.close()
@@ -442,7 +442,7 @@ class AsyncIngestClient:
         return total
 
     async def media_status(self, task_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/ingest/media/{task_id}")
+        return await self._t.get(f"/ingest/media/{path_segment(task_id)}")
 
     async def close(self) -> None:
         await self._t.aclose()

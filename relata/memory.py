@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 
 if TYPE_CHECKING:
     import httpx
@@ -309,7 +309,7 @@ class Memory:
 
     def get(self, memory_id: str) -> dict[str, Any] | None:
         """Fetch a single memory by id, or ``None`` if not found."""
-        path = f"/memory/recognize/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        path = f"/memory/recognize/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         memory = _unwrap(self._t.get(path)).get("memory")
         return memory if isinstance(memory, dict) else None
 
@@ -324,7 +324,7 @@ class Memory:
         Not a hard delete — returns the policy decision (``memory_item_id``,
         ``policy``, ``forget_at_ns``).
         """
-        path = f"/memory/forget/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        path = f"/memory/forget/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         return _unwrap(self._t.delete(path))
 
     # ------------------------------------------------------------------
@@ -380,7 +380,7 @@ class Memory:
         Wraps ``GET /memory/justify/<id>``. The chain explains how the memory
         was derived — source session, tool call, prior belief, etc.
         """
-        path = f"/memory/justify/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        path = f"/memory/justify/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         return _unwrap(self._t.get(path))
 
     def resolve(self, memory_id: str) -> dict[str, Any]:
@@ -389,7 +389,7 @@ class Memory:
         Wraps ``GET /memory/resolve/<id>``. Follows the supersession chain from
         ``memory_id`` to the current canonical belief and returns it.
         """
-        path = f"/memory/resolve/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        path = f"/memory/resolve/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         return _unwrap(self._t.get(path))
 
     def summarise(
@@ -582,7 +582,7 @@ class AsyncMemory:
 
     async def get(self, memory_id: str) -> dict[str, Any] | None:
         """Fetch a single memory by id, or ``None`` if not found."""
-        path = f"/memory/recognize/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        path = f"/memory/recognize/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         memory = _unwrap(await self._t.get(path)).get("memory")
         return memory if isinstance(memory, dict) else None
 
@@ -593,7 +593,7 @@ class AsyncMemory:
 
     async def forget(self, memory_id: str) -> dict[str, Any]:
         """Schedule a governed retention-policy retract for ``memory_id``."""
-        path = f"/memory/forget/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        path = f"/memory/forget/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         return _unwrap(await self._t.delete(path))
 
     # ------------------------------------------------------------------
@@ -636,12 +636,12 @@ class AsyncMemory:
 
     async def justify(self, memory_id: str) -> dict[str, Any]:
         """Return the PROV-O assertion chain for ``memory_id`` (async)."""
-        path = f"/memory/justify/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        path = f"/memory/justify/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         return _unwrap(await self._t.get(path))
 
     async def resolve(self, memory_id: str) -> dict[str, Any]:
         """Resolve a memory's supersession chain to its canonical head (async)."""
-        path = f"/memory/resolve/{quote(memory_id)}?purpose={quote(self._purpose)}"
+        path = f"/memory/resolve/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         return _unwrap(await self._t.get(path))
 
     async def summarise(

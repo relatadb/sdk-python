@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 
 if TYPE_CHECKING:
     import httpx
@@ -50,18 +50,19 @@ class A2AClient:
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         """Poll a task's status. Returns ``{"id", "status", "result", "error", ...}``."""
-        return self._t.get(f"/a2a/tasks/{task_id}")
+        return self._t.get(f"/a2a/tasks/{path_segment(task_id)}")
 
     def list_checkpoints(self, thread_id: str) -> list[dict[str, Any]]:
         """List the LangGraph checkpoints for a thread (used by
         :class:`relata_langgraph.RelataCheckpointer`)."""
-        data = self._t.get(f"/a2a/checkpoints/{thread_id}")
+        data = self._t.get(f"/a2a/checkpoints/{path_segment(thread_id)}")
         checkpoints = data.get("checkpoints") if isinstance(data, dict) else data
         return checkpoints if isinstance(checkpoints, list) else []
 
     def load_checkpoint(self, thread_id: str, checkpoint_id: str) -> dict[str, Any]:
         """Load a specific checkpoint by id (``GET /a2a/checkpoints/:t/:c``)."""
-        return self._t.get(f"/a2a/checkpoints/{thread_id}/{checkpoint_id}")
+        path = f"/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}"
+        return self._t.get(path)
 
     def save_checkpoint(
         self,
@@ -73,7 +74,7 @@ class A2AClient:
         checkpointer shape (``{"checkpoint": ..., "metadata": ...}``).
         Returns the server's save receipt."""
         return self._t.put(
-            f"/a2a/checkpoints/{thread_id}/{checkpoint_id}",
+            f"/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}",
             payload,
         )
 
@@ -123,15 +124,16 @@ class AsyncA2AClient:
         return await self._t.post("/a2a/tasks", payload)
 
     async def get_task(self, task_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/a2a/tasks/{task_id}")
+        return await self._t.get(f"/a2a/tasks/{path_segment(task_id)}")
 
     async def list_checkpoints(self, thread_id: str) -> list[dict[str, Any]]:
-        data = await self._t.get(f"/a2a/checkpoints/{thread_id}")
+        data = await self._t.get(f"/a2a/checkpoints/{path_segment(thread_id)}")
         checkpoints = data.get("checkpoints") if isinstance(data, dict) else data
         return checkpoints if isinstance(checkpoints, list) else []
 
     async def load_checkpoint(self, thread_id: str, checkpoint_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/a2a/checkpoints/{thread_id}/{checkpoint_id}")
+        path = f"/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}"
+        return await self._t.get(path)
 
     async def save_checkpoint(
         self,
@@ -140,7 +142,7 @@ class AsyncA2AClient:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         return await self._t.put(
-            f"/a2a/checkpoints/{thread_id}/{checkpoint_id}",
+            f"/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}",
             payload,
         )
 

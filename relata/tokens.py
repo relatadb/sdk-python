@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 
 if TYPE_CHECKING:
     import httpx
@@ -83,12 +83,12 @@ class TokenClient:
     def check(self, token_id: str) -> dict[str, Any]:
         """Non-mutating presence check. Returns ``{"present": bool,
         "inserted_at_ns"?: int, "ttl_secs"?: int|None}``."""
-        return self._t.get(f"/tokens/{token_id}")
+        return self._t.get(f"/tokens/{path_segment(token_id)}")
 
     def revoke(self, token_id: str) -> bool:
         """Explicit revoke (admin only). Returns ``True`` if a token was
         actually removed."""
-        resp = self._t.delete(f"/tokens/{token_id}")
+        resp = self._t.delete(f"/tokens/{path_segment(token_id)}")
         return bool(resp.get("revoked", False))
 
     def stats(self) -> TokenStats:
@@ -143,10 +143,10 @@ class AsyncTokenClient:
         return bool(resp.get("newly_inserted", False))
 
     async def check(self, token_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/tokens/{token_id}")
+        return await self._t.get(f"/tokens/{path_segment(token_id)}")
 
     async def revoke(self, token_id: str) -> bool:
-        resp = await self._t.delete(f"/tokens/{token_id}")
+        resp = await self._t.delete(f"/tokens/{path_segment(token_id)}")
         return bool(resp.get("revoked", False))
 
     async def stats(self) -> TokenStats:

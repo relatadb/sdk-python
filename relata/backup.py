@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 
 if TYPE_CHECKING:
     import httpx
@@ -151,7 +151,7 @@ class BackupClient:
 
     def restore_status(self, restore_id: str) -> RestoreStatus:
         """Poll restore job status."""
-        resp = self._t.get(f"/admin/restore/{restore_id}")
+        resp = self._t.get(f"/admin/restore/{path_segment(restore_id)}")
         return RestoreStatus(resp)
 
     def wait_for_restore(
@@ -255,7 +255,7 @@ class AsyncBackupClient:
         return str(resp.get("restore_id", ""))
 
     async def restore_status(self, restore_id: str) -> RestoreStatus:
-        resp = await self._t.get(f"/admin/restore/{restore_id}")
+        resp = await self._t.get(f"/admin/restore/{path_segment(restore_id)}")
         return RestoreStatus(resp)
 
     async def wait_for_restore(
