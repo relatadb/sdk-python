@@ -287,6 +287,21 @@ def test_nl_query_sends_query() -> None:
     assert args["interpret"] is True
 
 
+def test_nl_query_sends_max_sub_questions_when_provided() -> None:
+    client, seen = _capture()
+    client.nl_query("find alice, and who alice is linked to", max_sub_questions=3)
+    assert seen["name"] == "nl_query"
+    args = seen["arguments"]
+    assert args["max_sub_questions"] == 3
+
+
+def test_nl_query_omits_max_sub_questions_by_default() -> None:
+    client, seen = _capture()
+    client.nl_query("find all persons in Dublin")
+    args = seen["arguments"]
+    assert "max_sub_questions" not in args
+
+
 def test_erase_subject_sends_subject_and_reason() -> None:
     client, seen = _capture()
     client.erase_subject("alice@example.com", reason="user-request")

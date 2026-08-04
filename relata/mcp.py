@@ -538,12 +538,27 @@ class McpClient:
         return self.call_tool("summarise", args)
 
     def nl_query(
-        self, query: str, *, purpose: str | None = None, interpret: bool = False
+        self,
+        query: str,
+        *,
+        purpose: str | None = None,
+        interpret: bool = False,
+        max_sub_questions: int | None = None,
     ) -> dict[str, Any]:
-        """``nl_query`` — natural-language question translated to SQL and executed (#2322)."""
+        """``nl_query`` — natural-language question translated to SQL and executed (#2322).
+
+        A dialect router (#3267) classifies each question as SQL, Cypher, or a governed
+        graph operator and prompts accordingly; the response carries a ``dialect`` field.
+        Pass ``max_sub_questions > 1`` to decompose a multi-part question (e.g. "find X,
+        and who X is linked to") into independently-routed sub-questions — the response
+        then carries ``decomposed: true`` and a ``sub_results`` array instead of a single
+        result. Capped at 5 server-side regardless of the value given.
+        """
         args: dict[str, Any] = {"query": query, "interpret": interpret}
         if purpose:
             args["purpose"] = purpose
+        if max_sub_questions is not None:
+            args["max_sub_questions"] = max_sub_questions
         return self.call_tool("nl_query", args)
 
     def erase_subject(self, subject: str, *, reason: str = "gdpr-art17-request") -> dict[str, Any]:
@@ -1360,12 +1375,27 @@ class AsyncMcpClient:
         return await self.call_tool("summarise", args)
 
     async def nl_query(
-        self, query: str, *, purpose: str | None = None, interpret: bool = False
+        self,
+        query: str,
+        *,
+        purpose: str | None = None,
+        interpret: bool = False,
+        max_sub_questions: int | None = None,
     ) -> dict[str, Any]:
-        """``nl_query`` — natural-language question translated to SQL and executed (#2322)."""
+        """``nl_query`` — natural-language question translated to SQL and executed (#2322).
+
+        A dialect router (#3267) classifies each question as SQL, Cypher, or a governed
+        graph operator and prompts accordingly; the response carries a ``dialect`` field.
+        Pass ``max_sub_questions > 1`` to decompose a multi-part question (e.g. "find X,
+        and who X is linked to") into independently-routed sub-questions — the response
+        then carries ``decomposed: true`` and a ``sub_results`` array instead of a single
+        result. Capped at 5 server-side regardless of the value given.
+        """
         args: dict[str, Any] = {"query": query, "interpret": interpret}
         if purpose:
             args["purpose"] = purpose
+        if max_sub_questions is not None:
+            args["max_sub_questions"] = max_sub_questions
         return await self.call_tool("nl_query", args)
 
     async def erase_subject(
