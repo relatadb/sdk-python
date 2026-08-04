@@ -776,7 +776,12 @@ class RelataClient:
 
         Args:
             query: The GraphQL query string.
-            variables: Optional variables map.
+            variables: Optional variables map. ``$var`` references in ``limit``
+                and ``where`` are bound server-side (#3260). A referenced
+                variable that is missing, null, or wrong-typed is a hard server
+                error (surfaced as :class:`RelataError`) — never silently
+                dropped. String values are bound as quoted literals, so
+                variable content cannot inject SQL.
             operation_name: Optional operation name (multi-operation documents).
 
         Returns:
