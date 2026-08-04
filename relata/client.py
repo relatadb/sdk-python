@@ -27,7 +27,7 @@ Async usage::
 from __future__ import annotations
 
 from types import TracebackType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlencode
 
 from relata._http import (
@@ -107,6 +107,30 @@ def _rewrite_question_mark_params(sql: str) -> str:
         return f"${counter}"
 
     return re.sub(r"\?", _replace, sql)
+
+
+_MATCHER_HINTS: dict[str, str] = {
+    "vf3": "/*+ matcher=vf3 */",
+    "bfs": "/*+ matcher=bfs */",
+}
+
+
+def _inject_matcher_hint(sql: str, matcher: str | None) -> str:
+    """Prefix ``sql`` with a ``/*+ matcher=… */`` hint comment (#1189).
+
+    ``matcher`` selects the subgraph matcher for multi-hop Cypher patterns.
+    ``None`` and ``"auto"`` inject nothing, leaving the server's default
+    selection in place. ``"vf3"`` / ``"bfs"`` force the corresponding engine.
+    Any other value raises :class:`ValueError`.
+    """
+    if matcher is None or matcher == "auto":
+        return sql
+    hint = _MATCHER_HINTS.get(matcher)
+    if hint is None:
+        raise ValueError(
+            f"matcher must be 'auto', 'vf3', or 'bfs', got {matcher!r}"
+        )
+    return f"{hint} {sql}"
 
 
 def _sql_literal(s: str) -> str:
@@ -452,6 +476,7 @@ class RelataClient:
         *,
         purpose: str | None = None,
         dialect: str | None = None,
+        matcher: Literal["auto", "vf3", "bfs"] | None = None,
     ) -> QueryResult:
         """Execute a SQL query against the Relata engine (synchronous).
 
@@ -478,6 +503,13 @@ class RelataClient:
                 GQL is only selected when this header is set; GQL-status
                 errors surface as :class:`~relata.exceptions.RelataError`
                 (42G04 syntax → 400, 0A501 unsupported feature → 501).
+            matcher: Subgraph-matcher hint for multi-hop Cypher patterns
+                (#1189).  ``None`` / ``"auto"`` let the server choose;
+                ``"vf3"`` forces the VF3 subgraph-isomorphism matcher and
+                ``"bfs"`` the chained-BFS fallback.  Injected as a
+                ``/*+ matcher=… */`` comment; BFS is also the automatic
+                fallback for patterns VF3 cannot handle (e.g. unbounded
+                ``*`` variable-length paths).
 
         Returns:
             :class:`~relata.models.QueryResult` — iterable over result rows.
@@ -508,14 +540,15 @@ class RelataClient:
                 "SELECT * FROM PATHS_BETWEEN('person-123', 'org-456', max_hops => 4)"
             )
 
-            # GQL (ISO/IEC 39075) — header-selected dialect (#3265)
+            # Multi-hop Cypher with an explicit VF3 matcher hint
             result = client.query(
-                "MATCH (n:Person) WHERE n.age > 35 RETURN n.name ORDER BY n.age DESC LIMIT 5",
-                dialect="gql",
+                "MATCH (a:Person)-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person) "
+                "RETURN a, b, c",
+                matcher="vf3",
             )
         """
         effective_purpose = self._resolve_purpose(purpose)
-        payload = {"purpose": effective_purpose, "sql": sql}
+        payload = {"purpose": effective_purpose, "sql": _inject_matcher_hint(sql, matcher)}
         extra_headers = _dialect_headers(dialect)
         data = self._sync.post("/query", payload, extra_headers=extra_headers)
         return QueryResult.model_validate(data)
@@ -526,6 +559,7 @@ class RelataClient:
         params: list,
         *,
         purpose: str | None = None,
+        matcher: Literal["auto", "vf3", "bfs"] | None = None,
     ) -> QueryResult:
         """Execute a parameterized SQL query (synchronous, #1162).
 
@@ -538,6 +572,8 @@ class RelataClient:
             sql: SQL with ``$N`` or ``?`` positional placeholders.
             params: Values to bind in order. ``None`` maps to SQL ``NULL``.
             purpose: Purpose override for this call.
+            matcher: Subgraph-matcher hint for multi-hop Cypher patterns
+                (#1189).  See :meth:`query`.
 
         Returns:
             :class:`~relata.models.QueryResult`
@@ -555,7 +591,11 @@ class RelataClient:
         """
         sql = _rewrite_question_mark_params(sql)
         effective_purpose = self._resolve_purpose(purpose)
-        payload = {"purpose": effective_purpose, "sql": sql, "params": params}
+        payload = {
+            "purpose": effective_purpose,
+            "sql": _inject_matcher_hint(sql, matcher),
+            "params": params,
+        }
         data = self._sync.post("/query", payload)
         return QueryResult.model_validate(data)
 
@@ -1636,6 +1676,7 @@ class RelataClient:
         *,
         purpose: str | None = None,
         dialect: str | None = None,
+        matcher: Literal["auto", "vf3", "bfs"] | None = None,
     ) -> QueryResult:
         """Execute a SQL query against the Relata engine (asynchronous).
 
@@ -1648,6 +1689,8 @@ class RelataClient:
             purpose: Purpose override for this query.
             dialect: Optional ``x-query-dialect`` override — ``"sql"``,
                 ``"cypher"``, or ``"gql"`` (#3265). See :meth:`query`.
+            matcher: Subgraph-matcher hint for multi-hop Cypher patterns
+                (#1189).  See :meth:`query`.
 
         Returns:
             :class:`~relata.models.QueryResult`.
@@ -1665,7 +1708,7 @@ class RelataClient:
                 print(result.rows)
         """
         effective_purpose = self._resolve_purpose(purpose)
-        payload = {"purpose": effective_purpose, "sql": sql}
+        payload = {"purpose": effective_purpose, "sql": _inject_matcher_hint(sql, matcher)}
         extra_headers = _dialect_headers(dialect)
         data = await self._async.post("/query", payload, extra_headers=extra_headers)
         return QueryResult.model_validate(data)
@@ -1676,11 +1719,16 @@ class RelataClient:
         params: list,
         *,
         purpose: str | None = None,
+        matcher: Literal["auto", "vf3", "bfs"] | None = None,
     ) -> QueryResult:
         """Async parameterized query — see :meth:`query_params` (#1162)."""
         sql = _rewrite_question_mark_params(sql)
         effective_purpose = self._resolve_purpose(purpose)
-        payload = {"purpose": effective_purpose, "sql": sql, "params": params}
+        payload = {
+            "purpose": effective_purpose,
+            "sql": _inject_matcher_hint(sql, matcher),
+            "params": params,
+        }
         data = await self._async.post("/query", payload)
         return QueryResult.model_validate(data)
 
