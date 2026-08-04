@@ -440,9 +440,21 @@ class HttpTransport:
         """Perform a GET request and return the decoded JSON body."""
         return self._send_with_retry("GET", path)
 
-    def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Perform a POST request with a JSON body and return the decoded JSON body."""
-        return self._send_with_retry("POST", path, json_payload=payload)
+    def post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Perform a POST request with a JSON body and return the decoded JSON body.
+
+        ``extra_headers`` (e.g. ``x-query-dialect``) are merged on top of the
+        default headers when provided (#3265).
+        """
+        return self._send_with_retry(
+            "POST", path, json_payload=payload, headers=extra_headers
+        )
 
     def post_raw(
         self,
@@ -666,9 +678,21 @@ class AsyncHttpTransport:
         """Perform an async GET request and return the decoded JSON body."""
         return await self._send_with_retry("GET", path)
 
-    async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Perform an async POST request with a JSON body."""
-        return await self._send_with_retry("POST", path, json_payload=payload)
+    async def post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Perform an async POST request with a JSON body.
+
+        ``extra_headers`` (e.g. ``x-query-dialect``) are merged on top of the
+        default headers when provided (#3265).
+        """
+        return await self._send_with_retry(
+            "POST", path, json_payload=payload, headers=extra_headers
+        )
 
     async def post_raw(
         self,

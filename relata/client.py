@@ -69,6 +69,28 @@ def _graphql_data(resp: dict[str, object]) -> dict[str, object] | list[dict[str,
     return resp.get("data")
 
 
+#: Valid ``x-query-dialect`` header values (#3265). ``None`` omits the header
+#: and lets the server auto-detect.
+_VALID_DIALECTS = ("sql", "cypher", "gql")
+
+
+def _dialect_headers(dialect: str | None) -> dict[str, str] | None:
+    """Build the ``x-query-dialect`` header for :meth:`RelataClient.query`.
+
+    Returns ``None`` when ``dialect`` is ``None`` (server auto-detection).
+    Raises :class:`RelataError` for an unknown dialect so a typo fails fast
+    client-side instead of surfacing as an opaque server 4xx.
+    """
+    if dialect is None:
+        return None
+    d = dialect.strip().lower()
+    if d not in _VALID_DIALECTS:
+        raise RelataError(
+            f"unknown query dialect '{dialect}'; expected one of {', '.join(_VALID_DIALECTS)}"
+        )
+    return {"x-query-dialect": d}
+
+
 def _rewrite_question_mark_params(sql: str) -> str:
     """Rewrite ``?`` placeholders to ``$1``, ``$2``, … left-to-right.
 
@@ -424,7 +446,13 @@ class RelataClient:
     # Sync API
     # ------------------------------------------------------------------
 
-    def query(self, sql: str, *, purpose: str | None = None) -> QueryResult:
+    def query(
+        self,
+        sql: str,
+        *,
+        purpose: str | None = None,
+        dialect: str | None = None,
+    ) -> QueryResult:
         """Execute a SQL query against the Relata engine (synchronous).
 
         Args:
@@ -437,10 +465,19 @@ class RelataClient:
                 - ``LOOKUP_IDENTITY('value')`` — resolve any identifier
                 - ``HYBRID_SCORE(query)`` — BM25 + vector hybrid search
 
+                With ``dialect="cypher"`` or ``dialect="gql"`` this carries a
+                Cypher / GQL (ISO/IEC 39075) statement instead of SQL.
             purpose: Purpose for this query.  Overrides the client-level
                 default.  Must be a value registered in the tenant's
                 ``PurposeRegistry``.  Common values: ``"analytics"``,
                 ``"audit"``, ``"analysis"``, ``"monitoring"``.
+            dialect: Optional query-language override sent as the
+                ``x-query-dialect`` header — ``"sql"``, ``"cypher"``, or
+                ``"gql"`` (#3265). ``None`` (default) lets the server
+                auto-detect (a ``MATCH``-prefixed body is treated as Cypher).
+                GQL is only selected when this header is set; GQL-status
+                errors surface as :class:`~relata.exceptions.RelataError`
+                (42G04 syntax → 400, 0A501 unsupported feature → 501).
 
         Returns:
             :class:`~relata.models.QueryResult` — iterable over result rows.
@@ -470,10 +507,17 @@ class RelataClient:
             result = client.query(
                 "SELECT * FROM PATHS_BETWEEN('person-123', 'org-456', max_hops => 4)"
             )
+
+            # GQL (ISO/IEC 39075) — header-selected dialect (#3265)
+            result = client.query(
+                "MATCH (n:Person) WHERE n.age > 35 RETURN n.name ORDER BY n.age DESC LIMIT 5",
+                dialect="gql",
+            )
         """
         effective_purpose = self._resolve_purpose(purpose)
         payload = {"purpose": effective_purpose, "sql": sql}
-        data = self._sync.post("/query", payload)
+        extra_headers = _dialect_headers(dialect)
+        data = self._sync.post("/query", payload, extra_headers=extra_headers)
         return QueryResult.model_validate(data)
 
     def query_params(
@@ -1586,7 +1630,13 @@ class RelataClient:
     # Async API
     # ------------------------------------------------------------------
 
-    async def aquery(self, sql: str, *, purpose: str | None = None) -> QueryResult:
+    async def aquery(
+        self,
+        sql: str,
+        *,
+        purpose: str | None = None,
+        dialect: str | None = None,
+    ) -> QueryResult:
         """Execute a SQL query against the Relata engine (asynchronous).
 
         Identical to :meth:`query` but non-blocking.  Suitable for use in
@@ -1594,8 +1644,10 @@ class RelataClient:
         with ``%autoawait``, etc.
 
         Args:
-            sql: SQL statement to execute.
+            sql: SQL statement to execute (or Cypher/GQL when ``dialect`` is set).
             purpose: Purpose override for this query.
+            dialect: Optional ``x-query-dialect`` override — ``"sql"``,
+                ``"cypher"``, or ``"gql"`` (#3265). See :meth:`query`.
 
         Returns:
             :class:`~relata.models.QueryResult`.
@@ -1614,7 +1666,8 @@ class RelataClient:
         """
         effective_purpose = self._resolve_purpose(purpose)
         payload = {"purpose": effective_purpose, "sql": sql}
-        data = await self._async.post("/query", payload)
+        extra_headers = _dialect_headers(dialect)
+        data = await self._async.post("/query", payload, extra_headers=extra_headers)
         return QueryResult.model_validate(data)
 
     async def aquery_params(
