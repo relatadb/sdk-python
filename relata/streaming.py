@@ -49,6 +49,34 @@ def _watch_stream_sql(type: str, since: str | None) -> str:  # noqa: A002
     return sql
 
 
+def _classify_capped_error(transport: Any, resp: Any) -> None:
+    """Materialise a streaming error response through ``transport``'s response
+    cap (#3214) and raise the classified error. Reading via
+    ``transport._read_capped`` means a malicious server can't OOM the SDK with
+    a huge "error" body on a streaming query — the read aborts past
+    ``max_response_bytes`` instead of the old unbounded ``resp.read()``."""
+    from relata._http import _classify_error
+
+    raw = transport._read_capped(resp)
+    try:
+        body: dict[str, Any] = json.loads(raw)
+    except Exception:
+        body = {"error": raw.decode("utf-8", errors="replace")}
+    raise _classify_error(resp.status_code, body)
+
+
+async def _aclassify_capped_error(transport: Any, resp: Any) -> None:
+    """Async twin of :func:`_classify_capped_error`."""
+    from relata._http import _classify_error
+
+    raw = await transport._read_capped(resp)
+    try:
+        body: dict[str, Any] = json.loads(raw)
+    except Exception:
+        body = {"error": raw.decode("utf-8", errors="replace")}
+    raise _classify_error(resp.status_code, body)
+
+
 class StreamingClient:
     """Synchronous streaming client — row streams + SSE consumers."""
 
@@ -92,14 +120,7 @@ class StreamingClient:
         ) as resp:
             if not resp.is_success:
                 # Materialise the error body for classification.
-                resp.read()
-                from relata._http import _classify_error
-
-                try:
-                    body = resp.json()
-                except Exception:
-                    body = {"error": resp.text}
-                raise _classify_error(resp.status_code, body)
+                _classify_capped_error(sync, resp)
             for line in resp.iter_lines():
                 line = line.strip()
                 if not line:
@@ -133,14 +154,7 @@ class StreamingClient:
             json={"purpose": eff_purpose, "sql": sql},
         ) as resp:
             if not resp.is_success:
-                resp.read()
-                from relata._http import _classify_error
-
-                try:
-                    body = resp.json()
-                except Exception:
-                    body = {"error": resp.text}
-                raise _classify_error(resp.status_code, body)
+                _classify_capped_error(sync, resp)
             for chunk in resp.iter_bytes():
                 if chunk:
                     yield chunk
@@ -168,14 +182,7 @@ class StreamingClient:
             try:
                 with sync._client.stream("GET", path) as resp:  # noqa: SLF001
                     if not resp.is_success:
-                        resp.read()
-                        from relata._http import _classify_error
-
-                        try:
-                            body = resp.json()
-                        except Exception:
-                            body = {"error": resp.text}
-                        raise _classify_error(resp.status_code, body)
+                        _classify_capped_error(sync, resp)
                     event_type: str | None = None
                     data_lines: list[str] = []
                     for line in resp.iter_lines():
@@ -291,14 +298,7 @@ class AsyncStreamingClient:
                 json={"purpose": eff_purpose, "sql": sql},
             ) as resp:
                 if not resp.is_success:
-                    await resp.aread()
-                    from relata._http import _classify_error
-
-                    try:
-                        body = resp.json()
-                    except Exception:
-                        body = {"error": resp.text}
-                    raise _classify_error(resp.status_code, body)
+                    await _aclassify_capped_error(async_transport, resp)
                 async for line in resp.aiter_lines():
                     line = line.strip()
                     if not line:
@@ -331,14 +331,7 @@ class AsyncStreamingClient:
                 json={"purpose": eff_purpose, "sql": sql},
             ) as resp:
                 if not resp.is_success:
-                    await resp.aread()
-                    from relata._http import _classify_error
-
-                    try:
-                        body = resp.json()
-                    except Exception:
-                        body = {"error": resp.text}
-                    raise _classify_error(resp.status_code, body)
+                    await _aclassify_capped_error(async_transport, resp)
                 async for chunk in resp.aiter_bytes():
                     if chunk:
                         yield chunk
@@ -363,7 +356,9 @@ class AsyncStreamingClient:
                 "GET", f"/watch/stream?{params}"
             ) as resp:
                 if not resp.is_success:
-                    await resp.aread()
+                    # The `async with` context closes the response on return;
+                    # don't drain the error body (`aread()` was unbounded — a
+                    # huge "error" body could OOM the SDK, #3214).
                     return
                 event_type: str | None = None
                 data_lines: list[str] = []
@@ -407,7 +402,9 @@ class AsyncStreamingClient:
                 "GET", f"/watch/stream?{params}"
             ) as resp:
                 if not resp.is_success:
-                    await resp.aread()
+                    # The `async with` context closes the response on return;
+                    # don't drain the error body (`aread()` was unbounded — a
+                    # huge "error" body could OOM the SDK, #3214).
                     return
                 event_type: str | None = None
                 data_lines: list[str] = []
@@ -439,7 +436,9 @@ class AsyncStreamingClient:
                 "GET", "/alerts/stream"
             ) as resp:
                 if not resp.is_success:
-                    await resp.aread()
+                    # The `async with` context closes the response on return;
+                    # don't drain the error body (`aread()` was unbounded — a
+                    # huge "error" body could OOM the SDK, #3214).
                     return
                 async for line in resp.aiter_lines():
                     if line.startswith("data:"):
