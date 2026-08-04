@@ -739,8 +739,12 @@ class RelataClient:
             facets: Field names to aggregate counts for.
             highlight: Include field-level ``<em>`` snippets.
             filters: Equality filters applied server-side (``{"field": "val"}``).
-            matching_strategy: ``"all"`` (AND), ``"last"``, ``"frequency"``, or
-                ``"any"`` (OR, default). Controls which query terms are required (#967).
+            matching_strategy: ``"all"`` (AND), ``"last"``, ``"frequency"``,
+                ``"boolean"``, or ``"any"`` (OR, default). Controls which query
+                terms are required (#967). ``"boolean"`` (#3263) interprets
+                uppercase ``AND``/``OR``/``NOT`` operators in the query text as
+                posting-list set operations (left-associative; a bare space
+                means OR): ``"alice AND bob NOT eve"``.
             typo_tolerance: Dict with ``enabled``, ``min_word_size``,
                 ``disable_on_words``, ``disable_on_attributes`` (#967).
             metric: Vector distance metric for the HYBRID_SEARCH channel
