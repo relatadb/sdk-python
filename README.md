@@ -499,7 +499,7 @@ See the `examples/` directory:
 
 ## Deployment profiles
 
-> `lite` is kept as a silent legacy alias for `free` (ADR-204).
+> `lite` was a silent legacy alias for `free` (ADR-204); it is now rejected outright — startup fails (FATAL) if `RELATA_PROFILE=lite` is set. Use `free` instead.
 
 Relata ships three deployment profiles.  The SDK works identically across all three:
 
