@@ -26,6 +26,8 @@ Async usage::
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlencode
@@ -1669,6 +1671,52 @@ class RelataClient:
         """
         data = self._sync.get("/health/ready")
         return ReadyReport.model_validate(data)
+
+    # ------------------------------------------------------------------
+    # Observability stream (#3822, #3828)
+    # ------------------------------------------------------------------
+
+    def observe_stream(self) -> Iterator[dict[str, object]]:
+        """Stream live observability events from ``GET /observe/stream``.
+
+        The endpoint is opt-in server-side (``RELATA_OBSERVE_STREAM=on``)
+        and emits one structured ``ObservabilityEvent`` JSON object per SSE
+        ``data:`` line. It requires bearer auth and is tenant-scoped
+        server-side.
+
+        Each yielded dict carries ``ts_ns``, ``level``, ``target``,
+        ``kind``, ``door``, ``purpose``, ``tenant_id``, ``trace_id``,
+        ``stage``, ``sql_template``, ``rows``, ``latency_ms``, ``error``,
+        and ``message``. Lines that are not ``data:`` payloads (comments,
+        heartbeats) are ignored.
+
+        A connection drop — the server shutting down or the client
+        disconnecting — ends the generator cleanly rather than raising.
+
+        Yields:
+            Per-event dict (parsed JSON from each SSE ``data:`` line).
+
+        Example::
+
+            for event in client.observe_stream():
+                print(event["kind"], event["level"], event["message"])
+        """
+        from relata.streaming import _classify_capped_error
+
+        sync = self._sync
+        try:
+            with sync._client.stream("GET", "/observe/stream") as resp:  # noqa: SLF001
+                if not resp.is_success:
+                    _classify_capped_error(sync, resp)
+                for line in resp.iter_lines():
+                    if line.startswith("data: "):
+                        payload = line[len("data: "):]
+                        if payload.startswith("{"):
+                            yield json.loads(payload)
+        except (ConnectionError, OSError):
+            # The stream may close when the server shuts down or the client
+            # disconnects — end the generator cleanly instead of propagating.
+            return
 
     # ------------------------------------------------------------------
     # Async API
