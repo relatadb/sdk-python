@@ -48,6 +48,7 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "langgraph>=1.2",
+    "grpcio>=1.60",
 ]
 # relata_langgraph.RelataCheckpointer / AsyncRelataCheckpointer subclass
 # langgraph.checkpoint.base.BaseCheckpointSaver, so unlike relata_adapters
@@ -56,6 +57,17 @@ dev = [
 # use LangGraph (#2229).
 langgraph = [
     "langgraph>=1.2",
+]
+# relata.grpc_query.GrpcQueryClient/AsyncGrpcQueryClient drive
+# `RelataQuery.Execute`'s plain-gRPC unary RPC directly, unlike `pyarrow.flight`
+# (used by flight.py/query_flight, which speaks Arrow Flight's own gRPC
+# service and stays lazily/undeclared-optional). `grpcio` is a real,
+# declared optional extra -- mirrors `langgraph` above and TypeScript's
+# `@grpc/grpc-js` optional peer dependency (#4090, round 3). Most relata-sdk
+# users don't need the plain gRPC query door, so it stays out of the base
+# `dependencies` list. Install with `pip install relata-sdk[grpc]`.
+grpc = [
+    "grpcio>=1.60",
 ]
 
 [project.urls]

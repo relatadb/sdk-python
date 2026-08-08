@@ -296,6 +296,49 @@ async def main():
 asyncio.run(main())
 ```
 
+### Plain gRPC query with Arrow-IPC opt-in (#4090)
+
+`RelataClient.query_grpc` runs a SQL query over the server's plain gRPC
+`RelataQuery/Execute` RPC (default port 50051, `RELATA_GRPC_PORT`) and opts
+into the negotiated Arrow-IPC row encoding (`QueryRequest.wants_arrow_ipc_rows`
+— server side landed in PR #4086). The server answers with whichever
+encoding it supports (`arrow_ipc_rows` or a `rows_json` fallback);
+`query_grpc` decodes either wire shape into the same `QueryResult` shape
+`query()` returns, so callers never need to know which one came back.
+
+```python
+result = client.query_grpc("SELECT * FROM Person LIMIT 1000", purpose="analytics")
+print(result.row_count, result.rows[0]["name"])
+```
+
+Requires the optional `grpcio` dependency: `pip install relata-sdk[grpc]` (or
+`pip install grpcio` directly). Unlike `query_flight`/`query_arrow` (which
+only need the undeclared-optional `pyarrow`), the rest of this SDK has zero
+gRPC dependency — Python previously had none at all, so `grpcio` is declared
+as a real, versioned extra (mirrors the `langgraph` extra) rather than an
+undeclared lazy import. `arrow_ipc_rows` decoding still needs `pyarrow`
+(already optional elsewhere in this SDK) — only reached when the server
+actually answers with that encoding. TLS is selected automatically for
+`grpcs://`/`tls://` endpoints (`grpc_endpoint="grpcs://host:port"`).
+
+`query_grpc_stream` is the same opt-in over the server-streaming
+`RelataQuery/ExecuteStream` RPC: the server answers with a stream of
+`RowBatch` frames instead of one buffered `QueryResponse`, and **each frame
+independently** negotiates `arrow_ipc_rows` vs `rows_json` (same
+empty-means-fall-back contract, applied per frame). Every frame is collected
+into the same `QueryResult` shape, so a large result set needs no different
+consumption model than a small one.
+
+```python
+result = client.query_grpc_stream("SELECT * FROM Person", purpose="analytics")
+print(result.row_count)
+```
+
+Because `RowBatch` carries no `row_count` field, the returned `row_count` is
+the number of rows actually received (whereas `query_grpc` reports the
+server's own `QueryResponse.row_count`). `aquery_grpc` / `aquery_grpc_stream`
+are the async variants of both.
+
 ### Error handling
 
 ```python

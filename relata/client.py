@@ -711,6 +711,173 @@ class RelataClient:
             bearer_token=bearer_token,
         )
 
+    def query_grpc(
+        self,
+        sql: str,
+        *,
+        grpc_endpoint: str | None = None,
+        purpose: str | None = None,
+        bearer_token: str | None = None,
+        timeout: float = 30.0,
+    ) -> QueryResult:
+        """Execute a SQL query over the plain gRPC ``RelataQuery.Execute``
+        RPC, opting into the negotiated Arrow-IPC row encoding (#4090,
+        ``QueryRequest.wants_arrow_ipc_rows`` — landed server-side in
+        PR #4086).
+
+        The server transparently answers with either ``arrow_ipc_rows`` or
+        ``rows_json`` (an older/unsupported result falls back to JSON rows,
+        per the proto's documented contract); this method decodes either wire
+        shape into the same :class:`~relata.models.QueryResult` shape
+        :meth:`query` returns, so callers never need to know which one the
+        server picked.
+
+        Requires the optional ``grpcio`` dependency
+        (``pip install relata-sdk[grpc]``, or ``pip install grpcio``
+        directly) — unlike :meth:`query_flight`, which only needs ``pyarrow``.
+
+        Args:
+            sql: SQL query string.
+            grpc_endpoint: Plain gRPC endpoint (e.g.
+                ``"grpc://localhost:50051"``). Defaults to
+                ``grpc://<base_url host>:50051``.
+            purpose: Optional purpose. Falls back to the client's default
+                purpose when unset.
+            bearer_token: Bearer token for gRPC metadata. Defaults to the
+                client's token.
+            timeout: Per-call RPC deadline in seconds (default 30).
+
+        Returns:
+            A :class:`~relata.models.QueryResult`.
+
+        Raises:
+            ImportError: if ``grpcio`` is not installed.
+
+        Example::
+
+            result = client.query_grpc(
+                "SELECT * FROM Person LIMIT 1000", purpose="analytics",
+            )
+        """
+        from relata.grpc_query import GrpcQueryClient
+
+        return GrpcQueryClient.from_client(self).query_grpc(
+            sql,
+            grpc_endpoint=grpc_endpoint,
+            purpose=purpose,
+            bearer_token=bearer_token,
+            timeout=timeout,
+        )
+
+    async def aquery_grpc(
+        self,
+        sql: str,
+        *,
+        grpc_endpoint: str | None = None,
+        purpose: str | None = None,
+        bearer_token: str | None = None,
+        timeout: float = 30.0,
+    ) -> QueryResult:
+        """Async variant of :meth:`query_grpc`.
+
+        grpcio's synchronous ``Channel`` API is used here, so the call is
+        dispatched to a worker thread via :func:`asyncio.to_thread` (same
+        pattern as :meth:`aquery_flight`).
+        """
+        import asyncio
+
+        return await asyncio.to_thread(
+            self.query_grpc,
+            sql,
+            grpc_endpoint=grpc_endpoint,
+            purpose=purpose,
+            bearer_token=bearer_token,
+            timeout=timeout,
+        )
+
+    def query_grpc_stream(
+        self,
+        sql: str,
+        *,
+        grpc_endpoint: str | None = None,
+        purpose: str | None = None,
+        bearer_token: str | None = None,
+        timeout: float = 30.0,
+    ) -> QueryResult:
+        """Execute a SQL query over the server-streaming gRPC
+        ``RelataQuery.ExecuteStream`` RPC, opting into the negotiated
+        Arrow-IPC row encoding (#4090, ``QueryRequest.wants_arrow_ipc_rows``).
+
+        The streaming counterpart to :meth:`query_grpc`: the server answers
+        with a stream of ``RowBatch`` frames instead of one buffered
+        ``QueryResponse``, and each frame independently negotiates
+        ``arrow_ipc_rows`` vs ``rows_json`` (same empty-means-fall-back
+        contract). Every frame is collected into the same
+        :class:`~relata.models.QueryResult` shape :meth:`query_grpc` returns.
+
+        Requires the optional ``grpcio`` dependency
+        (``pip install relata-sdk[grpc]``).
+
+        Args:
+            sql: SQL query string.
+            grpc_endpoint: Plain gRPC endpoint (e.g.
+                ``"grpc://localhost:50051"``). Defaults to
+                ``grpc://<base_url host>:50051``.
+            purpose: Optional purpose. Falls back to the client's default
+                purpose when unset.
+            bearer_token: Bearer token for gRPC metadata. Defaults to the
+                client's token.
+            timeout: Per-call RPC deadline in seconds (default 30), covering
+                the whole stream.
+
+        Returns:
+            A :class:`~relata.models.QueryResult` holding every streamed row.
+            Its ``row_count`` is the number of rows actually received —
+            ``RowBatch`` carries no ``row_count`` field.
+
+        Raises:
+            ImportError: if ``grpcio`` is not installed.
+
+        Example::
+
+            result = client.query_grpc_stream("SELECT * FROM Person")
+        """
+        from relata.grpc_query import GrpcQueryClient
+
+        return GrpcQueryClient.from_client(self).query_grpc_stream(
+            sql,
+            grpc_endpoint=grpc_endpoint,
+            purpose=purpose,
+            bearer_token=bearer_token,
+            timeout=timeout,
+        )
+
+    async def aquery_grpc_stream(
+        self,
+        sql: str,
+        *,
+        grpc_endpoint: str | None = None,
+        purpose: str | None = None,
+        bearer_token: str | None = None,
+        timeout: float = 30.0,
+    ) -> QueryResult:
+        """Async variant of :meth:`query_grpc_stream`.
+
+        grpcio's synchronous ``Channel`` API is used here, so the call is
+        dispatched to a worker thread via :func:`asyncio.to_thread` (same
+        pattern as :meth:`aquery_grpc`).
+        """
+        import asyncio
+
+        return await asyncio.to_thread(
+            self.query_grpc_stream,
+            sql,
+            grpc_endpoint=grpc_endpoint,
+            purpose=purpose,
+            bearer_token=bearer_token,
+            timeout=timeout,
+        )
+
     def search(
         self,
         query: str,
