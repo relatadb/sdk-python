@@ -121,6 +121,11 @@ from relata.rag_rank import (
     mmr_select,
     mmr_select_for_purpose,
 )
+from relata.rag_trace import (
+    astore_reasoning_trace,
+    build_reasoning_trace,
+    store_reasoning_trace,
+)
 from relata.rag_understanding import (
     ENUMERATION_TOP_K,
     NUMERIC_INTENT_WORDS,
@@ -277,6 +282,10 @@ __all__ = [
     "fetch_child_nodes",
     "lexical_child_selector",
     "navigate_structural_tree",
+    # RAG epic — reasoning-trace write-back to RagAnswer/RagSource (#4528)
+    "build_reasoning_trace",
+    "store_reasoning_trace",
+    "astore_reasoning_trace",
     # Query builder
     "QueryBuilder",
     "select",
