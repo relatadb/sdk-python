@@ -121,6 +121,7 @@ from relata.rag_rank import (
     mmr_select,
     mmr_select_for_purpose,
 )
+from relata.rag_answer import RagAnswerResult, arun_rag_answer, run_rag_answer
 from relata.rag_trace import (
     astore_reasoning_trace,
     build_reasoning_trace,
@@ -286,6 +287,10 @@ __all__ = [
     "build_reasoning_trace",
     "store_reasoning_trace",
     "astore_reasoning_trace",
+    # RAG epic — composed end-to-end pipeline (gate -> retrieve -> synthesize -> trace)
+    "RagAnswerResult",
+    "run_rag_answer",
+    "arun_rag_answer",
     # Query builder
     "QueryBuilder",
     "select",
