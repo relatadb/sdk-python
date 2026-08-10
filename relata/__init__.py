@@ -86,6 +86,19 @@ from relata.namespace import AsyncNamespace, Namespace
 from relata.objects import AsyncObjectClient, ObjectClient
 from relata.query import QueryBuilder, select
 from relata.rag import AsyncRagClient, RagClient, filters_for_entity_ids
+from relata.rag_understanding import (
+    ENUMERATION_TOP_K,
+    NUMERIC_INTENT_WORDS,
+    QueryShape,
+    asmart_rag_query,
+    classify_query_shape,
+    decompose_query,
+    expand_query_hyde,
+    is_numeric_intent,
+    rrf_k_for_fanout,
+    rrf_merge,
+    smart_rag_query,
+)
 from relata.s3 import AsyncS3Client, S3Client
 from relata.search import AsyncSearchClient, SearchClient
 from relata.streaming import AsyncStreamingClient, StreamingClient
@@ -165,6 +178,19 @@ __all__ = [
     "CorefResolver",
     "AsyncCorefResolver",
     "subject_from_hit",
+    # RAG epic — query-shape dispatch + HyDE + decomposition (#4524, Python-only
+    # SDK-side orchestration per ADR-0298)
+    "QueryShape",
+    "classify_query_shape",
+    "is_numeric_intent",
+    "NUMERIC_INTENT_WORDS",
+    "expand_query_hyde",
+    "decompose_query",
+    "rrf_k_for_fanout",
+    "rrf_merge",
+    "ENUMERATION_TOP_K",
+    "smart_rag_query",
+    "asmart_rag_query",
     # Query builder
     "QueryBuilder",
     "select",
