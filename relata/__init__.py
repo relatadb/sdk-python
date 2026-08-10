@@ -65,8 +65,10 @@ from relata.mcp import AsyncMcpClient, McpClient
 from relata.memory import AsyncMemory, Memory
 from relata.models import (
     AuditCountResponse,
+    Clarification,
     ClusterNode,
     DocumentUsageResponse,
+    EntityCandidate,
     HealthResponse,
     IngestDocumentResponse,
     QueryResult,
@@ -82,7 +84,7 @@ from relata.models import (
 from relata.namespace import AsyncNamespace, Namespace
 from relata.objects import AsyncObjectClient, ObjectClient
 from relata.query import QueryBuilder, select
-from relata.rag import AsyncRagClient, RagClient
+from relata.rag import AsyncRagClient, RagClient, filters_for_entity_ids
 from relata.s3 import AsyncS3Client, S3Client
 from relata.search import AsyncSearchClient, SearchClient
 from relata.streaming import AsyncStreamingClient, StreamingClient
@@ -156,6 +158,8 @@ __all__ = [
     "Citation",
     "LlmFn",
     "EntailmentFn",
+    # RAG epic — entity disambiguation (#4534)
+    "filters_for_entity_ids",
     # Query builder
     "QueryBuilder",
     "select",
@@ -174,6 +178,8 @@ __all__ = [
     "SearchResponse",
     "RagHit",
     "RagQueryResponse",
+    "Clarification",
+    "EntityCandidate",
     # Exceptions
     "RelataError",
     "PurposeError",

@@ -6,6 +6,18 @@ server-side agent loop — orchestration lives in the SDK — and ``/rag/query``
 itself is deliberately stateless, idempotent, and LLM-free: this client is a
 thin, honest wrapper around that contract, nothing more.
 
+**Entity disambiguation (#4534).** A query naming an ambiguous entity (e.g.
+"Tell me about Ahmad" when the corpus has several distinct Ahmads) may come
+back with :attr:`~relata.models.RagQueryResponse.clarification` set instead
+of (or alongside empty) ``hits`` — see :class:`~relata.models.Clarification`.
+``/rag/query`` itself stays stateless: the caller resumes with an explicit
+pick by re-issuing the call with a ``filters`` entry scoping to the chosen
+``entity_id``. :func:`filters_for_entity_ids` builds that entry, and
+:meth:`RagClient.resume_with_selection`/:meth:`AsyncRagClient.resume_with_selection`
+do the full re-run in one call — mirroring dgrep-rag's ``dgrep_resolve``
+resume shape (prior-clarification pick -> ``MetadataFilter[]`` -> full
+re-run), proven UX rather than speculative design.
+
 **Frozen contract — do not deviate without re-opening ADR-0299 (#4514):**
 
 Request fields: ``query``, ``type``, ``top_k`` (default 8, matches
@@ -116,6 +128,31 @@ def _build_rag_payload(
     return payload
 
 
+#: The filter field a resumed query scopes to — #4534's design section: "the
+#: same `MetadataFilter[]` field `#4514` already defines, no new field
+#: needed."
+CANONICAL_ENTITY_ID_FIELD = "canonical_entity_id"
+
+
+def filters_for_entity_ids(
+    entity_ids: list[str],
+    *,
+    field: str = CANONICAL_ENTITY_ID_FIELD,
+) -> list[dict[str, Any]]:
+    """Build the ``filters`` entry a resumed query carries after a
+    :class:`~relata.models.Clarification` pick (#4534).
+
+    Returns ``[{"field": field, "op": "in", "value": entity_ids}]`` — the
+    standard filter-list shape every ``RagClient.query``/``search`` call
+    already accepts, so this needs no new wire field. Raises
+    :class:`ValueError` on an empty ``entity_ids`` list (a resume call with no
+    selection is a caller bug, not a valid "match nothing" filter).
+    """
+    if not entity_ids:
+        raise ValueError("entity_ids must not be empty — nothing was selected to resume with")
+    return [{"field": field, "op": "in", "value": list(entity_ids)}]
+
+
 class RagClient:
     """Synchronous typed ``/rag/query`` client.
 
@@ -217,6 +254,89 @@ class RagClient:
         data = await self._client._async.post("/rag/query", payload)  # noqa: SLF001
         return RagQueryResponse.model_validate(data)
 
+    def resume_with_selection(
+        self,
+        query: str,
+        type: str,  # noqa: A002
+        entity_ids: list[str],
+        *,
+        top_k: int = DEFAULT_TOP_K,
+        rerank: bool = False,
+        search_mode: SearchMode = "hybrid",
+        embedding_slot: EmbeddingSlot = "text",
+        as_of: str | None = None,
+        purpose: str | None = None,
+        expand_window: bool = False,
+        graph_hops: int = 0,
+    ) -> RagQueryResponse:
+        """Resume an ambiguous query after a human/agent picks candidate(s)
+        from a prior :class:`~relata.models.Clarification` (#4534).
+
+        Re-runs :meth:`query` with ``filters`` scoped to
+        ``entity_ids`` (typically ``[clarification.candidates[i].entity_id]``
+        for a single pick, or several for a "these are all the same"
+        selection) via :func:`filters_for_entity_ids`. ``/rag/query`` stays
+        stateless — this is a client-side convenience over the same request
+        shape, not a new server contract.
+
+        Args:
+            query: Same query text as the original ambiguous call (or a
+                refined follow-up).
+            type: Same object type as the original call.
+            entity_ids: One or more ``candidates[i].entity_id`` values picked
+                from the prior response's ``clarification``. Must be
+                non-empty.
+            top_k, rerank, search_mode, embedding_slot, as_of, purpose,
+                expand_window, graph_hops: Same as :meth:`query`.
+
+        Returns:
+            :class:`~relata.models.RagQueryResponse` scoped to exactly the
+            selected entity/entities.
+        """
+        return self.query(
+            query,
+            type,
+            top_k=top_k,
+            rerank=rerank,
+            search_mode=search_mode,
+            embedding_slot=embedding_slot,
+            filters=filters_for_entity_ids(entity_ids),
+            as_of=as_of,
+            purpose=purpose,
+            expand_window=expand_window,
+            graph_hops=graph_hops,
+        )
+
+    async def aresume_with_selection(
+        self,
+        query: str,
+        type: str,  # noqa: A002
+        entity_ids: list[str],
+        *,
+        top_k: int = DEFAULT_TOP_K,
+        rerank: bool = False,
+        search_mode: SearchMode = "hybrid",
+        embedding_slot: EmbeddingSlot = "text",
+        as_of: str | None = None,
+        purpose: str | None = None,
+        expand_window: bool = False,
+        graph_hops: int = 0,
+    ) -> RagQueryResponse:
+        """Async variant of :meth:`resume_with_selection`."""
+        return await self.aquery(
+            query,
+            type,
+            top_k=top_k,
+            rerank=rerank,
+            search_mode=search_mode,
+            embedding_slot=embedding_slot,
+            filters=filters_for_entity_ids(entity_ids),
+            as_of=as_of,
+            purpose=purpose,
+            expand_window=expand_window,
+            graph_hops=graph_hops,
+        )
+
 
 class AsyncRagClient:
     """Asynchronous typed ``/rag/query`` client — see :class:`RagClient`."""
@@ -251,6 +371,36 @@ class AsyncRagClient:
             search_mode=search_mode,
             embedding_slot=embedding_slot,
             filters=filters,
+            as_of=as_of,
+            purpose=purpose,
+            expand_window=expand_window,
+            graph_hops=graph_hops,
+        )
+
+    async def resume_with_selection(
+        self,
+        query: str,
+        type: str,  # noqa: A002
+        entity_ids: list[str],
+        *,
+        top_k: int = DEFAULT_TOP_K,
+        rerank: bool = False,
+        search_mode: SearchMode = "hybrid",
+        embedding_slot: EmbeddingSlot = "text",
+        as_of: str | None = None,
+        purpose: str | None = None,
+        expand_window: bool = False,
+        graph_hops: int = 0,
+    ) -> RagQueryResponse:
+        """Async variant of :meth:`RagClient.resume_with_selection` (#4534)."""
+        return await self._inner.aresume_with_selection(
+            query,
+            type,
+            entity_ids,
+            top_k=top_k,
+            rerank=rerank,
+            search_mode=search_mode,
+            embedding_slot=embedding_slot,
             as_of=as_of,
             purpose=purpose,
             expand_window=expand_window,

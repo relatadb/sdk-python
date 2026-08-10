@@ -482,17 +482,68 @@ class RagHit(BaseModel):
     )
 
 
+class EntityCandidate(BaseModel):
+    """One candidate entity in a :class:`Clarification` (#4534).
+
+    Mirrors #4514's ``clarification.candidates[]`` entry shape (ADR-0299) —
+    an entity id the caller can resume with via ``filters``, plus enough
+    display metadata (``label``/``document_count``/``top_aliases``) that a
+    human-in-the-loop UI or an LLM re-prompt can present the choice without a
+    second round-trip.
+    """
+
+    entity_id: str = Field(..., description="Canonical entity id — resume with this")
+    label: str = Field(..., description="Human-readable display label, e.g. 'Ahmad Akhtar'")
+    document_count: int = Field(0, description="Documents this candidate appears in", ge=0)
+    top_aliases: list[str] = Field(
+        default_factory=list, description="A few known aliases for this candidate, if any"
+    )
+
+
+class Clarification(BaseModel):
+    """A ``clarification`` object from ``POST /rag/query`` (#4514/#4534, ADR-0299).
+
+    Present when a query's entity resolution landed in the ambiguous branch
+    (two or more candidates within margin of each other, per
+    ``relata-identity::active_learning::disambiguate``) — the server returns
+    this instead of (or alongside empty) result rows so the caller can prompt
+    for an explicit choice rather than getting a silent top-1 pick.
+    """
+
+    type: str = Field("entity_disambiguation", description="Clarification kind")
+    question: str = Field(..., description="Human-readable prompt, e.g. 'Which one?'")
+    candidates: list[EntityCandidate] = Field(
+        default_factory=list, description="Candidates to choose from"
+    )
+
+
 class RagQueryResponse(BaseModel):
     """Response from ``POST /rag/query`` (#4514/ADR-0299).
 
     ``hits`` is the only field the contract guarantees; ``total`` is a client
     convenience (always ``len(hits)``) mirroring :class:`SearchResponse`.
+    ``clarification`` (#4534) is present only when the query's entity
+    resolution was ambiguous — see :class:`Clarification`. Resume with the
+    caller's pick via ``RagClient.resume_with_selection()``
+    (:mod:`relata.rag`), which turns ``clarification.candidates[i].entity_id``
+    into the ``filters: [{"field": "canonical_entity_id", "op": "in", ...}]``
+    entry the follow-up call carries — no new field, ``/rag/query`` stays
+    stateless.
     """
 
     hits: list[RagHit] = Field(default_factory=list)
     total: int = Field(0, description="Number of hits — always equals len(hits)")
+    clarification: Clarification | None = Field(
+        None,
+        description="Present only when entity resolution was ambiguous (#4534)",
+    )
 
     @model_validator(mode="after")
     def _sync_total(self) -> RagQueryResponse:
         self.total = len(self.hits)
         return self
+
+    @property
+    def is_ambiguous(self) -> bool:
+        """``True`` when the server returned a :attr:`clarification` object."""
+        return self.clarification is not None

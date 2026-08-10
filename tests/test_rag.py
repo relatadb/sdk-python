@@ -18,10 +18,38 @@ import pytest
 from relata import RelataClient
 from relata._http import AsyncHttpTransport, HttpTransport
 from relata.exceptions import PurposeError
-from relata.models import RagHit, RagQueryResponse
-from relata.rag import AsyncRagClient, RagClient, _build_rag_payload
+from relata.models import Clarification, EntityCandidate, RagHit, RagQueryResponse
+from relata.rag import (
+    CANONICAL_ENTITY_ID_FIELD,
+    AsyncRagClient,
+    RagClient,
+    _build_rag_payload,
+    filters_for_entity_ids,
+)
 
 BASE = "http://localhost:9090"
+
+# A clarification object per #4514/#4534's contract — two candidates within
+# margin of each other (see relata-identity::active_learning::disambiguate).
+_CLARIFICATION = {
+    "type": "entity_disambiguation",
+    "question": 'Multiple entities match "Ahmad". Which one?',
+    "candidates": [
+        {
+            "entity_id": "ent-ahmad-akhtar",
+            "label": "Ahmad Akhtar",
+            "document_count": 14,
+            "top_aliases": ["A. Akhtar"],
+        },
+        {
+            "entity_id": "ent-ahmad-nawaz",
+            "label": "Ahmad Nawaz",
+            "document_count": 6,
+            "top_aliases": [],
+        },
+    ],
+}
+_AMBIGUOUS_PAYLOAD = {"hits": [], "clarification": _CLARIFICATION}
 
 # A full response per #4514's per-hit contract table — every field present,
 # bm25_score/vector_score kept separate (never fused).
@@ -257,3 +285,98 @@ async def test_async_rag_client_query():
     )
     assert isinstance(res, RagQueryResponse)
     assert res.hits[0].chunk_id == "chunk-1"
+
+
+# ── Clarification / EntityCandidate — #4534 ─────────────────────────────────
+
+
+def test_clarification_round_trips_every_candidate_field():
+    c = Clarification.model_validate(_CLARIFICATION)
+    assert c.type == "entity_disambiguation"
+    assert c.question == 'Multiple entities match "Ahmad". Which one?'
+    assert len(c.candidates) == 2
+    first = c.candidates[0]
+    assert isinstance(first, EntityCandidate)
+    assert first.entity_id == "ent-ahmad-akhtar"
+    assert first.label == "Ahmad Akhtar"
+    assert first.document_count == 14
+    assert first.top_aliases == ["A. Akhtar"]
+
+
+def test_entity_candidate_defaults_are_safe():
+    c = EntityCandidate(entity_id="e1", label="Someone")
+    assert c.document_count == 0
+    assert c.top_aliases == []
+
+
+def test_rag_query_response_carries_clarification_and_is_ambiguous():
+    resp = RagQueryResponse.model_validate(_AMBIGUOUS_PAYLOAD)
+    assert resp.is_ambiguous
+    assert resp.clarification is not None
+    assert len(resp.clarification.candidates) == 2
+    assert resp.total == 0  # no hits when ambiguous
+
+
+def test_rag_query_response_without_clarification_is_not_ambiguous():
+    resp = RagQueryResponse.model_validate(_RAG_PAYLOAD)
+    assert not resp.is_ambiguous
+    assert resp.clarification is None
+
+
+def test_rag_client_query_surfaces_clarification():
+    client = _mock_client(lambda req: httpx.Response(200, json=_AMBIGUOUS_PAYLOAD))
+    res = RagClient.from_client(client).query("Ahmad", "Person", purpose="research")
+    assert res.is_ambiguous
+    assert res.clarification.candidates[0].entity_id == "ent-ahmad-akhtar"
+
+
+# ── filters_for_entity_ids / resume_with_selection — #4534 ─────────────────
+
+
+def test_filters_for_entity_ids_builds_in_filter():
+    filters = filters_for_entity_ids(["e1", "e2"])
+    assert filters == [{"field": CANONICAL_ENTITY_ID_FIELD, "op": "in", "value": ["e1", "e2"]}]
+
+
+def test_filters_for_entity_ids_rejects_empty_selection():
+    with pytest.raises(ValueError):
+        filters_for_entity_ids([])
+
+
+def test_resume_with_selection_scopes_follow_up_to_chosen_entity():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json=_RAG_PAYLOAD)
+
+    client = _mock_client(handler)
+    res = RagClient.from_client(client).resume_with_selection(
+        "Ahmad", "Person", ["ent-ahmad-akhtar"], purpose="research"
+    )
+    assert captured["filters"] == [
+        {"field": "canonical_entity_id", "op": "in", "value": ["ent-ahmad-akhtar"]}
+    ]
+    assert isinstance(res, RagQueryResponse)
+
+
+@pytest.mark.asyncio
+async def test_async_resume_with_selection_scopes_follow_up_to_chosen_entity():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json=_RAG_PAYLOAD)
+
+    client = _mock_client(handler)
+    res = await AsyncRagClient.from_client(client).resume_with_selection(
+        "Ahmad", "Person", ["ent-ahmad-akhtar", "ent-ahmad-other"], purpose="research"
+    )
+    assert captured["filters"] == [
+        {
+            "field": "canonical_entity_id",
+            "op": "in",
+            "value": ["ent-ahmad-akhtar", "ent-ahmad-other"],
+        }
+    ]
+    assert isinstance(res, RagQueryResponse)
