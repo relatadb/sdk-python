@@ -43,6 +43,7 @@ from relata.flight import AsyncFlightClient, FlightClient
 from relata.client import RelataClient
 from relata import aml
 from relata import canonical
+from relata.coref import AsyncCorefResolver, CorefResolver, subject_from_hit
 from relata.exceptions import (
     AuthError,
     ConflictError,
@@ -160,6 +161,10 @@ __all__ = [
     "EntailmentFn",
     # RAG epic — entity disambiguation (#4534)
     "filters_for_entity_ids",
+    # RAG epic — session-scoped coreference resolution (#4530)
+    "CorefResolver",
+    "AsyncCorefResolver",
+    "subject_from_hit",
     # Query builder
     "QueryBuilder",
     "select",
