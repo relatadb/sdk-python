@@ -1,8 +1,11 @@
 """Tests for the canonical validation module (#2248 Tier-1).
 
-Consumes the SHARED test-vectors file at ``sdks/shared/canonical-vectors.json``
-so all four SDKs (Rust/Python/TypeScript/Go) exercise identical valid + reject
-cases.
+Consumes a vendored copy of the SHARED test-vectors file (``tests/fixtures/canonical-vectors.json``,
+mirrored from ``sdks/shared/canonical-vectors.json``) so all four SDKs
+(Rust/Python/TypeScript/Go) exercise identical valid + reject cases. Vendored
+rather than read from ``sdks/shared`` directly because this package is mirrored
+to a standalone repo (relatadb/sdk-python) via `git subtree split`, which drops
+everything outside `sdks/python`. Keep this file in sync with the shared source.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ from relata.canonical import (
     validate_ipv6,
 )
 
-VECTORS_PATH = Path(__file__).resolve().parents[2] / "shared" / "canonical-vectors.json"
+VECTORS_PATH = Path(__file__).resolve().parent / "fixtures" / "canonical-vectors.json"
 
 
 def _vectors() -> dict:
