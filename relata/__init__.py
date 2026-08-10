@@ -44,6 +44,13 @@ from relata.client import RelataClient
 from relata import aml
 from relata import canonical
 from relata.coref import AsyncCorefResolver, CorefResolver, subject_from_hit
+from relata.embedding_migration import (
+    EmbeddingMigrationClient,
+    Embedder,
+    MigrationBatchResult,
+    http_embed_batch_embedder,
+    migrate_embedding_model,
+)
 from relata.exceptions import (
     AuthError,
     ConflictError,
@@ -327,4 +334,13 @@ __all__ = [
     # Foundational typed surfaces (#2248 client canonical validation, #2255 AML decoders)
     "aml",
     "canonical",
+    # Embedding-model migration (#4585, ADR-0298 SDK-side orchestration):
+    # re-embed + backfill, dual/multi-tag search during the cutover window
+    # (a real storage-layer primitive, not a client-side merge), and the
+    # explicit operator-triggered retirement step
+    "EmbeddingMigrationClient",
+    "Embedder",
+    "MigrationBatchResult",
+    "http_embed_batch_embedder",
+    "migrate_embedding_model",
 ]
