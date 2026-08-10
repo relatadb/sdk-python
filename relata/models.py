@@ -517,6 +517,25 @@ class Clarification(BaseModel):
     )
 
 
+class Refusal(BaseModel):
+    """A client-side refusal from the content-safety pre-filter (#4536).
+
+    Unlike :class:`Clarification` (populated from a real ``/rag/query``
+    server response), a :class:`Refusal` is constructed entirely client-side
+    by :func:`~relata.rag_understanding.check_content_safety` *before* any
+    ``/rag/query`` or ``/query`` call is made — the point of the gate is to
+    avoid ever constructing that call for clearly out-of-scope content. It is
+    a coarse pre-filter, not a substitute for governance already enforced
+    in-scan by RelataDB's ACL/cell-masking (ADR-0299 §11).
+    """
+
+    reason: str = Field(
+        "content_safety", description="Machine-readable refusal reason code"
+    )
+    category: str = Field(..., description="Matched dangerous-content category label")
+    message: str = Field(..., description="Human-readable explanation, safe to surface to callers")
+
+
 class RagQueryResponse(BaseModel):
     """Response from ``POST /rag/query`` (#4514/ADR-0299).
 
@@ -529,6 +548,12 @@ class RagQueryResponse(BaseModel):
     into the ``filters: [{"field": "canonical_entity_id", "op": "in", ...}]``
     entry the follow-up call carries — no new field, ``/rag/query`` stays
     stateless.
+
+    Four more fields (``refused``/``sql_result``/``low_confidence``/
+    ``low_confidence_reason``) are client-side-only additions from #4536's
+    content-safety gate + structured-attribute-filter routing — the server
+    never populates them; :mod:`relata.rag_understanding`'s
+    ``smart_rag_query``/``asmart_rag_query`` set them before returning.
     """
 
     hits: list[RagHit] = Field(default_factory=list)
@@ -536,6 +561,32 @@ class RagQueryResponse(BaseModel):
     clarification: Clarification | None = Field(
         None,
         description="Present only when entity resolution was ambiguous (#4534)",
+    )
+    refused: Refusal | None = Field(
+        None,
+        description=(
+            "Present only when the client-side content-safety gate (#4536) "
+            "refused this query before any /rag/query or /query call was made"
+        ),
+    )
+    sql_result: QueryResult | None = Field(
+        None,
+        description=(
+            "Present when #4536's structured-attribute-filter router answered "
+            "via a governed SQL /query call instead of retrieval — real "
+            "filtered rows, not a semantic-similarity guess"
+        ),
+    )
+    low_confidence: bool = Field(
+        False,
+        description=(
+            "True when an attribute-filter-shaped query (#4536) could not be "
+            "routed to SQL (no matching canonical field) and fell back to "
+            "retrieval instead"
+        ),
+    )
+    low_confidence_reason: str | None = Field(
+        None, description="Explanation for low_confidence, when set"
     )
 
     @model_validator(mode="after")
@@ -547,3 +598,15 @@ class RagQueryResponse(BaseModel):
     def is_ambiguous(self) -> bool:
         """``True`` when the server returned a :attr:`clarification` object."""
         return self.clarification is not None
+
+    @property
+    def is_refused(self) -> bool:
+        """``True`` when the client-side content-safety gate (#4536) refused
+        this query before any call was made — see :attr:`refused`."""
+        return self.refused is not None
+
+    @property
+    def is_sql_routed(self) -> bool:
+        """``True`` when #4536's structured-attribute-filter router answered
+        via SQL instead of retrieval — see :attr:`sql_result`."""
+        return self.sql_result is not None
