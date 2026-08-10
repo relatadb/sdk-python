@@ -22,7 +22,8 @@ re-run), proven UX rather than speculative design.
 
 Request fields: ``query``, ``type``, ``top_k`` (default 8, matches
 ``RAG_RETRIEVE_DEFAULT_TOP_K``), ``rerank`` (default ``False``),
-``search_mode`` (``lexical|dense|hybrid``, default ``hybrid``),
+``search_mode`` (``lexical|dense|hybrid|structural``, default ``hybrid`` —
+``structural`` added by #4542, see :mod:`relata.structural_navigation`),
 ``embedding_slot`` (``text|summary|keyword|question``, default ``text``),
 ``filters``, ``as_of``, ``purpose`` (required), ``expand_window`` (default
 ``False``), ``graph_hops`` (default ``0``).
@@ -52,12 +53,18 @@ from relata.models import RagQueryResponse
 from relata.search import _normalise_filters
 
 #: ``search_mode`` values #4514's contract accepts (default ``"hybrid"``).
-_SEARCH_MODES = frozenset({"lexical", "dense", "hybrid"})
+#: ``"structural"`` (#4542) is a distinct navigation path — see
+#: ``crates/relata-cli/src/serve/query/rag_query.rs``'s module doc — that
+#: retrieves via the persisted ``DocumentStructureNode`` table-of-contents
+#: index instead of flat embedding/BM25 ranking; it is still one governed
+#: ``/rag/query`` call, so it needs no new client method, only this extra
+#: enum value.
+_SEARCH_MODES = frozenset({"lexical", "dense", "hybrid", "structural"})
 
 #: ``embedding_slot`` values #4514's contract accepts (default ``"text"``).
 _EMBEDDING_SLOTS = frozenset({"text", "summary", "keyword", "question"})
 
-SearchMode = Literal["lexical", "dense", "hybrid"]
+SearchMode = Literal["lexical", "dense", "hybrid", "structural"]
 EmbeddingSlot = Literal["text", "summary", "keyword", "question"]
 
 #: Matches ``RAG_RETRIEVE_DEFAULT_TOP_K`` (crates/relata-query/src/parser.rs:2854).

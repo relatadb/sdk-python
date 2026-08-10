@@ -136,6 +136,14 @@ from relata.rag_understanding import (
 )
 from relata.s3 import AsyncS3Client, S3Client
 from relata.search import AsyncSearchClient, SearchClient
+from relata.structural_navigation import (
+    ChildSelector,
+    StructureNode,
+    fetch_child_nodes,
+    fetch_root_node,
+    lexical_child_selector,
+    navigate_structural_tree,
+)
 from relata.streaming import AsyncStreamingClient, StreamingClient
 from relata.synthesis import (
     Citation,
@@ -261,6 +269,14 @@ __all__ = [
     "default_text_similarity",
     "MMR_LAMBDA_BY_PURPOSE",
     "DEFAULT_MMR_LAMBDA",
+    # RAG epic — structural table-of-contents navigation (#4542, Python-only
+    # SDK-side agentic tree descent per ADR-0298)
+    "StructureNode",
+    "ChildSelector",
+    "fetch_root_node",
+    "fetch_child_nodes",
+    "lexical_child_selector",
+    "navigate_structural_tree",
     # Query builder
     "QueryBuilder",
     "select",
