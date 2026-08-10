@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from types import TracebackType
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlencode
 
 from relata._http import (
@@ -42,6 +42,7 @@ from relata.exceptions import PurposeError, RelataError
 from relata.models import (
     AuditCountResponse,
     ClusterNode,
+    DocumentUsageResponse,
     HealthResponse,
     IngestDocumentResponse,
     QueryResult,
@@ -2132,6 +2133,77 @@ class RelataClient:
         payload = {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json}
         data = await self._async.post("/rag/ingest", payload)
         return IngestDocumentResponse.model_validate(data)
+
+    def document_usage(
+        self,
+        report_id: str,
+        *,
+        cited: bool = False,
+        retrieved: bool = False,
+        feedback_score: float | None = None,
+    ) -> DocumentUsageResponse:
+        """Record a post-ingest usage signal against a ``DocumentSource`` (#4498).
+
+        ``citation_count``/``retrieval_count``/``last_cited_at`` are
+        write-BACK signals, not ingest-time constants — an agentic RAG loop
+        calls this once per retrieval/citation/feedback event, e.g. right
+        after generating an answer that cites a chunk from ``report_id``:
+        ``client.document_usage(report_id, cited=True)``.
+
+        Args:
+            report_id: The ``DocumentSource.report_id`` this event targets.
+            cited: The generated answer cited a chunk from this document —
+                increments ``citation_count`` by 1 and sets
+                ``last_cited_at`` to now.
+            retrieved: This document was touched by a retrieval, regardless
+                of whether it was ultimately cited — increments
+                ``retrieval_count`` by 1.
+            feedback_score: A relevance/usefulness signal (recommended
+                range ``[0.0, 1.0]``, not enforced server-side) — folded
+                into ``feedback_avg`` as a running mean.
+
+        Returns:
+            :class:`~relata.models.DocumentUsageResponse` with the updated
+            counter values.
+
+        Raises:
+            :class:`~relata.exceptions.RelataError`: ``report_id`` has no
+                live ``DocumentSource`` for the caller's tenant (HTTP 404),
+                or no signal was supplied (HTTP 400).
+
+        Examples::
+
+            client.document_usage(report_id, cited=True, retrieved=True)
+            client.document_usage(report_id, feedback_score=0.9)
+        """
+        payload: dict[str, Any] = {}
+        if cited:
+            payload["cited"] = True
+        if retrieved:
+            payload["retrieved"] = True
+        if feedback_score is not None:
+            payload["feedback_score"] = feedback_score
+        data = self._sync.post(f"/rag/documents/{path_segment(report_id)}/usage", payload)
+        return DocumentUsageResponse.model_validate(data)
+
+    async def adocument_usage(
+        self,
+        report_id: str,
+        *,
+        cited: bool = False,
+        retrieved: bool = False,
+        feedback_score: float | None = None,
+    ) -> DocumentUsageResponse:
+        """Identical to :meth:`document_usage` but non-blocking."""
+        payload: dict[str, Any] = {}
+        if cited:
+            payload["cited"] = True
+        if retrieved:
+            payload["retrieved"] = True
+        if feedback_score is not None:
+            payload["feedback_score"] = feedback_score
+        data = await self._async.post(f"/rag/documents/{path_segment(report_id)}/usage", payload)
+        return DocumentUsageResponse.model_validate(data)
 
     # ------------------------------------------------------------------
     # Repr

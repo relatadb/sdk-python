@@ -212,6 +212,43 @@ class IngestDocumentResponse(BaseModel):
         )
 
 
+class DocumentUsageResponse(BaseModel):
+    """Response from ``POST /rag/documents/{report_id}/usage`` (#4498).
+
+    Reports the ``DocumentSource`` row's usage counters *after* applying this
+    call's increments — ``citation_count``/``retrieval_count``/
+    ``last_cited_at``/``feedback_avg`` are write-BACK signals maintained by
+    repeated calls to this endpoint, not ingest-time constants.
+
+    Attributes:
+        report_id: The document this usage event was recorded against.
+        citation_count: Total citations recorded so far.
+        retrieval_count: Total retrievals recorded so far.
+        last_cited_at: Nanoseconds since epoch of the most recent citation,
+            or ``None`` if the document has never been cited.
+        feedback_avg: Running mean of every ``feedback_score`` recorded so
+            far, or ``None`` if none has been recorded yet.
+    """
+
+    report_id: str = Field(..., description="The DocumentSource this usage event targeted")
+    citation_count: int | None = Field(None, description="Total citations recorded so far")
+    retrieval_count: int | None = Field(None, description="Total retrievals recorded so far")
+    last_cited_at: int | None = Field(
+        None, description="Nanoseconds since epoch of the most recent citation"
+    )
+    feedback_avg: float | None = Field(
+        None, description="Running mean of every feedback_score recorded so far"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"DocumentUsageResponse("
+            f"report_id={self.report_id!r}, "
+            f"citation_count={self.citation_count}, "
+            f"retrieval_count={self.retrieval_count})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Cluster
 # ---------------------------------------------------------------------------

@@ -66,6 +66,7 @@ from relata.memory import AsyncMemory, Memory
 from relata.models import (
     AuditCountResponse,
     ClusterNode,
+    DocumentUsageResponse,
     HealthResponse,
     IngestDocumentResponse,
     QueryResult,
@@ -143,6 +144,7 @@ __all__ = [
     "AuditCountResponse",
     "ClusterNode",
     "IngestDocumentResponse",
+    "DocumentUsageResponse",
     "VersionInfo",
     "Stats",
     "ReadyReport",
