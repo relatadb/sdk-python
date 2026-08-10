@@ -86,6 +86,23 @@ from relata.namespace import AsyncNamespace, Namespace
 from relata.objects import AsyncObjectClient, ObjectClient
 from relata.query import QueryBuilder, select
 from relata.rag import AsyncRagClient, RagClient, filters_for_entity_ids
+from relata.rag_loop import (
+    CORRECTIVE_FRACTION_CORRECT_FLOOR,
+    HEURISTIC_PASS_THRESHOLD,
+    HEURISTIC_RETRY_THRESHOLD,
+    LOOP_CONFIDENCE_THRESHOLD,
+    MAX_ITERATIONS,
+    CorrectiveGradingResult,
+    GateDecision,
+    HeuristicGateResult,
+    HitGrade,
+    LoopIteration,
+    LoopResult,
+    arun_agentic_loop,
+    grade_hits,
+    heuristic_gate,
+    run_agentic_loop,
+)
 from relata.rag_understanding import (
     ENUMERATION_TOP_K,
     NUMERIC_INTENT_WORDS,
@@ -191,6 +208,23 @@ __all__ = [
     "ENUMERATION_TOP_K",
     "smart_rag_query",
     "asmart_rag_query",
+    # RAG epic — heuristic gate + corrective retrieval grading + loop
+    # confidence, the three-tier cost ladder (#4525)
+    "GateDecision",
+    "HeuristicGateResult",
+    "heuristic_gate",
+    "HEURISTIC_PASS_THRESHOLD",
+    "HEURISTIC_RETRY_THRESHOLD",
+    "HitGrade",
+    "CorrectiveGradingResult",
+    "grade_hits",
+    "CORRECTIVE_FRACTION_CORRECT_FLOOR",
+    "LoopIteration",
+    "LoopResult",
+    "run_agentic_loop",
+    "arun_agentic_loop",
+    "LOOP_CONFIDENCE_THRESHOLD",
+    "MAX_ITERATIONS",
     # Query builder
     "QueryBuilder",
     "select",
