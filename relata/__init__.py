@@ -86,6 +86,14 @@ from relata.rag import AsyncRagClient, RagClient
 from relata.s3 import AsyncS3Client, S3Client
 from relata.search import AsyncSearchClient, SearchClient
 from relata.streaming import AsyncStreamingClient, StreamingClient
+from relata.synthesis import (
+    Citation,
+    EntailmentFn,
+    LlmFn,
+    SynthesisResult,
+    SynthesizedSentence,
+    synthesize,
+)
 from relata.system import AsyncSystemClient, SystemClient
 from relata.tenants import AsyncTenantAdminClient, TenantAdminClient
 from relata.tokens import AsyncTokenClient, TokenClient
@@ -140,6 +148,14 @@ __all__ = [
     # RAG epic — typed /rag/query client (#4523, foundational; #4514/ADR-0299)
     "RagClient",
     "AsyncRagClient",
+    # RAG epic — citation injection + post-synthesis faithfulness scoring
+    # (#4527, highest-priority SDK ticket)
+    "synthesize",
+    "SynthesisResult",
+    "SynthesizedSentence",
+    "Citation",
+    "LlmFn",
+    "EntailmentFn",
     # Query builder
     "QueryBuilder",
     "select",
