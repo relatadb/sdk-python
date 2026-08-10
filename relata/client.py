@@ -2077,9 +2077,10 @@ class RelataClient:
         """Ingest a datagrep extractor document into Relata (synchronous).
 
         Submits the ``_chunks.jsonl`` and ``_manifest.json`` outputs from a
-        ``dgrep`` extraction run to ``POST /ingest/document``.  The server
-        parses and version-checks the protocol envelope, then queues the chunks
-        for storage.
+        ``dgrep`` extraction run to ``POST /rag/ingest`` (renamed by #4499).
+        The server parses and version-checks the protocol envelope, then
+        queues the chunks for storage.  See ``GET /rag/specs`` for the
+        protocol version/field-contract handshake.
 
         Args:
             chunks_jsonl: Newline-delimited JSON string — one chunk per line,
@@ -2109,7 +2110,7 @@ class RelataClient:
             print(f"Ingested {result.chunks_ingested} chunks as {result.report_id}")
         """
         payload = {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json}
-        data = self._sync.post("/ingest/document", payload)
+        data = self._sync.post("/rag/ingest", payload)
         return IngestDocumentResponse.model_validate(data)
 
     async def aingest_document(
@@ -2129,7 +2130,7 @@ class RelataClient:
             :class:`~relata.models.IngestDocumentResponse`.
         """
         payload = {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json}
-        data = await self._async.post("/ingest/document", payload)
+        data = await self._async.post("/rag/ingest", payload)
         return IngestDocumentResponse.model_validate(data)
 
     # ------------------------------------------------------------------

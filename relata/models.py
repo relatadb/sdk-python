@@ -187,7 +187,7 @@ class AuditCountResponse(BaseModel):
 
 
 class IngestDocumentResponse(BaseModel):
-    """Response from ``POST /ingest/document``.
+    """Response from ``POST /rag/ingest`` (renamed by #4499).
 
     Attributes:
         report_id: Server-assigned manifest ID for the ingested document.
