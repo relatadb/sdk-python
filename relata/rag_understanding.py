@@ -1,11 +1,12 @@
 """Query-shape dispatch + HyDE + decomposition — RAG epic SDK-side query
 understanding (#4524), extended by #4536 with a content-safety pre-filter
-gate and structured-attribute-filter query routing.
+gate and structured-attribute-filter query routing, and by #4535 with
+aggregation/negation/boolean/ranking SQL routing.
 
-Five cooperating pieces that run **before** (or instead of) the first
+Nine cooperating pieces that run **before** (or instead of) the first
 ``/rag/query`` call, sharing this one dispatch layer rather than a parallel
-one (#4536's explicit instruction — it extends :func:`classify_query_shape`,
-it does not fork it):
+one (#4536's explicit instruction, reaffirmed by #4535 — every new shape
+extends :func:`classify_query_shape`, none of them fork it):
 
 0. **Content-safety pre-filter** (:func:`check_content_safety`) — a
    lightweight, no-LLM, pattern-based gate that runs ahead of everything
@@ -50,9 +51,26 @@ it does not fork it):
    to governed SQL ``WHERE`` predicates instead of a semantic-similarity
    guess; when no matching field exists, fall back to retrieval with an
    explicit ``low_confidence`` signal rather than silently guessing.
+5. **Aggregation/negation/boolean/ranking routing** (#4535,
+   :func:`route_aggregation_query`, :func:`route_negation_query`,
+   :func:`route_boolean_query`, :func:`route_ranking_query`, and their
+   ``aroute_*`` async twins) — a pure-retrieval top-k search structurally
+   cannot answer "how many", "which are NOT", "X AND Y", or "top N" shaped
+   questions (there is no notion of "all"/"not"/"count"/"order by" in a
+   similarity search). Each shape routes to governed SQL instead:
+   aggregation to ``COUNT(*)``, negation to a ``NOT ILIKE``/``!=``
+   predicate, boolean to multiple predicates joined by the query's own
+   ``AND``/``OR``, ranking to ``ORDER BY ... LIMIT N``. Aggregation always
+   attempts SQL routing (a bare ``COUNT(*)`` needs no domain vocabulary);
+   negation/boolean/ranking require a caller-supplied ``structured_field_map``
+   (keyword -> canonical field — deployment-specific vocabulary, unlike
+   :data:`ATTRIBUTE_FIELD_KEYWORDS`'s general-purpose physical-attribute
+   defaults) and fall back to retrieval with ``low_confidence`` set when
+   they can't build a predicate, mirroring #4536's attribute-filter
+   fallback contract exactly.
 
 :func:`smart_rag_query` / :func:`asmart_rag_query` are the one entry point
-that composes all five ahead of calling
+that composes all nine ahead of calling
 :class:`~relata.rag.RagClient`/:class:`~relata.rag.AsyncRagClient`.
 
 Per ADR-0298, RelataDB has no server-side agent loop and orchestration lives
@@ -152,9 +170,28 @@ class QueryShape(str, Enum):
     """Detected shape of a query text, per :func:`classify_query_shape`."""
 
     ATTRIBUTE_FILTER = "attribute_filter"
+    AGGREGATION = "aggregation"
+    NEGATION = "negation"
+    BOOLEAN = "boolean"
+    RANKING = "ranking"
     CONJUNCTION = "conjunction"
     ENUMERATION = "enumeration"
     SIMPLE = "simple"
+
+
+#: Shapes routed to governed SQL instead of retrieval (#4536's
+#: ATTRIBUTE_FILTER, extended by #4535's four). A pure-retrieval top-k
+#: search has no notion of "all"/"not"/"count"/"order by" — see the module
+#: docstring's item 5.
+SQL_ROUTABLE_SHAPES = frozenset(
+    {
+        QueryShape.ATTRIBUTE_FILTER,
+        QueryShape.AGGREGATION,
+        QueryShape.NEGATION,
+        QueryShape.BOOLEAN,
+        QueryShape.RANKING,
+    }
+)
 
 
 #: Physical/descriptive-attribute keyword -> canonical field name this
@@ -222,19 +259,106 @@ _ENUMERATION_RE = re.compile(
 #: enough candidates to work with.
 ENUMERATION_TOP_K = 25
 
+# ---------------------------------------------------------------------------
+# 1b. Aggregation/negation/boolean/ranking detection (#4535) — a pure-
+#     retrieval top-k search structurally cannot answer these; each routes
+#     to governed SQL (see routers in section 5 below) instead of retrieval.
+# ---------------------------------------------------------------------------
+
+#: Lexical cues for a countable/aggregate intent ("how many", "count of",
+#: "total number of", "average", ...). Deliberately does not include bare
+#: "percentage"/"revenue"/etc (those are :data:`NUMERIC_INTENT_WORDS`'s HyDE
+#: guard, a different concern — a numeric-intent query that isn't
+#: aggregation-shaped, e.g. "What was the total revenue for Q1?", still goes
+#: through retrieval with HyDE skipped, not SQL routing).
+_AGGREGATION_RE = re.compile(
+    r"\bhow\s+many\b|\bhow\s+much\b|\bcount\s+of\b|\btotal\s+number\s+of\b|"
+    r"\btotal\s+count\b|\baverage\b|\bavg\b|\bsum\s+of\b",
+    re.IGNORECASE,
+)
+
+#: Negation markers ("not", "except", "excluding", "without", ...) adjacent
+#: to an entity/attribute reference (e.g. "Which SIMI members are NOT in
+#: custody?").
+_NEGATION_RE = re.compile(
+    r"\bnot\b|\bexcept\b|\bexcluding\b|\bwithout\b|\bisn't\b|\baren't\b|"
+    r"\bdoesn't\b|\bdon't\b",
+    re.IGNORECASE,
+)
+
+#: Boolean/set-operation shape: "members of X and Y", "belongs to X or Y",
+#: "affiliated with X and Y" — multiple entity mentions joined by and/or
+#: where the intent is a set operation (e.g. "Members of SIMI AND LeT"),
+#: structurally distinct from #4524's CONJUNCTION shape (which is about a
+#: single answer spanning more of one document's content, not a set
+#: operation over named entities).
+_BOOLEAN_RE = re.compile(
+    r"\b(?:members?\s+of|belongs?\s+to|affiliated\s+with|part\s+of)\s+"
+    r"[\w&\-]+(?:\s+[\w&\-]+){0,3}\s+(?:and|or)\s+[\w&\-]+",
+    re.IGNORECASE,
+)
+
+#: Ranking/top-N shape: "top N", "first N", "most X", "highest"/"lowest".
+_RANKING_RE = re.compile(
+    r"\btop\s+\d+\b|\bfirst\s+\d+\b|\bmost\s+\w+\b|\bhighest\b|\blowest\b|\bleast\s+\w+\b",
+    re.IGNORECASE,
+)
+
+
+def is_aggregation_intent(query: str) -> bool:
+    """``True`` when ``query`` carries a countable/aggregate lexical cue
+    (#4535, e.g. "how many", "total number of")."""
+    return bool(_AGGREGATION_RE.search(query))
+
+
+def is_negation_intent(query: str) -> bool:
+    """``True`` when ``query`` carries a negation marker (#4535, e.g. "not",
+    "except", "excluding", "without")."""
+    return bool(_NEGATION_RE.search(query))
+
+
+def is_boolean_intent(query: str) -> bool:
+    """``True`` when ``query`` names multiple entities joined by "and"/"or"
+    in a set-operation shape (#4535, e.g. "members of SIMI and LeT")."""
+    return bool(_BOOLEAN_RE.search(query))
+
+
+def is_ranking_intent(query: str) -> bool:
+    """``True`` when ``query`` carries a ranking/top-N lexical cue (#4535,
+    e.g. "top 5", "most active", "highest")."""
+    return bool(_RANKING_RE.search(query))
+
 
 def classify_query_shape(query: str) -> QueryShape:
-    """Classify ``query`` as :class:`QueryShape` ATTRIBUTE_FILTER,
-    CONJUNCTION, ENUMERATION, or SIMPLE via regex — no LLM call, cheap
-    enough to run on every query.
+    """Classify ``query`` as a :class:`QueryShape` via regex — no LLM call,
+    cheap enough to run on every query.
+
+    Checked in this order: ATTRIBUTE_FILTER, AGGREGATION, NEGATION,
+    BOOLEAN, RANKING, CONJUNCTION, ENUMERATION, SIMPLE.
 
     ATTRIBUTE_FILTER is checked first: it is a structurally different query
     type (routes toward SQL, not retrieval — #4536), and its trigger words
     would otherwise sometimes overlap with ENUMERATION's opening-word cues
     (e.g. "list of persons above 6ft tall ..." opens with "list").
+
+    AGGREGATION/NEGATION/BOOLEAN/RANKING (#4535) are checked next, ahead of
+    CONJUNCTION/ENUMERATION, for the same reason: "how many incidents were
+    filed last year?" opens with an ENUMERATION-style intent word ("how
+    many" used to fall through to ENUMERATION's `how\\s+many` alternation)
+    but must classify as AGGREGATION so it routes to a real ``COUNT(*)``
+    instead of a top-k retrieval-and-hope-the-LLM-counts-them guess — the
+    exact failure mode #4535 exists to close.
     """
     if is_attribute_filter_intent(query):
         return QueryShape.ATTRIBUTE_FILTER
+    if is_aggregation_intent(query):
+        return QueryShape.AGGREGATION
+    if is_negation_intent(query):
+        return QueryShape.NEGATION
+    if is_boolean_intent(query):
+        return QueryShape.BOOLEAN
+    if is_ranking_intent(query):
+        return QueryShape.RANKING
     if _CONJUNCTION_RE.search(query):
         return QueryShape.CONJUNCTION
     if _ENUMERATION_RE.search(query):
@@ -567,7 +691,320 @@ async def aroute_attribute_filter_query(
 
 
 # ---------------------------------------------------------------------------
-# Entry point — composes all five ahead of the first /rag/query call
+# 5. Aggregation/negation/boolean/ranking SQL routing (#4535)
+# ---------------------------------------------------------------------------
+#
+# Unlike :data:`ATTRIBUTE_FIELD_KEYWORDS` (a general-purpose default for
+# physical/descriptive attributes), there is no sensible universal keyword
+# vocabulary for these four shapes — "which organizations", "which status
+# values" are entirely deployment-specific. Callers supply their own
+# ``structured_field_map`` (keyword -> canonical field name, ideally sourced
+# from schema introspection per the design doc); without one, NEGATION/
+# BOOLEAN/RANKING can't build a predicate and fall back to retrieval.
+# AGGREGATION is the one exception: a bare ``COUNT(*)`` needs no domain
+# vocabulary at all, so it always attempts SQL routing.
+#
+# ponytail: this section covers #4535's "small-N" routing only (a bare
+# ``COUNT(*)`` or a bounded ``SELECT ... WHERE`` — one row or a small,
+# synthesizable result). #4535's second, separately-scoped half — the
+# large-result-set policy (governed `S3Object` export + a new `relata-jobs`
+# job type + `bucket/key`-shaped response for an enumeration query that
+# legitimately returns thousands-to-millions of rows) is genuinely
+# substantial new cross-crate infrastructure (relata-jobs, s3_server,
+# job-status polling) and is deliberately deferred out of this pass rather
+# than forced through half-built. `route_aggregation_query` already routes
+# a "how many" question to a real one-row `COUNT(*)` per the ticket's
+# acceptance criteria; a "give me all X" enumeration question with a large
+# result still falls back to retrieval today rather than to the S3Object/
+# job export path the design doc describes — see the ticket for tracking.
+
+
+def extract_keyword_filters(
+    query: str,
+    field_map: Mapping[str, str],
+    *,
+    op: str = "ILIKE",
+    dedupe_fields: bool = True,
+) -> list[dict[str, Any]]:
+    """Generic keyword -> field predicate extraction, shared by
+    :func:`route_aggregation_query`/:func:`route_negation_query`/
+    :func:`route_boolean_query` (#4535) — the same mechanism as
+    :func:`extract_attribute_filters`'s ``ILIKE`` branch, but against a
+    caller-required ``field_map`` rather than a built-in default.
+
+    Each keyword present in ``query`` (as a whole word, case-insensitive)
+    becomes one ``{field, op, value}`` predicate using ``field_map``'s
+    mapped field name. ``value`` is the keyword itself, wrapped in
+    ``%...%`` for the ``ILIKE``/``NOT ILIKE`` operator family.
+
+    ``dedupe_fields=True`` (the default) keeps only the first matching
+    keyword per field, matching :func:`extract_attribute_filters`'s
+    behaviour. :func:`route_boolean_query` passes ``dedupe_fields=False``
+    because a boolean shape's whole point is multiple predicates over the
+    *same* field (e.g. ``organization = 'SIMI' AND organization = 'LeT'``).
+    """
+    filters: list[dict[str, Any]] = []
+    seen_fields: set[str] = set()
+    for keyword in sorted(field_map, key=len, reverse=True):
+        field = field_map[keyword]
+        if dedupe_fields and field in seen_fields:
+            continue
+        if re.search(rf"\b{re.escape(keyword)}\b", query, re.IGNORECASE):
+            value = f"%{keyword}%" if op in ("ILIKE", "NOT ILIKE") else keyword
+            filters.append({"field": field, "op": op, "value": value})
+            seen_fields.add(field)
+    return filters
+
+
+def _first_matching_field(query: str, field_map: Mapping[str, str]) -> str | None:
+    """Return the canonical field for the first ``field_map`` keyword found
+    in ``query`` (longest keyword first), or ``None`` when nothing matches —
+    used by :func:`route_ranking_query` to pick the ``ORDER BY`` column."""
+    for keyword in sorted(field_map, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(keyword)}\b", query, re.IGNORECASE):
+            return field_map[keyword]
+    return None
+
+
+def route_aggregation_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    purpose: str | None = None,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+) -> QueryResult | None:
+    """Route an aggregation-shaped query (#4535, e.g. "how many incidents
+    happened in 2023?") to a governed ``SELECT COUNT(*)`` instead of a
+    retrieval top-k the LLM would have to guess-count from.
+
+    Always attempts SQL routing (returns a real ``QueryResult``, never
+    ``None``) when no ``field_map`` is given, or when ``field_map`` is given
+    but names nothing found in ``query`` — a bare ``COUNT(*)`` over ``type``
+    needs no domain vocabulary. Returns ``None`` (fall back to retrieval)
+    only when ``field_map`` *did* extract a keyword filter but
+    ``known_fields`` rules every extracted field out — i.e. the query named
+    a specific criterion that can't be mapped onto the schema, so an
+    unfiltered count would silently answer the wrong question.
+    """
+    filters = extract_keyword_filters(query, field_map) if field_map else []
+    if known_fields is not None and filters:
+        resolved = [f for f in filters if f["field"] in known_fields]
+        if not resolved:
+            return None
+        filters = resolved
+    sql = f"SELECT COUNT(*) AS count FROM {type}"
+    if filters:
+        where_clause = " AND ".join(_filter_to_sql_predicate(f) for f in filters)
+        sql += f" WHERE {where_clause}"
+    return relata_client.query(sql, purpose=purpose)
+
+
+async def aroute_aggregation_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    purpose: str | None = None,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+) -> QueryResult | None:
+    """Async variant of :func:`route_aggregation_query`."""
+    filters = extract_keyword_filters(query, field_map) if field_map else []
+    if known_fields is not None and filters:
+        resolved = [f for f in filters if f["field"] in known_fields]
+        if not resolved:
+            return None
+        filters = resolved
+    sql = f"SELECT COUNT(*) AS count FROM {type}"
+    if filters:
+        where_clause = " AND ".join(_filter_to_sql_predicate(f) for f in filters)
+        sql += f" WHERE {where_clause}"
+    return await relata_client.aquery(sql, purpose=purpose)
+
+
+def route_negation_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    purpose: str | None = None,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+) -> QueryResult | None:
+    """Route a negation-shaped query (#4535, e.g. "Which SIMI members are
+    NOT in custody?") to a governed ``NOT ILIKE`` predicate instead of
+    retrieval — retrieval has no notion of "not".
+
+    Requires ``field_map`` (no built-in default; negation vocabulary is
+    deployment-specific). Returns ``None`` when ``field_map`` is absent, or
+    extracts no keyword, or (with ``known_fields`` given) resolves to no
+    schema-known field — every case falls back to retrieval rather than
+    guessing.
+    """
+    if not field_map:
+        return None
+    filters = extract_keyword_filters(query, field_map, op="NOT ILIKE")
+    if known_fields is not None:
+        filters = [f for f in filters if f["field"] in known_fields]
+    if not filters:
+        return None
+    where_clause = " AND ".join(_filter_to_sql_predicate(f) for f in filters)
+    return relata_client.query(f"SELECT * FROM {type} WHERE {where_clause}", purpose=purpose)
+
+
+async def aroute_negation_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    purpose: str | None = None,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+) -> QueryResult | None:
+    """Async variant of :func:`route_negation_query`."""
+    if not field_map:
+        return None
+    filters = extract_keyword_filters(query, field_map, op="NOT ILIKE")
+    if known_fields is not None:
+        filters = [f for f in filters if f["field"] in known_fields]
+    if not filters:
+        return None
+    where_clause = " AND ".join(_filter_to_sql_predicate(f) for f in filters)
+    return await relata_client.aquery(f"SELECT * FROM {type} WHERE {where_clause}", purpose=purpose)
+
+
+#: Matches the conjunction word actually used in a BOOLEAN-shaped query, so
+#: :func:`route_boolean_query` joins its predicates with the same operator
+#: the question asked for ("or" -> SQL ``OR``, everything else -> ``AND``).
+_BOOLEAN_CONJUNCTION_WORD_RE = re.compile(r"\b(and|or)\b", re.IGNORECASE)
+
+
+def route_boolean_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    purpose: str | None = None,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+) -> QueryResult | None:
+    """Route a boolean/set-operation-shaped query (#4535, e.g. "Members of
+    SIMI AND LeT") to governed SQL predicates joined by the query's own
+    ``AND``/``OR`` instead of a semantic-similarity guess.
+
+    Requires ``field_map`` and at least two resolved keyword matches (a
+    boolean shape is meaningless with only one) — anything less returns
+    ``None`` and the caller falls back to retrieval.
+    """
+    if not field_map:
+        return None
+    filters = extract_keyword_filters(query, field_map, op="=", dedupe_fields=False)
+    if known_fields is not None:
+        filters = [f for f in filters if f["field"] in known_fields]
+    if len(filters) < 2:
+        return None
+    conj = _BOOLEAN_CONJUNCTION_WORD_RE.search(query)
+    joiner = " OR " if (conj and conj.group(1).lower() == "or") else " AND "
+    where_clause = joiner.join(_filter_to_sql_predicate(f) for f in filters)
+    return relata_client.query(f"SELECT * FROM {type} WHERE {where_clause}", purpose=purpose)
+
+
+async def aroute_boolean_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    purpose: str | None = None,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+) -> QueryResult | None:
+    """Async variant of :func:`route_boolean_query`."""
+    if not field_map:
+        return None
+    filters = extract_keyword_filters(query, field_map, op="=", dedupe_fields=False)
+    if known_fields is not None:
+        filters = [f for f in filters if f["field"] in known_fields]
+    if len(filters) < 2:
+        return None
+    conj = _BOOLEAN_CONJUNCTION_WORD_RE.search(query)
+    joiner = " OR " if (conj and conj.group(1).lower() == "or") else " AND "
+    where_clause = joiner.join(_filter_to_sql_predicate(f) for f in filters)
+    return await relata_client.aquery(f"SELECT * FROM {type} WHERE {where_clause}", purpose=purpose)
+
+
+#: Explicit "top N" / "first N" count, when given.
+_RANKING_N_RE = re.compile(r"\btop\s+(\d+)\b|\bfirst\s+(\d+)\b", re.IGNORECASE)
+#: "highest"/"most" default to descending; no explicit N given.
+_RANKING_ASCENDING_RE = re.compile(r"\blowest\b|\bleast\b", re.IGNORECASE)
+#: Default LIMIT for a ranking query with no explicit "top N"/"first N".
+DEFAULT_RANKING_LIMIT = 10
+
+
+def _ranking_limit(query: str) -> int:
+    m = _RANKING_N_RE.search(query)
+    if not m:
+        return DEFAULT_RANKING_LIMIT
+    return int(m.group(1) or m.group(2))
+
+
+def route_ranking_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    purpose: str | None = None,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+) -> QueryResult | None:
+    """Route a ranking/top-N-shaped query (#4535, e.g. "Top 5 most active
+    members") to a governed ``ORDER BY ... LIMIT N`` instead of retrieval
+    (which has no notion of "order by").
+
+    Requires ``field_map`` naming the sortable attribute (e.g.
+    ``{"active": "activity_count"}``) — returns ``None`` (fall back to
+    retrieval) when ``field_map`` is absent, resolves to no field, or (with
+    ``known_fields`` given) the resolved field isn't schema-known.
+    """
+    if not field_map:
+        return None
+    order_field = _first_matching_field(query, field_map)
+    if order_field is None:
+        return None
+    if known_fields is not None and order_field not in known_fields:
+        return None
+    limit = _ranking_limit(query)
+    direction = "ASC" if _RANKING_ASCENDING_RE.search(query) else "DESC"
+    sql = f"SELECT * FROM {type} ORDER BY {order_field} {direction} LIMIT {limit}"
+    return relata_client.query(sql, purpose=purpose)
+
+
+async def aroute_ranking_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    purpose: str | None = None,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+) -> QueryResult | None:
+    """Async variant of :func:`route_ranking_query`."""
+    if not field_map:
+        return None
+    order_field = _first_matching_field(query, field_map)
+    if order_field is None:
+        return None
+    if known_fields is not None and order_field not in known_fields:
+        return None
+    limit = _ranking_limit(query)
+    direction = "ASC" if _RANKING_ASCENDING_RE.search(query) else "DESC"
+    sql = f"SELECT * FROM {type} ORDER BY {order_field} {direction} LIMIT {limit}"
+    return await relata_client.aquery(sql, purpose=purpose)
+
+
+# ---------------------------------------------------------------------------
+# Entry point — composes all nine ahead of the first /rag/query call
 # ---------------------------------------------------------------------------
 
 
@@ -582,6 +1019,8 @@ def smart_rag_query(
     content_safety_patterns: Mapping[str, str | re.Pattern[str]] | None = None,
     attribute_field_map: Mapping[str, str] | None = None,
     attribute_known_fields: Collection[str] | None = None,
+    structured_field_map: Mapping[str, str] | None = None,
+    structured_known_fields: Collection[str] | None = None,
     **rag_kwargs: Any,
 ) -> RagQueryResponse:
     """Run ``query`` through the content-safety gate, structured-attribute
@@ -612,6 +1051,15 @@ def smart_rag_query(
             — an extracted filter naming any other field is dropped, and if
             that empties the filter set, the query falls back to retrieval
             with :attr:`~relata.models.RagQueryResponse.low_confidence` set.
+        structured_field_map: Keyword -> canonical field name for #4535's
+            aggregation/negation/boolean/ranking routing (deployment-
+            specific vocabulary — e.g. ``{"simi": "organization", "custody":
+            "status", "active": "activity_count"}``). AGGREGATION works
+            without it (a bare ``COUNT(*)`` needs no vocabulary);
+            NEGATION/BOOLEAN/RANKING need it to build any predicate at all.
+        structured_known_fields: When given, restricts #4535's routing to
+            fields actually present on ``type``'s schema, the same
+            fallback-not-guess contract as ``attribute_known_fields``.
         **rag_kwargs: Forwarded to :meth:`RagClient.query` for every
             sub-query call (``top_k``, ``rerank``, ``search_mode``,
             ``embedding_slot``, ``filters``, ``as_of``, ``expand_window``,
@@ -622,26 +1070,51 @@ def smart_rag_query(
         A single :class:`~relata.models.RagQueryResponse`. ``refused`` is
         set (empty ``hits``) when the content-safety gate matched, before
         any ``/rag/query``/``/query`` call was made. ``sql_result`` is set
-        (empty ``hits``) when an attribute-filter-shaped query was routed to
-        SQL instead of retrieval. Otherwise this is the (possibly RRF-
-        merged) retrieval result, exactly as before #4536 — with
-        ``low_confidence`` set when an attribute-filter shape could not be
-        routed to SQL and fell back to retrieval.
+        (empty ``hits``) when an attribute-filter/aggregation/negation/
+        boolean/ranking-shaped query was routed to SQL instead of
+        retrieval. Otherwise this is the (possibly RRF-merged) retrieval
+        result, exactly as before #4536/#4535 — with ``low_confidence`` set
+        when a SQL-routable shape could not be routed and fell back to
+        retrieval.
     """
     refusal = check_content_safety(query, patterns=content_safety_patterns)
     if refusal is not None:
         return RagQueryResponse(hits=[], refused=refusal)
 
     low_confidence = False
-    if classify_query_shape(query) is QueryShape.ATTRIBUTE_FILTER:
-        sql_result = route_attribute_filter_query(
-            rag_client._client,  # noqa: SLF001
-            query,
-            type,
-            purpose=purpose,
-            field_map=attribute_field_map,
-            known_fields=attribute_known_fields,
-        )
+    shape = classify_query_shape(query)
+    if shape in SQL_ROUTABLE_SHAPES:
+        client = rag_client._client  # noqa: SLF001
+        if shape is QueryShape.ATTRIBUTE_FILTER:
+            sql_result = route_attribute_filter_query(
+                client, query, type,
+                purpose=purpose, field_map=attribute_field_map,
+                known_fields=attribute_known_fields,
+            )
+        elif shape is QueryShape.AGGREGATION:
+            sql_result = route_aggregation_query(
+                client, query, type,
+                purpose=purpose, field_map=structured_field_map,
+                known_fields=structured_known_fields,
+            )
+        elif shape is QueryShape.NEGATION:
+            sql_result = route_negation_query(
+                client, query, type,
+                purpose=purpose, field_map=structured_field_map,
+                known_fields=structured_known_fields,
+            )
+        elif shape is QueryShape.BOOLEAN:
+            sql_result = route_boolean_query(
+                client, query, type,
+                purpose=purpose, field_map=structured_field_map,
+                known_fields=structured_known_fields,
+            )
+        else:  # QueryShape.RANKING
+            sql_result = route_ranking_query(
+                client, query, type,
+                purpose=purpose, field_map=structured_field_map,
+                known_fields=structured_known_fields,
+            )
         if sql_result is not None:
             return RagQueryResponse(hits=[], sql_result=sql_result)
         low_confidence = True
@@ -650,8 +1123,8 @@ def smart_rag_query(
     n = len(sub_queries)
 
     def _run(sub_query: str) -> RagQueryResponse:
-        shape = classify_query_shape(sub_query)
-        call_kwargs = _apply_query_shape(shape, rag_kwargs)
+        sub_shape = classify_query_shape(sub_query)
+        call_kwargs = _apply_query_shape(sub_shape, rag_kwargs)
         search_text = sub_query
         if hypothesis_fn is not None:
             search_text = expand_query_hyde(sub_query, hypothesis_fn=hypothesis_fn)
@@ -667,8 +1140,9 @@ def smart_rag_query(
     if low_confidence:
         response.low_confidence = True
         response.low_confidence_reason = (
-            f"attribute-filter-shaped query had no matching canonical field on "
-            f"{type!r}; fell back to retrieval (#4536)"
+            f"{shape.value}-shaped query could not be routed to SQL "
+            f"(no matching canonical field on {type!r}); fell back to retrieval "
+            f"(#4536/#4535)"
         )
     return response
 
@@ -683,6 +1157,8 @@ async def asmart_rag_query(
     content_safety_patterns: Mapping[str, str | re.Pattern[str]] | None = None,
     attribute_field_map: Mapping[str, str] | None = None,
     attribute_known_fields: Collection[str] | None = None,
+    structured_field_map: Mapping[str, str] | None = None,
+    structured_known_fields: Collection[str] | None = None,
     **rag_kwargs: Any,
 ) -> RagQueryResponse:
     """Async variant of :func:`smart_rag_query` — issues the sub-query fan-out
@@ -692,15 +1168,39 @@ async def asmart_rag_query(
         return RagQueryResponse(hits=[], refused=refusal)
 
     low_confidence = False
-    if classify_query_shape(query) is QueryShape.ATTRIBUTE_FILTER:
-        sql_result = await aroute_attribute_filter_query(
-            rag_client._inner._client,  # noqa: SLF001
-            query,
-            type,
-            purpose=purpose,
-            field_map=attribute_field_map,
-            known_fields=attribute_known_fields,
-        )
+    shape = classify_query_shape(query)
+    if shape in SQL_ROUTABLE_SHAPES:
+        client = rag_client._inner._client  # noqa: SLF001
+        if shape is QueryShape.ATTRIBUTE_FILTER:
+            sql_result = await aroute_attribute_filter_query(
+                client, query, type,
+                purpose=purpose, field_map=attribute_field_map,
+                known_fields=attribute_known_fields,
+            )
+        elif shape is QueryShape.AGGREGATION:
+            sql_result = await aroute_aggregation_query(
+                client, query, type,
+                purpose=purpose, field_map=structured_field_map,
+                known_fields=structured_known_fields,
+            )
+        elif shape is QueryShape.NEGATION:
+            sql_result = await aroute_negation_query(
+                client, query, type,
+                purpose=purpose, field_map=structured_field_map,
+                known_fields=structured_known_fields,
+            )
+        elif shape is QueryShape.BOOLEAN:
+            sql_result = await aroute_boolean_query(
+                client, query, type,
+                purpose=purpose, field_map=structured_field_map,
+                known_fields=structured_known_fields,
+            )
+        else:  # QueryShape.RANKING
+            sql_result = await aroute_ranking_query(
+                client, query, type,
+                purpose=purpose, field_map=structured_field_map,
+                known_fields=structured_known_fields,
+            )
         if sql_result is not None:
             return RagQueryResponse(hits=[], sql_result=sql_result)
         low_confidence = True
@@ -709,8 +1209,8 @@ async def asmart_rag_query(
     n = len(sub_queries)
 
     async def _run(sub_query: str) -> RagQueryResponse:
-        shape = classify_query_shape(sub_query)
-        call_kwargs = _apply_query_shape(shape, rag_kwargs)
+        sub_shape = classify_query_shape(sub_query)
+        call_kwargs = _apply_query_shape(sub_shape, rag_kwargs)
         search_text = sub_query
         if hypothesis_fn is not None:
             search_text = expand_query_hyde(sub_query, hypothesis_fn=hypothesis_fn)
@@ -725,7 +1225,8 @@ async def asmart_rag_query(
     if low_confidence:
         response.low_confidence = True
         response.low_confidence_reason = (
-            f"attribute-filter-shaped query had no matching canonical field on "
-            f"{type!r}; fell back to retrieval (#4536)"
+            f"{shape.value}-shaped query could not be routed to SQL "
+            f"(no matching canonical field on {type!r}); fell back to retrieval "
+            f"(#4536/#4535)"
         )
     return response

@@ -20,19 +20,33 @@ from relata.models import RagQueryResponse
 from relata.rag import AsyncRagClient, RagClient
 from relata.rag_understanding import (
     DANGEROUS_CONTENT_PATTERNS,
+    DEFAULT_RANKING_LIMIT,
     ENUMERATION_TOP_K,
     QueryShape,
     _rrf_scores,
+    aroute_aggregation_query,
     aroute_attribute_filter_query,
+    aroute_boolean_query,
+    aroute_negation_query,
+    aroute_ranking_query,
     asmart_rag_query,
     check_content_safety,
     classify_query_shape,
     decompose_query,
     expand_query_hyde,
     extract_attribute_filters,
+    extract_keyword_filters,
+    is_aggregation_intent,
     is_attribute_filter_intent,
+    is_boolean_intent,
+    is_negation_intent,
     is_numeric_intent,
+    is_ranking_intent,
+    route_aggregation_query,
     route_attribute_filter_query,
+    route_boolean_query,
+    route_negation_query,
+    route_ranking_query,
     rrf_k_for_fanout,
     rrf_merge,
     smart_rag_query,
@@ -88,9 +102,16 @@ def test_classify_enumeration_shape():
         classify_query_shape("Which vendors were flagged for compliance issues?")
         == QueryShape.ENUMERATION
     )
-    shape = classify_query_shape("How many incidents were filed last year?")
-    assert shape == QueryShape.ENUMERATION
     assert classify_query_shape("List every open finding.") == QueryShape.ENUMERATION
+
+
+def test_classify_how_many_is_aggregation_not_enumeration():
+    """#4535 acceptance criteria: a 'count' question routes to COUNT(*) (one
+    row), not full enumeration — "how many" used to fall through to
+    ENUMERATION (widened top_k, LLM guesses a count from retrieved chunks);
+    it must now classify as AGGREGATION so it routes to real SQL."""
+    shape = classify_query_shape("How many incidents were filed last year?")
+    assert shape == QueryShape.AGGREGATION
 
 
 def test_classify_simple_shape():
@@ -699,3 +720,573 @@ async def test_aroute_attribute_filter_query_returns_none_when_no_filters_extrac
 
     client = _mock_client(handler)
     assert await aroute_attribute_filter_query(client, "What is RelataDB?", "Person") is None
+
+
+# ── aggregation/negation/boolean/ranking SQL routing (#4535) ───────────────
+
+
+def _count_response(n: int) -> dict[str, Any]:
+    return {
+        "data": [{"count": n}],
+        "columns": ["count"],
+        "query_id": "q1",
+        "elapsed_ms": 2,
+    }
+
+
+def test_classify_aggregation_shape():
+    assert (
+        classify_query_shape("How many incidents happened in 2023?") == QueryShape.AGGREGATION
+    )
+    assert is_aggregation_intent("What is the total number of open findings?") is True
+    assert is_aggregation_intent("What is RelataDB?") is False
+
+
+def test_classify_negation_shape():
+    query = "Which SIMI members are NOT in custody?"
+    assert classify_query_shape(query) == QueryShape.NEGATION
+    assert is_negation_intent(query) is True
+    assert is_negation_intent("What is RelataDB?") is False
+
+
+def test_negation_checked_before_enumeration():
+    """"Which SIMI members are NOT in custody?" opens with "which" (an
+    ENUMERATION cue) but must classify as NEGATION — a top-k retrieval has
+    no notion of "not"."""
+    assert (
+        classify_query_shape("Which SIMI members are NOT in custody?") == QueryShape.NEGATION
+    )
+
+
+def test_classify_boolean_shape():
+    query = "Members of SIMI AND LeT"
+    assert classify_query_shape(query) == QueryShape.BOOLEAN
+    assert is_boolean_intent(query) is True
+    assert is_boolean_intent("What is RelataDB?") is False
+
+
+def test_classify_ranking_shape():
+    query = "Top 5 most active members"
+    assert classify_query_shape(query) == QueryShape.RANKING
+    assert is_ranking_intent(query) is True
+    assert is_ranking_intent("What is RelataDB?") is False
+
+
+def test_classify_simple_query_unaffected_by_new_shapes():
+    """#4535 acceptance criteria: a semantically-similar but non-structured
+    question is unaffected — still SIMPLE (routes to retrieval)."""
+    assert classify_query_shape("Tell me about SIMI's history") == QueryShape.SIMPLE
+
+
+def test_extract_keyword_filters_builds_predicates_from_field_map():
+    filters = extract_keyword_filters(
+        "Which SIMI members are NOT in custody?",
+        {"simi": "organization", "custody": "status"},
+        op="NOT ILIKE",
+    )
+    by_field = {f["field"]: f for f in filters}
+    assert by_field["organization"] == {
+        "field": "organization",
+        "op": "NOT ILIKE",
+        "value": "%simi%",
+    }
+    assert by_field["status"] == {"field": "status", "op": "NOT ILIKE", "value": "%custody%"}
+
+
+def test_extract_keyword_filters_dedupe_fields_off_keeps_both_same_field_matches():
+    filters = extract_keyword_filters(
+        "Members of SIMI AND LeT",
+        {"simi": "organization", "let": "organization"},
+        op="=",
+        dedupe_fields=False,
+    )
+    assert len(filters) == 2
+    assert all(f["field"] == "organization" for f in filters)
+    assert {f["value"] for f in filters} == {"simi", "let"}
+
+
+# -- aggregation --
+
+
+def test_route_aggregation_query_bare_count_needs_no_field_map():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json=_count_response(42))
+
+    client = _mock_client(handler)
+    result = route_aggregation_query(
+        client, "How many incidents happened in 2023?", "Incident", purpose="research"
+    )
+    assert result is not None
+    assert result.rows[0]["count"] == 42
+    assert captured["sql"] == "SELECT COUNT(*) AS count FROM Incident"
+
+
+def test_route_aggregation_query_applies_extracted_filter():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json=_count_response(7))
+
+    client = _mock_client(handler)
+    result = route_aggregation_query(
+        client,
+        "How many members are from SIMI?",
+        "Person",
+        field_map={"simi": "organization"},
+        purpose="research",
+    )
+    assert result is not None
+    assert "COUNT(*)" in captured["sql"]
+    assert "organization ILIKE" in captured["sql"]
+
+
+def test_route_aggregation_query_falls_back_when_known_fields_dont_match():
+    """#4535 acceptance criteria: an aggregation-shaped question whose field
+    mapping can't be resolved against the schema falls back to retrieval
+    rather than silently counting an unfiltered (and therefore wrong) total."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise AssertionError("no /query call should be made when the field can't resolve")
+
+    client = _mock_client(handler)
+    result = route_aggregation_query(
+        client,
+        "How many members are from SIMI?",
+        "Person",
+        field_map={"simi": "organization"},
+        known_fields={"name"},  # "organization" not present
+    )
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_aroute_aggregation_query_returns_count():
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_count_response(100))
+
+    client = _mock_client(handler)
+    result = await aroute_aggregation_query(
+        client, "How many incidents were there?", "Incident", purpose="research"
+    )
+    assert result is not None
+    assert result.rows[0]["count"] == 100
+
+
+# -- negation --
+
+
+def test_route_negation_query_returns_none_without_field_map():
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise AssertionError("no /query call should be made")
+
+    client = _mock_client(handler)
+    assert route_negation_query(client, "Which SIMI members are NOT in custody?", "Person") is None
+
+
+def test_route_negation_query_builds_not_ilike_predicate():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"name": "Bilal Hassan", "status": "at_large"}],
+                "columns": ["name", "status"],
+                "query_id": "q1",
+                "elapsed_ms": 2,
+            },
+        )
+
+    client = _mock_client(handler)
+    result = route_negation_query(
+        client,
+        "Which SIMI members are NOT in custody?",
+        "Person",
+        field_map={"custody": "status"},
+        purpose="research",
+    )
+    assert result is not None
+    assert result.rows[0]["name"] == "Bilal Hassan"
+    assert "status NOT ILIKE" in captured["sql"]
+
+
+def test_route_negation_query_falls_back_when_known_fields_dont_match():
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise AssertionError("no /query call should be made")
+
+    client = _mock_client(handler)
+    result = route_negation_query(
+        client,
+        "Which SIMI members are NOT in custody?",
+        "Person",
+        field_map={"custody": "status"},
+        known_fields={"name"},
+    )
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_aroute_negation_query_builds_not_ilike_predicate():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json={"data": [], "columns": [], "query_id": "q1"})
+
+    client = _mock_client(handler)
+    result = await aroute_negation_query(
+        client,
+        "Which SIMI members are NOT in custody?",
+        "Person",
+        field_map={"custody": "status"},
+        purpose="research",
+    )
+    assert result is not None
+    assert "status NOT ILIKE" in captured["sql"]
+
+
+# -- boolean --
+
+
+def test_route_boolean_query_returns_none_without_field_map():
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise AssertionError("no /query call should be made")
+
+    client = _mock_client(handler)
+    assert route_boolean_query(client, "Members of SIMI AND LeT", "Person") is None
+
+
+def test_route_boolean_query_joins_predicates_with_and():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json={"data": [], "columns": [], "query_id": "q1"})
+
+    client = _mock_client(handler)
+    result = route_boolean_query(
+        client,
+        "Members of SIMI AND LeT",
+        "Person",
+        field_map={"simi": "organization", "let": "organization"},
+        purpose="research",
+    )
+    assert result is not None
+    assert "organization = 'simi'" in captured["sql"]
+    assert "organization = 'let'" in captured["sql"]
+    assert " AND " in captured["sql"]
+    assert " OR " not in captured["sql"]
+
+
+def test_route_boolean_query_joins_predicates_with_or():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json={"data": [], "columns": [], "query_id": "q1"})
+
+    client = _mock_client(handler)
+    route_boolean_query(
+        client,
+        "Members of SIMI or LeT",
+        "Person",
+        field_map={"simi": "organization", "let": "organization"},
+        purpose="research",
+    )
+    assert " OR " in captured["sql"]
+
+
+def test_route_boolean_query_returns_none_when_fewer_than_two_predicates_resolve():
+    """A boolean shape needs >= 2 resolved predicates to be meaningful — a
+    single-keyword field_map (or known_fields ruling all-but-one out) must
+    fall back to retrieval rather than emitting a degenerate one-predicate
+    'boolean' query."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise AssertionError("no /query call should be made with < 2 predicates")
+
+    client = _mock_client(handler)
+    result = route_boolean_query(
+        client,
+        "Members of SIMI AND LeT",
+        "Person",
+        field_map={"simi": "organization"},  # only one keyword mappable
+    )
+    assert result is None
+
+    result2 = route_boolean_query(
+        client,
+        "Members of SIMI AND LeT",
+        "Person",
+        field_map={"simi": "organization", "let": "organization"},
+        known_fields={"name"},  # neither resolved field is schema-known
+    )
+    assert result2 is None
+
+
+@pytest.mark.asyncio
+async def test_aroute_boolean_query_joins_predicates():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json={"data": [], "columns": [], "query_id": "q1"})
+
+    client = _mock_client(handler)
+    result = await aroute_boolean_query(
+        client,
+        "Members of SIMI AND LeT",
+        "Person",
+        field_map={"simi": "organization", "let": "organization"},
+        purpose="research",
+    )
+    assert result is not None
+    assert " AND " in captured["sql"]
+
+
+# -- ranking --
+
+
+def test_route_ranking_query_returns_none_without_field_map():
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise AssertionError("no /query call should be made")
+
+    client = _mock_client(handler)
+    assert route_ranking_query(client, "Top 5 most active members", "Person") is None
+
+
+def test_route_ranking_query_builds_order_by_limit():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"name": "Zahid Iqbal", "activity_count": 91}],
+                "columns": ["name", "activity_count"],
+                "query_id": "q1",
+                "elapsed_ms": 2,
+            },
+        )
+
+    client = _mock_client(handler)
+    result = route_ranking_query(
+        client,
+        "Top 5 most active members",
+        "Person",
+        field_map={"active": "activity_count"},
+        purpose="research",
+    )
+    assert result is not None
+    assert result.rows[0]["name"] == "Zahid Iqbal"
+    assert captured["sql"] == (
+        "SELECT * FROM Person ORDER BY activity_count DESC LIMIT 5"
+    )
+
+
+def test_route_ranking_query_defaults_limit_when_no_explicit_n():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json={"data": [], "columns": [], "query_id": "q1"})
+
+    client = _mock_client(handler)
+    route_ranking_query(
+        client,
+        "Who is most active?",
+        "Person",
+        field_map={"active": "activity_count"},
+        purpose="research",
+    )
+    assert f"LIMIT {DEFAULT_RANKING_LIMIT}" in captured["sql"]
+
+
+def test_route_ranking_query_ascending_for_lowest():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json={"data": [], "columns": [], "query_id": "q1"})
+
+    client = _mock_client(handler)
+    route_ranking_query(
+        client,
+        "Who is the least active member?",
+        "Person",
+        field_map={"active": "activity_count"},
+        purpose="research",
+    )
+    assert "ORDER BY activity_count ASC" in captured["sql"]
+    # no explicit "top N"/"first N" -> the default limit applies.
+    assert f"LIMIT {DEFAULT_RANKING_LIMIT}" in captured["sql"]
+
+
+def test_route_ranking_query_falls_back_when_known_fields_dont_match():
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise AssertionError("no /query call should be made")
+
+    client = _mock_client(handler)
+    result = route_ranking_query(
+        client,
+        "Top 5 most active members",
+        "Person",
+        field_map={"active": "activity_count"},
+        known_fields={"name"},
+    )
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_aroute_ranking_query_builds_order_by_limit():
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content))
+        return httpx.Response(200, json={"data": [], "columns": [], "query_id": "q1"})
+
+    client = _mock_client(handler)
+    result = await aroute_ranking_query(
+        client,
+        "Top 5 most active members",
+        "Person",
+        field_map={"active": "activity_count"},
+        purpose="research",
+    )
+    assert result is not None
+    assert captured["sql"] == "SELECT * FROM Person ORDER BY activity_count DESC LIMIT 5"
+
+
+# -- smart_rag_query / asmart_rag_query end-to-end dispatch --
+
+
+def test_smart_rag_query_routes_aggregation_to_count_not_enumeration():
+    """#4535 acceptance criteria: 'how many X' against a seeded corpus
+    returns the real row count via SQL, not an LLM-estimated number from
+    retrieved chunks — and 'count' routes to COUNT(*) (one row), not full
+    enumeration."""
+    rag_called = False
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal rag_called
+        if req.url.path == "/rag/query":
+            rag_called = True
+            return httpx.Response(200, json={"hits": [_hit("c1")]})
+        if req.url.path == "/query":
+            return httpx.Response(200, json=_count_response(1234))
+        raise AssertionError(f"unexpected call to {req.url.path}")
+
+    client = _mock_client(handler)
+    rag = RagClient.from_client(client)
+    result = smart_rag_query(
+        rag, "How many incidents happened in 2023?", "Incident", purpose="research"
+    )
+    assert rag_called is False
+    assert result.is_sql_routed is True
+    assert result.sql_result.row_count == 1  # one row: the count
+    assert result.sql_result.rows[0]["count"] == 1234
+    assert result.hits == []
+
+
+def test_smart_rag_query_non_structured_question_still_routes_to_retrieval():
+    """#4535 acceptance criteria: a semantically-similar but non-structured
+    question is unaffected — still routes to retrieval."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/query":
+            return httpx.Response(200, json={"hits": [_hit("c1")]})
+        raise AssertionError("aggregation/negation/boolean/ranking routing must not trigger")
+
+    client = _mock_client(handler)
+    rag = RagClient.from_client(client)
+    result = smart_rag_query(
+        rag, "Tell me about SIMI's history", "DocumentChunk", purpose="research"
+    )
+    assert result.is_sql_routed is False
+    assert [h.chunk_id for h in result.hits] == ["c1"]
+
+
+def test_smart_rag_query_routes_boolean_to_sql():
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/query":
+            raise AssertionError("boolean-shaped query must not fall through to retrieval")
+        if req.url.path == "/query":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"name": "Bilal Hassan", "organization": "SIMI"}],
+                    "columns": ["name", "organization"],
+                    "query_id": "q1",
+                    "elapsed_ms": 2,
+                },
+            )
+        raise AssertionError(f"unexpected call to {req.url.path}")
+
+    client = _mock_client(handler)
+    rag = RagClient.from_client(client)
+    result = smart_rag_query(
+        rag,
+        "Members of SIMI AND LeT",
+        "Person",
+        purpose="research",
+        structured_field_map={"simi": "organization", "let": "organization"},
+    )
+    assert result.is_sql_routed is True
+    assert result.sql_result.rows[0]["name"] == "Bilal Hassan"
+
+
+def test_smart_rag_query_negation_falls_back_to_retrieval_with_low_confidence():
+    """No structured_field_map given -> negation routing can't build a
+    predicate -> falls back to retrieval with low_confidence set (#4535,
+    mirrors #4536's attribute-filter fallback contract)."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/query":
+            return httpx.Response(200, json={"hits": [_hit("c1")]})
+        raise AssertionError(f"unexpected call to {req.url.path}")
+
+    client = _mock_client(handler)
+    rag = RagClient.from_client(client)
+    result = smart_rag_query(
+        rag, "Which SIMI members are NOT in custody?", "Person", purpose="research"
+    )
+    assert result.is_sql_routed is False
+    assert result.low_confidence is True
+    assert result.low_confidence_reason
+    assert [h.chunk_id for h in result.hits] == ["c1"]
+
+
+@pytest.mark.asyncio
+async def test_asmart_rag_query_routes_ranking_to_sql():
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/query":
+            raise AssertionError("ranking-shaped query must not fall through to retrieval")
+        if req.url.path == "/query":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"name": "Zahid Iqbal", "activity_count": 91}],
+                    "columns": ["name", "activity_count"],
+                    "query_id": "q1",
+                    "elapsed_ms": 2,
+                },
+            )
+        raise AssertionError(f"unexpected call to {req.url.path}")
+
+    client = _mock_client(handler)
+    rag = AsyncRagClient.from_client(client)
+    result = await asmart_rag_query(
+        rag,
+        "Top 5 most active members",
+        "Person",
+        purpose="research",
+        structured_field_map={"active": "activity_count"},
+    )
+    assert result.is_sql_routed is True
+    assert result.sql_result.rows[0]["name"] == "Zahid Iqbal"
