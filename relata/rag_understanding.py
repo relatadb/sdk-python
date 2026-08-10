@@ -87,7 +87,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import dataclasses
 import re
+import time
 from collections.abc import Collection, Mapping
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable
@@ -704,19 +706,21 @@ async def aroute_attribute_filter_query(
 # AGGREGATION is the one exception: a bare ``COUNT(*)`` needs no domain
 # vocabulary at all, so it always attempts SQL routing.
 #
-# ponytail: this section covers #4535's "small-N" routing only (a bare
-# ``COUNT(*)`` or a bounded ``SELECT ... WHERE`` — one row or a small,
-# synthesizable result). #4535's second, separately-scoped half — the
-# large-result-set policy (governed `S3Object` export + a new `relata-jobs`
-# job type + `bucket/key`-shaped response for an enumeration query that
-# legitimately returns thousands-to-millions of rows) is genuinely
-# substantial new cross-crate infrastructure (relata-jobs, s3_server,
-# job-status polling) and is deliberately deferred out of this pass rather
-# than forced through half-built. `route_aggregation_query` already routes
-# a "how many" question to a real one-row `COUNT(*)` per the ticket's
-# acceptance criteria; a "give me all X" enumeration question with a large
-# result still falls back to retrieval today rather than to the S3Object/
-# job export path the design doc describes — see the ticket for tracking.
+# This section covers #4535's "small-N" routing (a bare ``COUNT(*)`` or a
+# bounded ``SELECT ... WHERE`` — one row or a small, synthesizable result).
+# #4535's second half — the large-result-set policy for an ENUMERATION-shaped
+# ("give me all X") question that legitimately returns thousands-to-millions
+# of rows — is `route_enumeration_query`/`aroute_enumeration_query` below
+# (section 5b): the server-side substrate (governed `S3Object` export +
+# `POST /rag/export` background operation, `crates/relata-cli/src/serve/
+# query/large_export.rs` + `crates/relata-cli/src/s3_server.rs`'s
+# `write_governed_export_object`) now exists and these two functions call and
+# poll it. They are intentionally NOT wired into `smart_rag_query`'s uniform
+# `sql_result` dispatch the other four shapes use — that field is a strictly
+# typed `QueryResult | None` (`relata.models.RagQueryResponse.sql_result`),
+# and `LargeExportResult`'s file-backed shape (`bucket`/`key`/`preview`) does
+# not fit it without extending that model — a caller that has classified
+# `QueryShape.ENUMERATION` calls `route_enumeration_query` directly instead.
 
 
 def extract_keyword_filters(
@@ -1001,6 +1005,219 @@ async def aroute_ranking_query(
     direction = "ASC" if _RANKING_ASCENDING_RE.search(query) else "DESC"
     sql = f"SELECT * FROM {type} ORDER BY {order_field} {direction} LIMIT {limit}"
     return await relata_client.aquery(sql, purpose=purpose)
+
+
+# ---------------------------------------------------------------------------
+# 5b. ENUMERATION large-result-set routing (#4535, second half)
+# ---------------------------------------------------------------------------
+#
+# "Give me all calls made by X last year" / "give me all books published in
+# 2023" — an ENUMERATION-shaped question (see :data:`_ENUMERATION_RE`) is
+# structurally different from the four shapes above: its legitimate result
+# can be thousands to millions of rows, which no LLM can synthesize and no
+# retrieval top-k can enumerate exhaustively. The design (see the ticket's
+# "Large-result-set policy") is: run the query, materialize it as a real
+# file, hand back a link — not a row cap, not a truncated "sample + pointer"
+# passed off as complete. `POST /rag/export` (server-side) always runs the
+# query as a background operation; a result at/under the server's row
+# threshold comes back inline, a larger one is written as a governed
+# `S3Object` and the response carries the real count, a small explicitly-
+# labeled preview, and the `bucket`/`key` to fetch the rest.
+
+#: Default interval between `GET /v1/operations/{id}` polls.
+ENUMERATION_POLL_INTERVAL_SECS = 0.5
+
+#: Default ceiling on total poll time before giving up with a `TimeoutError`
+#: — a large enumeration is a background job, but it must not poll forever.
+ENUMERATION_POLL_TIMEOUT_SECS = 300.0
+
+
+@dataclasses.dataclass
+class LargeExportResult:
+    """Result of a completed `POST /rag/export` operation (#4535).
+
+    Exactly one of two shapes, distinguished by :attr:`is_file_backed`:
+
+    - **Inline** (``row_count`` at/under the server's threshold): ``data``
+      carries every matching row; ``bucket``/``key`` are ``None``.
+    - **File-backed** (``row_count`` over the threshold): ``preview`` carries
+      a small, explicitly-labeled sample (never presented as complete);
+      ``bucket``/``key``/``etag`` name the governed `S3Object` holding the
+      full result, readable back via the S3-compatible door.
+    """
+
+    row_count: int
+    columns: list[str]
+    data: list[dict[str, Any]] | None = None
+    preview: list[dict[str, Any]] | None = None
+    preview_note: str | None = None
+    bucket: str | None = None
+    key: str | None = None
+    etag: str | None = None
+    content_type: str | None = None
+    size_bytes: int | None = None
+
+    @property
+    def is_file_backed(self) -> bool:
+        """``True`` when the result was too large for an inline response and
+        was written as a governed `S3Object` instead — see :attr:`bucket`/
+        :attr:`key`."""
+        return self.bucket is not None
+
+
+def _large_export_result_from_body(body: Mapping[str, Any]) -> LargeExportResult:
+    """Build a :class:`LargeExportResult` from a completed `/rag/export`
+    operation's JSON body (either shape — see that class's doc comment)."""
+    return LargeExportResult(
+        row_count=body.get("row_count", 0),
+        columns=list(body.get("columns", [])),
+        data=body.get("data"),
+        preview=body.get("preview"),
+        preview_note=body.get("preview_note"),
+        bucket=body.get("bucket"),
+        key=body.get("key"),
+        etag=body.get("etag"),
+        content_type=body.get("content_type"),
+        size_bytes=body.get("size_bytes"),
+    )
+
+
+def _enumeration_export_sql(
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    field_map: Mapping[str, str] | None,
+    known_fields: Collection[str] | None,
+) -> str | None:
+    """Shared SQL-construction body for :func:`route_enumeration_query`/
+    :func:`aroute_enumeration_query`: build the ``SELECT`` statement, or
+    return ``None`` when a caller-supplied ``field_map`` extracted a keyword
+    whose field isn't schema-known. Like :func:`route_aggregation_query`, a
+    bare enumeration ("give me all X") needs no domain vocabulary at all —
+    only a keyword-extracted filter can fail to resolve."""
+    filters = extract_keyword_filters(query, field_map) if field_map else []
+    if known_fields is not None and filters:
+        resolved = [f for f in filters if f["field"] in known_fields]
+        if not resolved:
+            return None
+        filters = resolved
+    sql = f"SELECT * FROM {type}"
+    if filters:
+        where_clause = " AND ".join(_filter_to_sql_predicate(f) for f in filters)
+        sql += f" WHERE {where_clause}"
+    return sql
+
+
+def _enumeration_export_payload(
+    sql: str,
+    type: str,  # noqa: A002
+    *,
+    key_filter: str | None,
+    date_from: str | None,
+    date_to: str | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"sql": sql, "type": type}
+    if key_filter is not None:
+        payload["key_filter"] = key_filter
+    if date_from is not None:
+        payload["date_from"] = date_from
+    if date_to is not None:
+        payload["date_to"] = date_to
+    return payload
+
+
+def route_enumeration_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+    key_filter: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    poll_interval_secs: float = ENUMERATION_POLL_INTERVAL_SECS,
+    poll_timeout_secs: float = ENUMERATION_POLL_TIMEOUT_SECS,
+) -> LargeExportResult | None:
+    """Route an ENUMERATION-shaped query (#4535, e.g. "give me all calls
+    made by 9800004040 last year") to `POST /rag/export` instead of a
+    widened-``top_k`` retrieval guess that can never be exhaustive.
+
+    Returns ``None`` (caller should fall back to retrieval, e.g. via
+    :func:`smart_rag_query`) only when ``field_map`` extracted a keyword
+    whose field isn't in ``known_fields`` — otherwise always attempts the
+    export (a bare "give me all X" needs no domain vocabulary). ``key_filter``/
+    ``date_from``/``date_to`` are optional, filename-only hints (#4535's
+    "human-legible filename" requirement) — they do not affect the query
+    itself.
+
+    Blocks synchronously, polling `GET /v1/operations/{id}` every
+    ``poll_interval_secs`` until the background export completes. Raises
+    :class:`TimeoutError` if it has not completed within
+    ``poll_timeout_secs``, or whatever :mod:`relata.exceptions` error the
+    server reports (e.g. ``QueryError::ResultCapExceeded`` surfaced
+    unchanged as a failed operation — the row cap is a backstop this routing
+    does not bypass).
+    """
+    sql = _enumeration_export_sql(query, type, field_map=field_map, known_fields=known_fields)
+    if sql is None:
+        return None
+    payload = _enumeration_export_payload(
+        sql, type, key_filter=key_filter, date_from=date_from, date_to=date_to
+    )
+    op = relata_client._sync.post("/rag/export", payload)  # noqa: SLF001
+    operation_id = op.get("operation_id")
+    if not operation_id:
+        return _large_export_result_from_body(op)
+    deadline = time.monotonic() + poll_timeout_secs
+    while True:
+        status = relata_client._sync.get(f"/v1/operations/{operation_id}")  # noqa: SLF001
+        if status.get("status") != "running":
+            return _large_export_result_from_body(status)
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"/rag/export operation {operation_id} did not complete within "
+                f"{poll_timeout_secs}s"
+            )
+        time.sleep(poll_interval_secs)
+
+
+async def aroute_enumeration_query(
+    relata_client: RelataClient,
+    query: str,
+    type: str,  # noqa: A002
+    *,
+    field_map: Mapping[str, str] | None = None,
+    known_fields: Collection[str] | None = None,
+    key_filter: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    poll_interval_secs: float = ENUMERATION_POLL_INTERVAL_SECS,
+    poll_timeout_secs: float = ENUMERATION_POLL_TIMEOUT_SECS,
+) -> LargeExportResult | None:
+    """Async variant of :func:`route_enumeration_query` — polls via
+    ``asyncio.sleep`` instead of blocking the event loop."""
+    sql = _enumeration_export_sql(query, type, field_map=field_map, known_fields=known_fields)
+    if sql is None:
+        return None
+    payload = _enumeration_export_payload(
+        sql, type, key_filter=key_filter, date_from=date_from, date_to=date_to
+    )
+    op = await relata_client._async.post("/rag/export", payload)  # noqa: SLF001
+    operation_id = op.get("operation_id")
+    if not operation_id:
+        return _large_export_result_from_body(op)
+    deadline = time.monotonic() + poll_timeout_secs
+    while True:
+        status = await relata_client._async.get(f"/v1/operations/{operation_id}")  # noqa: SLF001
+        if status.get("status") != "running":
+            return _large_export_result_from_body(status)
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"/rag/export operation {operation_id} did not complete within "
+                f"{poll_timeout_secs}s"
+            )
+        await asyncio.sleep(poll_interval_secs)
 
 
 # ---------------------------------------------------------------------------

@@ -16,17 +16,20 @@ import pytest
 
 from relata import RelataClient
 from relata._http import AsyncHttpTransport, HttpTransport
+from relata.exceptions import RelataError
 from relata.models import RagQueryResponse
 from relata.rag import AsyncRagClient, RagClient
 from relata.rag_understanding import (
     DANGEROUS_CONTENT_PATTERNS,
     DEFAULT_RANKING_LIMIT,
     ENUMERATION_TOP_K,
+    LargeExportResult,
     QueryShape,
     _rrf_scores,
     aroute_aggregation_query,
     aroute_attribute_filter_query,
     aroute_boolean_query,
+    aroute_enumeration_query,
     aroute_negation_query,
     aroute_ranking_query,
     asmart_rag_query,
@@ -45,6 +48,7 @@ from relata.rag_understanding import (
     route_aggregation_query,
     route_attribute_filter_query,
     route_boolean_query,
+    route_enumeration_query,
     route_negation_query,
     route_ranking_query,
     rrf_k_for_fanout,
@@ -1161,6 +1165,181 @@ async def test_aroute_ranking_query_builds_order_by_limit():
     )
     assert result is not None
     assert captured["sql"] == "SELECT * FROM Person ORDER BY activity_count DESC LIMIT 5"
+
+
+# -- enumeration (#4535 large-result-set policy) --
+
+
+def test_route_enumeration_query_returns_inline_result_when_small():
+    """A completed /rag/export operation at/under the server's row threshold
+    is returned inline — no bucket/key, real rows in `.data`."""
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/export":
+            captured.update(json.loads(req.content))
+            return httpx.Response(
+                202,
+                json={
+                    "operation_id": "op-1",
+                    "status": "running",
+                    "location": "/v1/operations/op-1",
+                },
+            )
+        assert req.url.path == "/v1/operations/op-1"
+        return httpx.Response(
+            200,
+            json={"row_count": 3, "columns": ["a"], "data": [{"a": 1}, {"a": 2}, {"a": 3}]},
+        )
+
+    client = _mock_client(handler)
+    result = route_enumeration_query(client, "Give me all incidents", "Incident")
+    assert isinstance(result, LargeExportResult)
+    assert captured["sql"] == "SELECT * FROM Incident"
+    assert result.row_count == 3
+    assert result.is_file_backed is False
+    assert result.data == [{"a": 1}, {"a": 2}, {"a": 3}]
+    assert result.bucket is None
+
+
+def test_route_enumeration_query_is_file_backed_when_large():
+    """#4535 acceptance criteria: a large-result enumeration produces a real
+    S3Object descriptor (bucket/key/etag) plus a labeled preview + the real
+    row_count — not a truncated list presented as complete."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/export":
+            return httpx.Response(
+                202,
+                json={
+                    "operation_id": "op-2",
+                    "status": "running",
+                    "location": "/v1/operations/op-2",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "row_count": 50000,
+                "columns": ["msisdn", "called_at"],
+                "preview": [{"msisdn": "9800004040", "called_at": "2023-01-01"}],
+                "preview_note": "preview of the first 1 of 50000 row(s)",
+                "bucket": "default",
+                "key": "CallRecord-9800004040-2023-01-01_to_2023-12-31-1700000000.csv",
+                "etag": "abc123",
+                "content_type": "text/csv",
+                "size_bytes": 4_500_000,
+            },
+        )
+
+    client = _mock_client(handler)
+    result = route_enumeration_query(
+        client,
+        "Give me all calls made by 9800004040 last year",
+        "CallRecord",
+        key_filter="9800004040",
+        date_from="2023-01-01",
+        date_to="2023-12-31",
+    )
+    assert isinstance(result, LargeExportResult)
+    assert result.row_count == 50000
+    assert result.is_file_backed is True
+    assert result.bucket == "default"
+    assert result.key is not None and result.key.startswith("CallRecord-9800004040")
+    assert result.etag == "abc123"
+    assert result.data is None
+    assert result.preview == [{"msisdn": "9800004040", "called_at": "2023-01-01"}]
+
+
+def test_route_enumeration_query_falls_back_when_known_fields_dont_match():
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise AssertionError("no /rag/export call should be made when the field can't resolve")
+
+    client = _mock_client(handler)
+    result = route_enumeration_query(
+        client,
+        "Give me all SIMI members",
+        "Person",
+        field_map={"simi": "organization"},
+        known_fields={"name"},  # "organization" not present
+    )
+    assert result is None
+
+
+def test_route_enumeration_query_raises_timeout_error_when_never_completes():
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/export":
+            return httpx.Response(
+                202,
+                json={
+                    "operation_id": "op-3",
+                    "status": "running",
+                    "location": "/v1/operations/op-3",
+                },
+            )
+        return httpx.Response(200, json={"status": "running"})
+
+    client = _mock_client(handler)
+    with pytest.raises(TimeoutError):
+        route_enumeration_query(
+            client,
+            "Give me all X",
+            "T",
+            poll_timeout_secs=0.02,
+            poll_interval_secs=0.005,
+        )
+
+
+def test_route_enumeration_query_propagates_server_error_on_failed_operation():
+    """A failed operation (e.g. the row-cap backstop tripping,
+    QueryError::ResultCapExceeded) surfaces as a real error, not a silent
+    empty/partial result — the row cap is unconditional, this routing does
+    not bypass it."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/export":
+            return httpx.Response(
+                202,
+                json={
+                    "operation_id": "op-4",
+                    "status": "running",
+                    "location": "/v1/operations/op-4",
+                },
+            )
+        return httpx.Response(
+            500,
+            json={
+                "type": "about:blank",
+                "status": 500,
+                "title": "Internal Server Error",
+                "detail": "ResultCapExceeded",
+            },
+        )
+
+    client = _mock_client(handler)
+    with pytest.raises(RelataError):
+        route_enumeration_query(client, "Give me all X", "T")
+
+
+@pytest.mark.asyncio
+async def test_aroute_enumeration_query_returns_inline_result_when_small():
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/rag/export":
+            return httpx.Response(
+                202,
+                json={
+                    "operation_id": "op-5",
+                    "status": "running",
+                    "location": "/v1/operations/op-5",
+                },
+            )
+        return httpx.Response(200, json={"row_count": 1, "columns": ["a"], "data": [{"a": 1}]})
+
+    client = _mock_client(handler)
+    result = await aroute_enumeration_query(client, "Give me all X", "T")
+    assert isinstance(result, LargeExportResult)
+    assert result.row_count == 1
+    assert result.is_file_backed is False
 
 
 # -- smart_rag_query / asmart_rag_query end-to-end dispatch --
