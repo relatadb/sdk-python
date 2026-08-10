@@ -70,6 +70,8 @@ from relata.models import (
     HealthResponse,
     IngestDocumentResponse,
     QueryResult,
+    RagHit,
+    RagQueryResponse,
     ReadyReport,
     SearchHit,
     SearchResponse,
@@ -80,6 +82,7 @@ from relata.models import (
 from relata.namespace import AsyncNamespace, Namespace
 from relata.objects import AsyncObjectClient, ObjectClient
 from relata.query import QueryBuilder, select
+from relata.rag import AsyncRagClient, RagClient
 from relata.s3 import AsyncS3Client, S3Client
 from relata.search import AsyncSearchClient, SearchClient
 from relata.streaming import AsyncStreamingClient, StreamingClient
@@ -134,6 +137,9 @@ __all__ = [
     "AsyncNamespace",
     "SearchClient",
     "AsyncSearchClient",
+    # RAG epic — typed /rag/query client (#4523, foundational; #4514/ADR-0299)
+    "RagClient",
+    "AsyncRagClient",
     # Query builder
     "QueryBuilder",
     "select",
@@ -150,6 +156,8 @@ __all__ = [
     "ReadyReport",
     "SearchHit",
     "SearchResponse",
+    "RagHit",
+    "RagQueryResponse",
     # Exceptions
     "RelataError",
     "PurposeError",

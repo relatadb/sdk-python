@@ -429,3 +429,70 @@ class SearchResponse(BaseModel):
         default_factory=dict, description="Numeric facet stats (min/max/sum/avg) (#967)"
     )
     processing_time_ms: int = Field(0, description="Server-side processing time")
+
+
+# ---------------------------------------------------------------------------
+# RAG (RAG epic — #4523, wraps POST /rag/query per #4514/ADR-0299)
+# ---------------------------------------------------------------------------
+
+
+class RagHit(BaseModel):
+    """A single hit from ``POST /rag/query`` (#4514's ADR-0299 contract).
+
+    Every field below is part of the frozen request/response parameter table
+    in #4514 ("do not deviate without re-opening ADR-0299") — none may be
+    renamed or silently dropped, and ``bm25_score``/``vector_score`` must
+    never be collapsed into a single fused number client-side: they are the
+    substrate SDK-side MMR / cross-channel fusion is built on and cannot be
+    retrofitted once real clients exist.
+    """
+
+    bm25_score: float = Field(
+        ..., description="Lexical (BM25) channel score — always present, never fused away"
+    )
+    vector_score: float = Field(
+        ..., description="Dense (vector) channel score — always present, never fused away"
+    )
+    rerank_score: float | None = Field(
+        None, description="Sidecar cross-encoder score — present only when rerank=True was set"
+    )
+    chunk_id: str = Field(..., description="Citation linkage — the DocumentChunk id")
+    report_id: str = Field(
+        ...,
+        description=(
+            "Citation linkage — the source document id. Expected to be renamed "
+            "document_source_id once #4495's DocumentSource naming lands on the "
+            "wire; the field carries the same value under either name."
+        ),
+    )
+    text: str = Field(..., description="Chunk text — citation-grade, no second round-trip needed")
+    section_path: list[str] = Field(
+        default_factory=list, description="Document section breadcrumb, e.g. ['3', '3.2']"
+    )
+    page_start: int = Field(..., description="First page the chunk spans")
+    page_end: int = Field(..., description="Last page the chunk spans")
+    prev_chunk_id: str | None = Field(
+        None, description="Adjacent previous chunk id (DocumentChunk pass-through)"
+    )
+    next_chunk_id: str | None = Field(
+        None, description="Adjacent next chunk id (DocumentChunk pass-through)"
+    )
+    entity_ids: list[str] = Field(
+        default_factory=list, description="Entity ids anchored to this chunk"
+    )
+
+
+class RagQueryResponse(BaseModel):
+    """Response from ``POST /rag/query`` (#4514/ADR-0299).
+
+    ``hits`` is the only field the contract guarantees; ``total`` is a client
+    convenience (always ``len(hits)``) mirroring :class:`SearchResponse`.
+    """
+
+    hits: list[RagHit] = Field(default_factory=list)
+    total: int = Field(0, description="Number of hits — always equals len(hits)")
+
+    @model_validator(mode="after")
+    def _sync_total(self) -> RagQueryResponse:
+        self.total = len(self.hits)
+        return self
