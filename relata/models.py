@@ -480,6 +480,16 @@ class RagHit(BaseModel):
     entity_ids: list[str] = Field(
         default_factory=list, description="Entity ids anchored to this chunk"
     )
+    relevance_confidence: float | None = Field(
+        None,
+        description=(
+            "Non-LLM per-hit confidence signal (#4520): "
+            "w1 * channel_agreement(bm25_score, vector_score) + w2 * entity_overlap_fraction, "
+            "purely arithmetic over already-retrieved scores/text — no network or LLM call. "
+            "None when the server predates #4520. Distinct from the SDK's own judgement-based "
+            "iteration confidence (relata.rag_loop); see ADR-0299's 'Rejected explicitly' clause."
+        ),
+    )
 
 
 class EntityCandidate(BaseModel):

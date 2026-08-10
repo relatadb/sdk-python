@@ -53,12 +53,29 @@ calls end to end** — :func:`run_agentic_loop`/:func:`arun_agentic_loop`
 return before ``grader_fn``/``hypothesis_fn`` are ever invoked in that case,
 and :attr:`LoopResult.llm_calls` stays ``0`` (see the regression test
 suite's call-count assertions).
+
+**Sub-agent fan-out + deterministic merge (#4526).** :func:`run_subagent_fanout`/
+:func:`arun_subagent_fanout` run 2-5 parallel retrieval strategies (distinct
+``search_mode``/``embedding_slot`` combinations, #4514) and pick a winner by
+**confidence-score comparison only** — a strict ``argmax``, never a meta-LLM
+arbitration call (verified live in the reference platform system: threshold
+merge, explicitly no arbitration call). Each strategy's confidence is its
+top hit's :attr:`~relata.models.RagHit.relevance_confidence` (#4520's
+non-LLM per-hit signal), so the whole merge path, like the cost ladder
+above, never calls an LLM. :data:`LOW_CONFIDENCE_FLOOR` (``0.20``) discards
+a strategy as noise before the (cheap, still non-LLM) winner comparison
+runs at all; :data:`MERGE_THRESHOLD` (``0.50``) decides which of the
+*non-winning* survivors get folded into the merged result as supporting
+evidence (via :func:`relata.rag_understanding.rrf_merge`) rather than
+discarded once a winner is picked.
 """
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
@@ -66,7 +83,7 @@ if TYPE_CHECKING:
     from relata.rag import AsyncRagClient, RagClient
 
 from relata.models import RagHit, RagQueryResponse
-from relata.rag_understanding import HypothesisGenerator, expand_query_hyde
+from relata.rag_understanding import HypothesisGenerator, expand_query_hyde, rrf_k_for_fanout, rrf_merge
 
 # ---------------------------------------------------------------------------
 # Verified defaults — the cost ladder's thresholds (#4525's acceptance
@@ -504,3 +521,210 @@ async def arun_agentic_loop(
             current_query = query
 
     raise AssertionError("arun_agentic_loop: exhausted max_iterations without returning")
+
+
+# ---------------------------------------------------------------------------
+# 4. Sub-agent fan-out + deterministic (non-LLM) merge (#4526)
+# ---------------------------------------------------------------------------
+
+#: Below this per-strategy confidence, a sub-agent result is excluded
+#: entirely as noise **before** the winner comparison runs at all —
+#: verified default from the reference platform system.
+LOW_CONFIDENCE_FLOOR = 0.20
+
+#: A non-winning survivor scoring at or above this confidence is folded into
+#: the merged result as supporting evidence; below it, only the winner's
+#: hits are returned. Deliberately below any implicit "clear winner" bar —
+#: strong enough to merge, not strong enough to contend for winner on its
+#: own — verified default from the reference platform system.
+MERGE_THRESHOLD = 0.50
+
+#: `run_subagent_fanout`/`arun_subagent_fanout` require at least 2 strategies
+#: (below that there is nothing to fan out or merge) and at most 5 (the
+#: verified reference-system range).
+MIN_FANOUT_STRATEGIES = 2
+MAX_FANOUT_STRATEGIES = 5
+
+
+@dataclass(frozen=True)
+class SubAgentStrategy:
+    """One parallel retrieval strategy for :func:`run_subagent_fanout` — a
+    distinct ``/rag/query`` parameterization, typically a
+    ``search_mode``/``embedding_slot`` combination (#4514)."""
+
+    #: Human-readable label for this strategy, surfaced on
+    #: :class:`SubAgentResult` for tracing/logging — not sent over the wire.
+    name: str
+    #: Forwarded to :meth:`~relata.rag.RagClient.query` on top of whatever
+    #: ``run_subagent_fanout``'s own ``**rag_kwargs`` already set (e.g.
+    #: ``{"search_mode": "lexical"}``, ``{"embedding_slot": "summary"}``).
+    rag_kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SubAgentResult:
+    """One strategy's outcome from :func:`run_subagent_fanout`."""
+
+    strategy: SubAgentStrategy
+    response: RagQueryResponse
+    #: This strategy's confidence score — its top hit's
+    #: :attr:`~relata.models.RagHit.relevance_confidence` (#4520), or ``0.0``
+    #: when there are no hits or the server predates #4520 (field unset).
+    confidence: float
+
+
+@dataclass(frozen=True)
+class FanoutResult:
+    """Final result of :func:`run_subagent_fanout`/:func:`arun_subagent_fanout`."""
+
+    #: The deterministically-chosen winner — strict ``argmax`` by
+    #: :attr:`SubAgentResult.confidence`, ties broken by strategy declaration
+    #: order. Never chosen via an LLM call (#4526's AC #1).
+    winner: SubAgentResult
+    #: The winner's hits, merged (via
+    #: :func:`relata.rag_understanding.rrf_merge`) with any non-winning
+    #: survivor scoring at or above :data:`MERGE_THRESHOLD`. Equals
+    #: ``winner.response`` unchanged when no other survivor cleared
+    #: :data:`MERGE_THRESHOLD`.
+    merged_response: RagQueryResponse
+    #: Every :class:`SubAgentResult` that cleared :data:`LOW_CONFIDENCE_FLOOR`
+    #: (winner first, then any merged-in supporting evidence, in descending
+    #: confidence order).
+    included: list[SubAgentResult]
+    #: Every :class:`SubAgentResult` discarded as noise — below
+    #: :data:`LOW_CONFIDENCE_FLOOR` (or, in the all-strategies-below-floor
+    #: fallback, everything except the single best-scoring strategy).
+    excluded: list[SubAgentResult]
+
+
+def _validate_fanout_strategies(strategies: Sequence[SubAgentStrategy]) -> None:
+    if not MIN_FANOUT_STRATEGIES <= len(strategies) <= MAX_FANOUT_STRATEGIES:
+        raise ValueError(
+            f"run_subagent_fanout requires {MIN_FANOUT_STRATEGIES}-{MAX_FANOUT_STRATEGIES} "
+            f"strategies, got {len(strategies)}"
+        )
+
+
+def _strategy_confidence(response: RagQueryResponse) -> float:
+    """Deterministic per-strategy confidence: the top hit's
+    ``relevance_confidence`` (#4520), or ``0.0`` when there are no hits or
+    the field is unset (server predates #4520). A pure function of the
+    response already returned by ``/rag/query`` — no LLM/network call."""
+    if not response.hits:
+        return 0.0
+    confidence = response.hits[0].relevance_confidence
+    return confidence if confidence is not None else 0.0
+
+
+def _merge_fanout_results(results: list[SubAgentResult], *, merge_threshold: float) -> FanoutResult:
+    """Shared post-processing between the sync and async entry points:
+    ``results`` is the (already-fetched) per-strategy outcome list; this
+    function makes no I/O decisions and every branch is a pure function of
+    its inputs — the deterministic winner-selection + merge invariant
+    (#4526's AC #1) lives entirely here."""
+    survivors = [r for r in results if r.confidence >= LOW_CONFIDENCE_FLOOR]
+    excluded = [r for r in results if r.confidence < LOW_CONFIDENCE_FLOOR]
+    if not survivors:
+        # Every strategy scored below the noise floor — fall back to the
+        # single highest-scoring result rather than returning nothing.
+        winner_fallback = max(results, key=lambda r: r.confidence)
+        survivors = [winner_fallback]
+        excluded = [r for r in results if r is not winner_fallback]
+
+    # Deterministic winner: strict argmax by confidence — no LLM call.
+    winner = max(survivors, key=lambda r: r.confidence)
+    supporting = sorted(
+        (r for r in survivors if r is not winner and r.confidence >= merge_threshold),
+        key=lambda r: r.confidence,
+        reverse=True,
+    )
+    included = [winner, *supporting]
+
+    if supporting:
+        merged_response = rrf_merge(
+            [r.response for r in included], k=rrf_k_for_fanout(len(included))
+        )
+    else:
+        merged_response = winner.response
+
+    return FanoutResult(
+        winner=winner, merged_response=merged_response, included=included, excluded=excluded
+    )
+
+
+def run_subagent_fanout(
+    rag_client: RagClient,
+    query: str,
+    type: str,  # noqa: A002 — matches RagClient.query's wire-facing param name
+    strategies: Sequence[SubAgentStrategy],
+    *,
+    purpose: str | None = None,
+    max_workers: int = MAX_FANOUT_STRATEGIES,
+    merge_threshold: float = MERGE_THRESHOLD,
+    **rag_kwargs: Any,
+) -> FanoutResult:
+    """Run ``strategies`` (2-5 parallel ``/rag/query`` parameterizations) and
+    deterministically pick + merge a winner.
+
+    Winner selection is a strict ``argmax`` over each strategy's confidence
+    (:func:`_strategy_confidence`) — **no LLM call anywhere in this
+    function**, matching the reference platform system's threshold-merge
+    design (explicitly no meta-LLM arbitration call).
+
+    Args:
+        rag_client: A :class:`~relata.rag.RagClient` (sync).
+        query: The query text, sent unchanged to every strategy.
+        type: Object type to search (e.g. ``"DocumentChunk"``).
+        strategies: 2-5 :class:`SubAgentStrategy` instances — typically
+            distinct ``search_mode``/``embedding_slot`` combinations.
+        purpose: PURPOSE token, passed through to every underlying call.
+        max_workers: Thread-pool size for the parallel fan-out.
+        merge_threshold: Confidence floor (default :data:`MERGE_THRESHOLD`)
+            for folding a non-winning survivor in as supporting evidence.
+        **rag_kwargs: Forwarded to every strategy's ``/rag/query`` call
+            before that strategy's own ``rag_kwargs`` override on top.
+
+    Returns:
+        :class:`FanoutResult` — the winner, the merged response, and which
+        strategies were included vs. excluded as noise.
+    """
+    _validate_fanout_strategies(strategies)
+
+    def _run(strategy: SubAgentStrategy) -> SubAgentResult:
+        call_kwargs = {**rag_kwargs, **strategy.rag_kwargs}
+        response = rag_client.query(query, type, purpose=purpose, **call_kwargs)
+        return SubAgentResult(
+            strategy=strategy, response=response, confidence=_strategy_confidence(response)
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(max_workers, len(strategies))
+    ) as pool:
+        results = list(pool.map(_run, strategies))
+
+    return _merge_fanout_results(results, merge_threshold=merge_threshold)
+
+
+async def arun_subagent_fanout(
+    rag_client: AsyncRagClient,
+    query: str,
+    type: str,  # noqa: A002
+    strategies: Sequence[SubAgentStrategy],
+    *,
+    purpose: str | None = None,
+    merge_threshold: float = MERGE_THRESHOLD,
+    **rag_kwargs: Any,
+) -> FanoutResult:
+    """Async variant of :func:`run_subagent_fanout` — issues the strategy
+    fan-out concurrently via ``asyncio.gather`` instead of a thread pool."""
+    _validate_fanout_strategies(strategies)
+
+    async def _run(strategy: SubAgentStrategy) -> SubAgentResult:
+        call_kwargs = {**rag_kwargs, **strategy.rag_kwargs}
+        response = await rag_client.query(query, type, purpose=purpose, **call_kwargs)
+        return SubAgentResult(
+            strategy=strategy, response=response, confidence=_strategy_confidence(response)
+        )
+
+    results = list(await asyncio.gather(*(_run(s) for s in strategies)))
+    return _merge_fanout_results(results, merge_threshold=merge_threshold)
