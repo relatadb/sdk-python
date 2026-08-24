@@ -737,21 +737,27 @@ class McpClient:
         self,
         name: str,
         condition_sql: str,
+        target_type: str,
         *,
         severity: str | None = None,
-        description: str | None = None,
         purpose: str = "security",
     ) -> dict[str, Any]:
-        """``create_rule`` — create a detection rule (ADR-162, #2322)."""
+        """``create_rule`` — create a detection rule (ADR-162, #2322).
+
+        #4663: ``target_type`` is required — the underlying ``POST /rules``
+        handler (``rules_create_handler``, ``crates/relata-cli/src/serve/
+        rules.rs``) 400s with "missing required field 'target_type'"
+        without it. The previous ``description`` keyword was dropped: it is
+        never read anywhere in ``rules.rs``.
+        """
         args: dict[str, Any] = {
             "name": name,
             "condition_sql": condition_sql,
+            "target_type": target_type,
             "purpose": purpose,
         }
         if severity:
             args["severity"] = severity
-        if description:
-            args["description"] = description
         return self.call_tool("create_rule", args)
 
     def import_sigma(self, sigma_yaml: str, *, purpose: str = "security") -> dict[str, Any]:
@@ -1649,21 +1655,27 @@ class AsyncMcpClient:
         self,
         name: str,
         condition_sql: str,
+        target_type: str,
         *,
         severity: str | None = None,
-        description: str | None = None,
         purpose: str = "security",
     ) -> dict[str, Any]:
-        """``create_rule`` — create a detection rule (ADR-162, #2322)."""
+        """``create_rule`` — create a detection rule (ADR-162, #2322).
+
+        #4663: ``target_type`` is required — the underlying ``POST /rules``
+        handler (``rules_create_handler``, ``crates/relata-cli/src/serve/
+        rules.rs``) 400s with "missing required field 'target_type'"
+        without it. The previous ``description`` keyword was dropped: it is
+        never read anywhere in ``rules.rs``.
+        """
         args: dict[str, Any] = {
             "name": name,
             "condition_sql": condition_sql,
+            "target_type": target_type,
             "purpose": purpose,
         }
         if severity:
             args["severity"] = severity
-        if description:
-            args["description"] = description
         return await self.call_tool("create_rule", args)
 
     async def import_sigma(self, sigma_yaml: str, *, purpose: str = "security") -> dict[str, Any]:

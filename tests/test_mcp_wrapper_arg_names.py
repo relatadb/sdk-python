@@ -428,11 +428,12 @@ def test_list_rules_sends_no_args() -> None:
 
 def test_create_rule_sends_name_and_condition_sql() -> None:
     client, seen = _capture()
-    client.create_rule("high-value-txn", "amount > 10000", severity="high")
+    client.create_rule("high-value-txn", "amount > 10000", "Transaction", severity="high")
     assert seen["name"] == "create_rule"
     args = seen["arguments"]
     assert args["name"] == "high-value-txn"
     assert args["condition_sql"] == "amount > 10000"
+    assert args["target_type"] == "Transaction"
     assert args["severity"] == "high"
     assert args["purpose"] == "security"
 
