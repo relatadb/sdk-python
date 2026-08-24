@@ -128,6 +128,18 @@ def test_rag_store_elements_sends_required_source_filename() -> None:
     assert args["source_filename"] == "report.pdf"
 
 
+def test_ingest_document_sends_source_and_text() -> None:
+    # #4661: the server's flat schema is source/text/label/confidence/
+    # entities/relations — the previous chunks_jsonl/manifest_json keys were
+    # never read and every call silently no-op'd.
+    client, seen = _capture()
+    client.ingest_document("report.pdf", "full document body", purpose="analytics")
+    args = seen["arguments"]
+    assert args["source"] == "report.pdf"
+    assert args["text"] == "full document body"
+    assert "chunks_jsonl" not in args and "manifest_json" not in args
+
+
 def test_get_relationships_sends_subject_not_entity_id() -> None:
     client, seen = _capture()
     client.get_relationships("Acme Corp", purpose="analytics", predicate="controls")

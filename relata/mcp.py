@@ -385,16 +385,39 @@ class McpClient:
 
     def ingest_document(
         self,
-        chunks_jsonl: str,
-        manifest_json: str,
+        source: str,
+        text: str,
         *,
         purpose: str,
+        label: str | None = None,
+        confidence: float | None = None,
+        entities: list[dict[str, Any]] | None = None,
+        relations: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """``ingest_document`` — datagrep-envelope document ingest via MCP."""
-        return self.call_tool(
-            "ingest_document",
-            {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json, "purpose": purpose},
-        )
+        """``ingest_document`` — store a source document, its extracted
+        text, and (optionally) pre-extracted entities/relations.
+
+        #4661: rewritten — the previous ``chunks_jsonl``/``manifest_json``
+        shape was never read anywhere in
+        ``mcp_tool_ingest_document_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``); the handler
+        has a flat schema instead (``source``, ``text``, ``label``,
+        ``confidence``, ``entities``, ``relations``), and since ``text``
+        always fell back to ``""`` (never sent by the old wrapper), the
+        handler's storage branch never ran — every call returned HTTP 200
+        but silently ingested nothing. This wrapper now matches the real
+        schema.
+        """
+        args: dict[str, Any] = {"source": source, "text": text, "purpose": purpose}
+        if label is not None:
+            args["label"] = label
+        if confidence is not None:
+            args["confidence"] = confidence
+        if entities is not None:
+            args["entities"] = entities
+        if relations is not None:
+            args["relations"] = relations
+        return self.call_tool("ingest_document", args)
 
     # --- Memory (the 10 cognitive verbs are reachable via MCP too) ---
     # The dedicated Memory client is the typed surface; these MCP wrappers
@@ -1283,16 +1306,39 @@ class AsyncMcpClient:
 
     async def ingest_document(
         self,
-        chunks_jsonl: str,
-        manifest_json: str,
+        source: str,
+        text: str,
         *,
         purpose: str,
+        label: str | None = None,
+        confidence: float | None = None,
+        entities: list[dict[str, Any]] | None = None,
+        relations: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """``ingest_document`` — datagrep-envelope document ingest via MCP."""
-        return await self.call_tool(
-            "ingest_document",
-            {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json, "purpose": purpose},
-        )
+        """``ingest_document`` — store a source document, its extracted
+        text, and (optionally) pre-extracted entities/relations.
+
+        #4661: rewritten — the previous ``chunks_jsonl``/``manifest_json``
+        shape was never read anywhere in
+        ``mcp_tool_ingest_document_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``); the handler
+        has a flat schema instead (``source``, ``text``, ``label``,
+        ``confidence``, ``entities``, ``relations``), and since ``text``
+        always fell back to ``""`` (never sent by the old wrapper), the
+        handler's storage branch never ran — every call returned HTTP 200
+        but silently ingested nothing. This wrapper now matches the real
+        schema.
+        """
+        args: dict[str, Any] = {"source": source, "text": text, "purpose": purpose}
+        if label is not None:
+            args["label"] = label
+        if confidence is not None:
+            args["confidence"] = confidence
+        if entities is not None:
+            args["entities"] = entities
+        if relations is not None:
+            args["relations"] = relations
+        return await self.call_tool("ingest_document", args)
 
     # --- Memory (the 10 cognitive verbs are reachable via MCP too) ---
 
