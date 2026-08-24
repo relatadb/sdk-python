@@ -358,11 +358,30 @@ class McpClient:
     def rag_store_elements(
         self,
         elements: list[dict[str, Any]],
+        source_filename: str,
         *,
         purpose: str,
+        source_sha256: str | None = None,
+        label: str | None = None,
     ) -> dict[str, Any]:
-        """``rag_store_elements`` — bulk persist structured RAG elements."""
-        return self.call_tool("rag_store_elements", {"elements": elements, "purpose": purpose})
+        """``rag_store_elements`` — bulk persist structured RAG elements.
+
+        #4660: the server's ``mcp_tool_rag_store_elements_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) requires
+        ``source_filename`` (no default) — every call 400ed without it.
+        ``source_sha256``/``label`` mirror the handler's other optional
+        fields.
+        """
+        args: dict[str, Any] = {
+            "elements": elements,
+            "source_filename": source_filename,
+            "purpose": purpose,
+        }
+        if source_sha256 is not None:
+            args["source_sha256"] = source_sha256
+        if label is not None:
+            args["label"] = label
+        return self.call_tool("rag_store_elements", args)
 
     def ingest_document(
         self,
@@ -1237,13 +1256,30 @@ class AsyncMcpClient:
     async def rag_store_elements(
         self,
         elements: list[dict[str, Any]],
+        source_filename: str,
         *,
         purpose: str,
+        source_sha256: str | None = None,
+        label: str | None = None,
     ) -> dict[str, Any]:
-        """``rag_store_elements`` — bulk persist structured RAG elements."""
-        return await self.call_tool(
-            "rag_store_elements", {"elements": elements, "purpose": purpose}
-        )
+        """``rag_store_elements`` — bulk persist structured RAG elements.
+
+        #4660: the server's ``mcp_tool_rag_store_elements_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) requires
+        ``source_filename`` (no default) — every call 400ed without it.
+        ``source_sha256``/``label`` mirror the handler's other optional
+        fields.
+        """
+        args: dict[str, Any] = {
+            "elements": elements,
+            "source_filename": source_filename,
+            "purpose": purpose,
+        }
+        if source_sha256 is not None:
+            args["source_sha256"] = source_sha256
+        if label is not None:
+            args["label"] = label
+        return await self.call_tool("rag_store_elements", args)
 
     async def ingest_document(
         self,

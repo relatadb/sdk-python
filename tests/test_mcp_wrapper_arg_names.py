@@ -118,6 +118,16 @@ def test_rag_store_answer_sends_sources_not_source_ids() -> None:
     assert "source_ids" not in args
 
 
+def test_rag_store_elements_sends_required_source_filename() -> None:
+    # #4660: source_filename is required server-side (no default) — every
+    # call 400ed without it.
+    client, seen = _capture()
+    client.rag_store_elements([{"text": "e1"}], "report.pdf", purpose="analytics")
+    args = seen["arguments"]
+    assert args["elements"] == [{"text": "e1"}]
+    assert args["source_filename"] == "report.pdf"
+
+
 def test_get_relationships_sends_subject_not_entity_id() -> None:
     client, seen = _capture()
     client.get_relationships("Acme Corp", purpose="analytics", predicate="controls")
