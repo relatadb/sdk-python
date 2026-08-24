@@ -338,13 +338,21 @@ class McpClient:
         question: str,
         answer: str,
         *,
-        source_ids: list[str] | None = None,
+        sources: list[dict[str, Any]] | None = None,
         purpose: str,
     ) -> dict[str, Any]:
-        """``rag_store_answer`` — persist a Q&A pair for downstream RAG."""
+        """``rag_store_answer`` — persist a Q&A pair for downstream RAG.
+
+        #4659: the server's ``mcp_tool_rag_store_answer_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) reads a
+        ``sources`` array of objects (each with an ``id``/``url``,
+        ``source``/``title``, and ``score``/``relevance`` field) — the
+        previous ``source_ids`` key was never read anywhere in the handler,
+        so citation data supplied that way was silently dropped.
+        """
         args: dict[str, Any] = {"question": question, "answer": answer, "purpose": purpose}
-        if source_ids:
-            args["source_ids"] = source_ids
+        if sources:
+            args["sources"] = sources
         return self.call_tool("rag_store_answer", args)
 
     def rag_store_elements(
@@ -1209,13 +1217,21 @@ class AsyncMcpClient:
         question: str,
         answer: str,
         *,
-        source_ids: list[str] | None = None,
+        sources: list[dict[str, Any]] | None = None,
         purpose: str,
     ) -> dict[str, Any]:
-        """``rag_store_answer`` — persist a Q&A pair for downstream RAG."""
+        """``rag_store_answer`` — persist a Q&A pair for downstream RAG.
+
+        #4659: the server's ``mcp_tool_rag_store_answer_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) reads a
+        ``sources`` array of objects (each with an ``id``/``url``,
+        ``source``/``title``, and ``score``/``relevance`` field) — the
+        previous ``source_ids`` key was never read anywhere in the handler,
+        so citation data supplied that way was silently dropped.
+        """
         args: dict[str, Any] = {"question": question, "answer": answer, "purpose": purpose}
-        if source_ids:
-            args["source_ids"] = source_ids
+        if sources:
+            args["sources"] = sources
         return await self.call_tool("rag_store_answer", args)
 
     async def rag_store_elements(

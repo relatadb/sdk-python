@@ -106,6 +106,18 @@ def test_get_case_summary_drops_case_id_sends_toggles() -> None:
     assert "case_id" not in args
 
 
+def test_rag_store_answer_sends_sources_not_source_ids() -> None:
+    # #4659: the server reads a `sources` array of objects; `source_ids` was
+    # never read and silently dropped.
+    client, seen = _capture()
+    client.rag_store_answer(
+        "q", "a", purpose="analytics", sources=[{"id": "src-1", "score": 0.9}]
+    )
+    args = seen["arguments"]
+    assert args["sources"] == [{"id": "src-1", "score": 0.9}]
+    assert "source_ids" not in args
+
+
 def test_get_relationships_sends_subject_not_entity_id() -> None:
     client, seen = _capture()
     client.get_relationships("Acme Corp", purpose="analytics", predicate="controls")
