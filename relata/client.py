@@ -1464,10 +1464,18 @@ class RelataClient:
         sql = f"GRAPH_NODE_SIMILARITY({_sql_literal(object_type)}, NODE => {_sql_literal(node)})"
         return self._sync.post("/query", {"purpose": p, "sql": sql})
 
-    def graph_link_predict(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
-        """Link prediction — predict missing relationships."""
+    def graph_link_predict(self, object_type: str, from_id: str, to_id: str, *, purpose: str | None = None) -> dict[str, object]:
+        """Link prediction between two nodes (#4633).
+
+        The engine requires both ``FROM =>`` and ``TO =>`` — mirrors
+        :meth:`graph_dijkstra`'s FROM/TO shape.
+        """
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_LINK_PREDICT({_sql_literal(object_type)})"})
+        sql = (
+            f"GRAPH_LINK_PREDICT({_sql_literal(object_type)}, "
+            f"FROM => {_sql_literal(from_id)}, TO => {_sql_literal(to_id)})"
+        )
+        return self._sync.post("/query", {"purpose": p, "sql": sql})
 
     def graph_triangle_count(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Triangle count — measures graph density / cohesion."""
