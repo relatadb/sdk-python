@@ -208,19 +208,16 @@ class McpClient:
         entity_id: str,
         *,
         purpose: str,
-        since_ns: int | None = None,
-        until_ns: int | None = None,
     ) -> dict[str, Any]:
         """``get_timeline`` — chronological event list for an entity.
 
         #253: the schema declares the entity under ``entity``, not ``entity_id``.
+        #4664: the previous ``since_ns``/``until_ns`` keywords were dropped —
+        ``mcp_tool_get_timeline`` (``crates/relata-cli/src/serve/mcp.rs``)
+        has no time-range concept at all; it only reads ``entity``/
+        ``purpose``/``limit``.
         """
-        args: dict[str, Any] = {"entity": entity_id, "purpose": purpose}
-        if since_ns is not None:
-            args["since_ns"] = since_ns
-        if until_ns is not None:
-            args["until_ns"] = until_ns
-        return self.call_tool("get_timeline", args)
+        return self.call_tool("get_timeline", {"entity": entity_id, "purpose": purpose})
 
     def find_connections(
         self,
@@ -273,14 +270,15 @@ class McpClient:
         self,
         case_id: str,
         note: str,
-        *,
-        author: str | None = None,
     ) -> dict[str, Any]:
-        """``add_case_note`` — append an investigative note to a case."""
-        args: dict[str, Any] = {"case_id": case_id, "note": note}
-        if author:
-            args["author"] = author
-        return self.call_tool("add_case_note", args)
+        """``add_case_note`` — append an investigative note to a case.
+
+        #4664: the previous ``author`` keyword was dropped —
+        ``mcp_tool_add_case_note_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) never reads an
+        ``author`` field anywhere; it had no server-side effect.
+        """
+        return self.call_tool("add_case_note", {"case_id": case_id, "note": note})
 
     def get_audit_trail(
         self,
@@ -1154,16 +1152,15 @@ class AsyncMcpClient:
         entity_id: str,
         *,
         purpose: str,
-        since_ns: int | None = None,
-        until_ns: int | None = None,
     ) -> dict[str, Any]:
-        """``get_timeline`` — chronological event list for an entity."""
-        args: dict[str, Any] = {"entity": entity_id, "purpose": purpose}
-        if since_ns is not None:
-            args["since_ns"] = since_ns
-        if until_ns is not None:
-            args["until_ns"] = until_ns
-        return await self.call_tool("get_timeline", args)
+        """``get_timeline`` — chronological event list for an entity.
+
+        #4664: the previous ``since_ns``/``until_ns`` keywords were dropped —
+        ``mcp_tool_get_timeline`` (``crates/relata-cli/src/serve/mcp.rs``)
+        has no time-range concept at all; it only reads ``entity``/
+        ``purpose``/``limit``.
+        """
+        return await self.call_tool("get_timeline", {"entity": entity_id, "purpose": purpose})
 
     async def find_connections(
         self,
@@ -1205,14 +1202,15 @@ class AsyncMcpClient:
         self,
         case_id: str,
         note: str,
-        *,
-        author: str | None = None,
     ) -> dict[str, Any]:
-        """``add_case_note`` — append an investigative note to a case."""
-        args: dict[str, Any] = {"case_id": case_id, "note": note}
-        if author:
-            args["author"] = author
-        return await self.call_tool("add_case_note", args)
+        """``add_case_note`` — append an investigative note to a case.
+
+        #4664: the previous ``author`` keyword was dropped —
+        ``mcp_tool_add_case_note_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) never reads an
+        ``author`` field anywhere; it had no server-side effect.
+        """
+        return await self.call_tool("add_case_note", {"case_id": case_id, "note": note})
 
     async def get_audit_trail(
         self,

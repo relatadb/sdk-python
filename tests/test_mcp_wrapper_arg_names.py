@@ -140,6 +140,26 @@ def test_ingest_document_sends_source_and_text() -> None:
     assert "chunks_jsonl" not in args and "manifest_json" not in args
 
 
+def test_get_timeline_has_no_since_until_kwargs() -> None:
+    # #4664: since_ns/until_ns had no server-side effect (mcp_tool_get_timeline
+    # has no time-range concept) and were dropped from the signature entirely.
+    client, seen = _capture()
+    client.get_timeline("Jane Roe", purpose="analytics")
+    args = seen["arguments"]
+    assert "since_ns" not in args and "until_ns" not in args
+
+
+def test_add_case_note_has_no_author_kwarg() -> None:
+    # #4664: author had no server-side effect (mcp_tool_add_case_note_with_gate
+    # never reads it) and was dropped from the signature entirely.
+    client, seen = _capture()
+    client.add_case_note("c-1", "note text")
+    args = seen["arguments"]
+    assert args["case_id"] == "c-1"
+    assert args["note"] == "note text"
+    assert "author" not in args
+
+
 def test_get_relationships_sends_subject_not_entity_id() -> None:
     client, seen = _capture()
     client.get_relationships("Acme Corp", purpose="analytics", predicate="controls")
