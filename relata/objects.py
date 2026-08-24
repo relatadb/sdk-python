@@ -90,15 +90,26 @@ class ObjectClient:
         source: str | None = None,
         on_conflict: str = "upsert",
     ) -> dict[str, Any]:
-        """Upsert a single state object. The ``object_id`` becomes the row's
-        primary key; re-upserting with the same id supersedes bi-temporally.
+        """Upsert a single state object via ``POST /ingest``. The ``object_id``
+        becomes the row's primary key; re-upserting with the same id
+        supersedes bi-temporally.
 
         Args:
             on_conflict: ``"upsert"`` (default) overwrites; ``"skip"`` ignores
                 existing rows; ``"error"`` raises on conflict (HTTP 409).
 
-        Returns the server's upsert receipt (``object_id``, ``write_seq``,
-        ``valid_from``).
+        Durability contract (#4628): ``POST /ingest`` is **asynchronous** —
+        this does NOT return the server's upsert receipt (``object_id``,
+        ``write_seq``, ``valid_from``); that description was wrong. It
+        returns an async task-queue-ack shaped like
+        ``{"rows_queued": 1, "rows_rejected": 0, "task_id": "itsk_...",
+        "connector": "...", "errors": [...], "queue_depth": N,
+        "embed_queue_depth": N}``. The row is queued, not yet durable or
+        SQL-visible — poll ``GET /ingest/tasks/{task_id}`` (not yet wrapped
+        by this SDK) to confirm ``rows_written``. Use :meth:`batch_upsert`
+        instead when the caller needs a read-your-writes guarantee: it
+        applies synchronously and its rows are visible as soon as the call
+        returns.
         """
         row = dict(fields)
         row["id"] = object_id
@@ -297,6 +308,13 @@ class AsyncObjectClient:
         source: str | None = None,
         on_conflict: str = "upsert",
     ) -> dict[str, Any]:
+        """Async equivalent of :meth:`ObjectClient.upsert` — see that
+        docstring for the full durability contract (#4628). In short:
+        ``POST /ingest`` is asynchronous and returns a task-queue-ack
+        (``rows_queued``/``task_id``/...), not a confirmed-write receipt;
+        use :meth:`batch_upsert` for a synchronous, immediately-visible
+        write.
+        """
         row = dict(fields)
         row["id"] = object_id
         if source is not None:
