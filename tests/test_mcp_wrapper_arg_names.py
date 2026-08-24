@@ -94,6 +94,18 @@ def test_get_timeline_sends_entity() -> None:
     assert "entity_id" not in args
 
 
+def test_get_case_summary_drops_case_id_sends_toggles() -> None:
+    # #4658: get_case_summary is tenant-wide, not case-scoped — case_id was
+    # never read server-side and has been dropped.
+    client, seen = _capture()
+    client.get_case_summary(purpose="analytics", include_graph=False)
+    assert seen["name"] == "get_case_summary"
+    args = seen["arguments"]
+    assert args["purpose"] == "analytics"
+    assert args["include_graph"] is False
+    assert "case_id" not in args
+
+
 def test_get_relationships_sends_subject_not_entity_id() -> None:
     client, seen = _capture()
     client.get_relationships("Acme Corp", purpose="analytics", predicate="controls")

@@ -302,9 +302,34 @@ class McpClient:
             args["principal_filter"] = principal_filter
         return self.call_tool("get_audit_trail", args)
 
-    def get_case_summary(self, case_id: str, *, purpose: str) -> dict[str, Any]:
-        """``get_case_summary`` — LLM-generated narrative summary of a case."""
-        return self.call_tool("get_case_summary", {"case_id": case_id, "purpose": purpose})
+    def get_case_summary(
+        self,
+        *,
+        purpose: str,
+        include_graph: bool | None = None,
+        include_notes: bool | None = None,
+        include_answers: bool | None = None,
+    ) -> dict[str, Any]:
+        """``get_case_summary`` — tenant-wide data inventory + knowledge-graph
+        stats + analyst notes.
+
+        #4658: NOT case-scoped — ``mcp_tool_get_case_summary``
+        (``crates/relata-cli/src/serve/mcp.rs``) never reads a ``case_id``
+        argument anywhere (confirmed by reading the full handler body), so
+        the previously-required ``case_id`` parameter was dropped rather
+        than kept as a misleading filter (same treatment as TS #4651).
+        ``include_graph``/``include_notes``/``include_answers`` are real,
+        server-read toggles (each defaults ``True`` server-side when
+        omitted).
+        """
+        args: dict[str, Any] = {"purpose": purpose}
+        if include_graph is not None:
+            args["include_graph"] = include_graph
+        if include_notes is not None:
+            args["include_notes"] = include_notes
+        if include_answers is not None:
+            args["include_answers"] = include_answers
+        return self.call_tool("get_case_summary", args)
 
     # --- RAG / ingest ---
 
@@ -1148,9 +1173,34 @@ class AsyncMcpClient:
             args["principal_filter"] = principal_filter
         return await self.call_tool("get_audit_trail", args)
 
-    async def get_case_summary(self, case_id: str, *, purpose: str) -> dict[str, Any]:
-        """``get_case_summary`` — LLM-generated narrative summary of a case."""
-        return await self.call_tool("get_case_summary", {"case_id": case_id, "purpose": purpose})
+    async def get_case_summary(
+        self,
+        *,
+        purpose: str,
+        include_graph: bool | None = None,
+        include_notes: bool | None = None,
+        include_answers: bool | None = None,
+    ) -> dict[str, Any]:
+        """``get_case_summary`` — tenant-wide data inventory + knowledge-graph
+        stats + analyst notes.
+
+        #4658: NOT case-scoped — ``mcp_tool_get_case_summary``
+        (``crates/relata-cli/src/serve/mcp.rs``) never reads a ``case_id``
+        argument anywhere (confirmed by reading the full handler body), so
+        the previously-required ``case_id`` parameter was dropped rather
+        than kept as a misleading filter (same treatment as TS #4651).
+        ``include_graph``/``include_notes``/``include_answers`` are real,
+        server-read toggles (each defaults ``True`` server-side when
+        omitted).
+        """
+        args: dict[str, Any] = {"purpose": purpose}
+        if include_graph is not None:
+            args["include_graph"] = include_graph
+        if include_notes is not None:
+            args["include_notes"] = include_notes
+        if include_answers is not None:
+            args["include_answers"] = include_answers
+        return await self.call_tool("get_case_summary", args)
 
     # --- RAG / ingest ---
 
