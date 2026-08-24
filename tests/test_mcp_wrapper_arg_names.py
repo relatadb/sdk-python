@@ -94,6 +94,72 @@ def test_get_timeline_sends_entity() -> None:
     assert "entity_id" not in args
 
 
+def test_get_case_summary_drops_case_id_sends_toggles() -> None:
+    # #4658: get_case_summary is tenant-wide, not case-scoped — case_id was
+    # never read server-side and has been dropped.
+    client, seen = _capture()
+    client.get_case_summary(purpose="analytics", include_graph=False)
+    assert seen["name"] == "get_case_summary"
+    args = seen["arguments"]
+    assert args["purpose"] == "analytics"
+    assert args["include_graph"] is False
+    assert "case_id" not in args
+
+
+def test_rag_store_answer_sends_sources_not_source_ids() -> None:
+    # #4659: the server reads a `sources` array of objects; `source_ids` was
+    # never read and silently dropped.
+    client, seen = _capture()
+    client.rag_store_answer(
+        "q", "a", purpose="analytics", sources=[{"id": "src-1", "score": 0.9}]
+    )
+    args = seen["arguments"]
+    assert args["sources"] == [{"id": "src-1", "score": 0.9}]
+    assert "source_ids" not in args
+
+
+def test_rag_store_elements_sends_required_source_filename() -> None:
+    # #4660: source_filename is required server-side (no default) — every
+    # call 400ed without it.
+    client, seen = _capture()
+    client.rag_store_elements([{"text": "e1"}], "report.pdf", purpose="analytics")
+    args = seen["arguments"]
+    assert args["elements"] == [{"text": "e1"}]
+    assert args["source_filename"] == "report.pdf"
+
+
+def test_ingest_document_sends_source_and_text() -> None:
+    # #4661: the server's flat schema is source/text/label/confidence/
+    # entities/relations — the previous chunks_jsonl/manifest_json keys were
+    # never read and every call silently no-op'd.
+    client, seen = _capture()
+    client.ingest_document("report.pdf", "full document body", purpose="analytics")
+    args = seen["arguments"]
+    assert args["source"] == "report.pdf"
+    assert args["text"] == "full document body"
+    assert "chunks_jsonl" not in args and "manifest_json" not in args
+
+
+def test_get_timeline_has_no_since_until_kwargs() -> None:
+    # #4664: since_ns/until_ns had no server-side effect (mcp_tool_get_timeline
+    # has no time-range concept) and were dropped from the signature entirely.
+    client, seen = _capture()
+    client.get_timeline("Jane Roe", purpose="analytics")
+    args = seen["arguments"]
+    assert "since_ns" not in args and "until_ns" not in args
+
+
+def test_add_case_note_has_no_author_kwarg() -> None:
+    # #4664: author had no server-side effect (mcp_tool_add_case_note_with_gate
+    # never reads it) and was dropped from the signature entirely.
+    client, seen = _capture()
+    client.add_case_note("c-1", "note text")
+    args = seen["arguments"]
+    assert args["case_id"] == "c-1"
+    assert args["note"] == "note text"
+    assert "author" not in args
+
+
 def test_get_relationships_sends_subject_not_entity_id() -> None:
     client, seen = _capture()
     client.get_relationships("Acme Corp", purpose="analytics", predicate="controls")
@@ -382,11 +448,12 @@ def test_list_rules_sends_no_args() -> None:
 
 def test_create_rule_sends_name_and_condition_sql() -> None:
     client, seen = _capture()
-    client.create_rule("high-value-txn", "amount > 10000", severity="high")
+    client.create_rule("high-value-txn", "amount > 10000", "Transaction", severity="high")
     assert seen["name"] == "create_rule"
     args = seen["arguments"]
     assert args["name"] == "high-value-txn"
     assert args["condition_sql"] == "amount > 10000"
+    assert args["target_type"] == "Transaction"
     assert args["severity"] == "high"
     assert args["purpose"] == "security"
 

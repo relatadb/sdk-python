@@ -208,19 +208,16 @@ class McpClient:
         entity_id: str,
         *,
         purpose: str,
-        since_ns: int | None = None,
-        until_ns: int | None = None,
     ) -> dict[str, Any]:
         """``get_timeline`` — chronological event list for an entity.
 
         #253: the schema declares the entity under ``entity``, not ``entity_id``.
+        #4664: the previous ``since_ns``/``until_ns`` keywords were dropped —
+        ``mcp_tool_get_timeline`` (``crates/relata-cli/src/serve/mcp.rs``)
+        has no time-range concept at all; it only reads ``entity``/
+        ``purpose``/``limit``.
         """
-        args: dict[str, Any] = {"entity": entity_id, "purpose": purpose}
-        if since_ns is not None:
-            args["since_ns"] = since_ns
-        if until_ns is not None:
-            args["until_ns"] = until_ns
-        return self.call_tool("get_timeline", args)
+        return self.call_tool("get_timeline", {"entity": entity_id, "purpose": purpose})
 
     def find_connections(
         self,
@@ -273,14 +270,15 @@ class McpClient:
         self,
         case_id: str,
         note: str,
-        *,
-        author: str | None = None,
     ) -> dict[str, Any]:
-        """``add_case_note`` — append an investigative note to a case."""
-        args: dict[str, Any] = {"case_id": case_id, "note": note}
-        if author:
-            args["author"] = author
-        return self.call_tool("add_case_note", args)
+        """``add_case_note`` — append an investigative note to a case.
+
+        #4664: the previous ``author`` keyword was dropped —
+        ``mcp_tool_add_case_note_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) never reads an
+        ``author`` field anywhere; it had no server-side effect.
+        """
+        return self.call_tool("add_case_note", {"case_id": case_id, "note": note})
 
     def get_audit_trail(
         self,
@@ -302,9 +300,34 @@ class McpClient:
             args["principal_filter"] = principal_filter
         return self.call_tool("get_audit_trail", args)
 
-    def get_case_summary(self, case_id: str, *, purpose: str) -> dict[str, Any]:
-        """``get_case_summary`` — LLM-generated narrative summary of a case."""
-        return self.call_tool("get_case_summary", {"case_id": case_id, "purpose": purpose})
+    def get_case_summary(
+        self,
+        *,
+        purpose: str,
+        include_graph: bool | None = None,
+        include_notes: bool | None = None,
+        include_answers: bool | None = None,
+    ) -> dict[str, Any]:
+        """``get_case_summary`` — tenant-wide data inventory + knowledge-graph
+        stats + analyst notes.
+
+        #4658: NOT case-scoped — ``mcp_tool_get_case_summary``
+        (``crates/relata-cli/src/serve/mcp.rs``) never reads a ``case_id``
+        argument anywhere (confirmed by reading the full handler body), so
+        the previously-required ``case_id`` parameter was dropped rather
+        than kept as a misleading filter (same treatment as TS #4651).
+        ``include_graph``/``include_notes``/``include_answers`` are real,
+        server-read toggles (each defaults ``True`` server-side when
+        omitted).
+        """
+        args: dict[str, Any] = {"purpose": purpose}
+        if include_graph is not None:
+            args["include_graph"] = include_graph
+        if include_notes is not None:
+            args["include_notes"] = include_notes
+        if include_answers is not None:
+            args["include_answers"] = include_answers
+        return self.call_tool("get_case_summary", args)
 
     # --- RAG / ingest ---
 
@@ -313,36 +336,86 @@ class McpClient:
         question: str,
         answer: str,
         *,
-        source_ids: list[str] | None = None,
+        sources: list[dict[str, Any]] | None = None,
         purpose: str,
     ) -> dict[str, Any]:
-        """``rag_store_answer`` — persist a Q&A pair for downstream RAG."""
+        """``rag_store_answer`` — persist a Q&A pair for downstream RAG.
+
+        #4659: the server's ``mcp_tool_rag_store_answer_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) reads a
+        ``sources`` array of objects (each with an ``id``/``url``,
+        ``source``/``title``, and ``score``/``relevance`` field) — the
+        previous ``source_ids`` key was never read anywhere in the handler,
+        so citation data supplied that way was silently dropped.
+        """
         args: dict[str, Any] = {"question": question, "answer": answer, "purpose": purpose}
-        if source_ids:
-            args["source_ids"] = source_ids
+        if sources:
+            args["sources"] = sources
         return self.call_tool("rag_store_answer", args)
 
     def rag_store_elements(
         self,
         elements: list[dict[str, Any]],
+        source_filename: str,
         *,
         purpose: str,
+        source_sha256: str | None = None,
+        label: str | None = None,
     ) -> dict[str, Any]:
-        """``rag_store_elements`` — bulk persist structured RAG elements."""
-        return self.call_tool("rag_store_elements", {"elements": elements, "purpose": purpose})
+        """``rag_store_elements`` — bulk persist structured RAG elements.
+
+        #4660: the server's ``mcp_tool_rag_store_elements_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) requires
+        ``source_filename`` (no default) — every call 400ed without it.
+        ``source_sha256``/``label`` mirror the handler's other optional
+        fields.
+        """
+        args: dict[str, Any] = {
+            "elements": elements,
+            "source_filename": source_filename,
+            "purpose": purpose,
+        }
+        if source_sha256 is not None:
+            args["source_sha256"] = source_sha256
+        if label is not None:
+            args["label"] = label
+        return self.call_tool("rag_store_elements", args)
 
     def ingest_document(
         self,
-        chunks_jsonl: str,
-        manifest_json: str,
+        source: str,
+        text: str,
         *,
         purpose: str,
+        label: str | None = None,
+        confidence: float | None = None,
+        entities: list[dict[str, Any]] | None = None,
+        relations: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """``ingest_document`` — datagrep-envelope document ingest via MCP."""
-        return self.call_tool(
-            "ingest_document",
-            {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json, "purpose": purpose},
-        )
+        """``ingest_document`` — store a source document, its extracted
+        text, and (optionally) pre-extracted entities/relations.
+
+        #4661: rewritten — the previous ``chunks_jsonl``/``manifest_json``
+        shape was never read anywhere in
+        ``mcp_tool_ingest_document_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``); the handler
+        has a flat schema instead (``source``, ``text``, ``label``,
+        ``confidence``, ``entities``, ``relations``), and since ``text``
+        always fell back to ``""`` (never sent by the old wrapper), the
+        handler's storage branch never ran — every call returned HTTP 200
+        but silently ingested nothing. This wrapper now matches the real
+        schema.
+        """
+        args: dict[str, Any] = {"source": source, "text": text, "purpose": purpose}
+        if label is not None:
+            args["label"] = label
+        if confidence is not None:
+            args["confidence"] = confidence
+        if entities is not None:
+            args["entities"] = entities
+        if relations is not None:
+            args["relations"] = relations
+        return self.call_tool("ingest_document", args)
 
     # --- Memory (the 10 cognitive verbs are reachable via MCP too) ---
     # The dedicated Memory client is the typed surface; these MCP wrappers
@@ -662,21 +735,27 @@ class McpClient:
         self,
         name: str,
         condition_sql: str,
+        target_type: str,
         *,
         severity: str | None = None,
-        description: str | None = None,
         purpose: str = "security",
     ) -> dict[str, Any]:
-        """``create_rule`` — create a detection rule (ADR-162, #2322)."""
+        """``create_rule`` — create a detection rule (ADR-162, #2322).
+
+        #4663: ``target_type`` is required — the underlying ``POST /rules``
+        handler (``rules_create_handler``, ``crates/relata-cli/src/serve/
+        rules.rs``) 400s with "missing required field 'target_type'"
+        without it. The previous ``description`` keyword was dropped: it is
+        never read anywhere in ``rules.rs``.
+        """
         args: dict[str, Any] = {
             "name": name,
             "condition_sql": condition_sql,
+            "target_type": target_type,
             "purpose": purpose,
         }
         if severity:
             args["severity"] = severity
-        if description:
-            args["description"] = description
         return self.call_tool("create_rule", args)
 
     def import_sigma(self, sigma_yaml: str, *, purpose: str = "security") -> dict[str, Any]:
@@ -1073,16 +1152,15 @@ class AsyncMcpClient:
         entity_id: str,
         *,
         purpose: str,
-        since_ns: int | None = None,
-        until_ns: int | None = None,
     ) -> dict[str, Any]:
-        """``get_timeline`` — chronological event list for an entity."""
-        args: dict[str, Any] = {"entity": entity_id, "purpose": purpose}
-        if since_ns is not None:
-            args["since_ns"] = since_ns
-        if until_ns is not None:
-            args["until_ns"] = until_ns
-        return await self.call_tool("get_timeline", args)
+        """``get_timeline`` — chronological event list for an entity.
+
+        #4664: the previous ``since_ns``/``until_ns`` keywords were dropped —
+        ``mcp_tool_get_timeline`` (``crates/relata-cli/src/serve/mcp.rs``)
+        has no time-range concept at all; it only reads ``entity``/
+        ``purpose``/``limit``.
+        """
+        return await self.call_tool("get_timeline", {"entity": entity_id, "purpose": purpose})
 
     async def find_connections(
         self,
@@ -1124,14 +1202,15 @@ class AsyncMcpClient:
         self,
         case_id: str,
         note: str,
-        *,
-        author: str | None = None,
     ) -> dict[str, Any]:
-        """``add_case_note`` — append an investigative note to a case."""
-        args: dict[str, Any] = {"case_id": case_id, "note": note}
-        if author:
-            args["author"] = author
-        return await self.call_tool("add_case_note", args)
+        """``add_case_note`` — append an investigative note to a case.
+
+        #4664: the previous ``author`` keyword was dropped —
+        ``mcp_tool_add_case_note_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) never reads an
+        ``author`` field anywhere; it had no server-side effect.
+        """
+        return await self.call_tool("add_case_note", {"case_id": case_id, "note": note})
 
     async def get_audit_trail(
         self,
@@ -1148,9 +1227,34 @@ class AsyncMcpClient:
             args["principal_filter"] = principal_filter
         return await self.call_tool("get_audit_trail", args)
 
-    async def get_case_summary(self, case_id: str, *, purpose: str) -> dict[str, Any]:
-        """``get_case_summary`` — LLM-generated narrative summary of a case."""
-        return await self.call_tool("get_case_summary", {"case_id": case_id, "purpose": purpose})
+    async def get_case_summary(
+        self,
+        *,
+        purpose: str,
+        include_graph: bool | None = None,
+        include_notes: bool | None = None,
+        include_answers: bool | None = None,
+    ) -> dict[str, Any]:
+        """``get_case_summary`` — tenant-wide data inventory + knowledge-graph
+        stats + analyst notes.
+
+        #4658: NOT case-scoped — ``mcp_tool_get_case_summary``
+        (``crates/relata-cli/src/serve/mcp.rs``) never reads a ``case_id``
+        argument anywhere (confirmed by reading the full handler body), so
+        the previously-required ``case_id`` parameter was dropped rather
+        than kept as a misleading filter (same treatment as TS #4651).
+        ``include_graph``/``include_notes``/``include_answers`` are real,
+        server-read toggles (each defaults ``True`` server-side when
+        omitted).
+        """
+        args: dict[str, Any] = {"purpose": purpose}
+        if include_graph is not None:
+            args["include_graph"] = include_graph
+        if include_notes is not None:
+            args["include_notes"] = include_notes
+        if include_answers is not None:
+            args["include_answers"] = include_answers
+        return await self.call_tool("get_case_summary", args)
 
     # --- RAG / ingest ---
 
@@ -1159,38 +1263,86 @@ class AsyncMcpClient:
         question: str,
         answer: str,
         *,
-        source_ids: list[str] | None = None,
+        sources: list[dict[str, Any]] | None = None,
         purpose: str,
     ) -> dict[str, Any]:
-        """``rag_store_answer`` — persist a Q&A pair for downstream RAG."""
+        """``rag_store_answer`` — persist a Q&A pair for downstream RAG.
+
+        #4659: the server's ``mcp_tool_rag_store_answer_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) reads a
+        ``sources`` array of objects (each with an ``id``/``url``,
+        ``source``/``title``, and ``score``/``relevance`` field) — the
+        previous ``source_ids`` key was never read anywhere in the handler,
+        so citation data supplied that way was silently dropped.
+        """
         args: dict[str, Any] = {"question": question, "answer": answer, "purpose": purpose}
-        if source_ids:
-            args["source_ids"] = source_ids
+        if sources:
+            args["sources"] = sources
         return await self.call_tool("rag_store_answer", args)
 
     async def rag_store_elements(
         self,
         elements: list[dict[str, Any]],
+        source_filename: str,
         *,
         purpose: str,
+        source_sha256: str | None = None,
+        label: str | None = None,
     ) -> dict[str, Any]:
-        """``rag_store_elements`` — bulk persist structured RAG elements."""
-        return await self.call_tool(
-            "rag_store_elements", {"elements": elements, "purpose": purpose}
-        )
+        """``rag_store_elements`` — bulk persist structured RAG elements.
+
+        #4660: the server's ``mcp_tool_rag_store_elements_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``) requires
+        ``source_filename`` (no default) — every call 400ed without it.
+        ``source_sha256``/``label`` mirror the handler's other optional
+        fields.
+        """
+        args: dict[str, Any] = {
+            "elements": elements,
+            "source_filename": source_filename,
+            "purpose": purpose,
+        }
+        if source_sha256 is not None:
+            args["source_sha256"] = source_sha256
+        if label is not None:
+            args["label"] = label
+        return await self.call_tool("rag_store_elements", args)
 
     async def ingest_document(
         self,
-        chunks_jsonl: str,
-        manifest_json: str,
+        source: str,
+        text: str,
         *,
         purpose: str,
+        label: str | None = None,
+        confidence: float | None = None,
+        entities: list[dict[str, Any]] | None = None,
+        relations: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """``ingest_document`` — datagrep-envelope document ingest via MCP."""
-        return await self.call_tool(
-            "ingest_document",
-            {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json, "purpose": purpose},
-        )
+        """``ingest_document`` — store a source document, its extracted
+        text, and (optionally) pre-extracted entities/relations.
+
+        #4661: rewritten — the previous ``chunks_jsonl``/``manifest_json``
+        shape was never read anywhere in
+        ``mcp_tool_ingest_document_with_gate``
+        (``crates/relata-cli/src/serve/mcp/doc_writes.rs``); the handler
+        has a flat schema instead (``source``, ``text``, ``label``,
+        ``confidence``, ``entities``, ``relations``), and since ``text``
+        always fell back to ``""`` (never sent by the old wrapper), the
+        handler's storage branch never ran — every call returned HTTP 200
+        but silently ingested nothing. This wrapper now matches the real
+        schema.
+        """
+        args: dict[str, Any] = {"source": source, "text": text, "purpose": purpose}
+        if label is not None:
+            args["label"] = label
+        if confidence is not None:
+            args["confidence"] = confidence
+        if entities is not None:
+            args["entities"] = entities
+        if relations is not None:
+            args["relations"] = relations
+        return await self.call_tool("ingest_document", args)
 
     # --- Memory (the 10 cognitive verbs are reachable via MCP too) ---
 
@@ -1501,21 +1653,27 @@ class AsyncMcpClient:
         self,
         name: str,
         condition_sql: str,
+        target_type: str,
         *,
         severity: str | None = None,
-        description: str | None = None,
         purpose: str = "security",
     ) -> dict[str, Any]:
-        """``create_rule`` — create a detection rule (ADR-162, #2322)."""
+        """``create_rule`` — create a detection rule (ADR-162, #2322).
+
+        #4663: ``target_type`` is required — the underlying ``POST /rules``
+        handler (``rules_create_handler``, ``crates/relata-cli/src/serve/
+        rules.rs``) 400s with "missing required field 'target_type'"
+        without it. The previous ``description`` keyword was dropped: it is
+        never read anywhere in ``rules.rs``.
+        """
         args: dict[str, Any] = {
             "name": name,
             "condition_sql": condition_sql,
+            "target_type": target_type,
             "purpose": purpose,
         }
         if severity:
             args["severity"] = severity
-        if description:
-            args["description"] = description
         return await self.call_tool("create_rule", args)
 
     async def import_sigma(self, sigma_yaml: str, *, purpose: str = "security") -> dict[str, Any]:

@@ -102,10 +102,10 @@ def test_mcp_typed_wrappers_match_server_names() -> None:
     c.get_relationships("e-1", purpose="x")
     c.add_case_note("c-1", "note")
     c.get_audit_trail(purpose="x")
-    c.get_case_summary("c-1", purpose="x")
+    c.get_case_summary(purpose="x")
     c.rag_store_answer("q", "a", purpose="x")
-    c.rag_store_elements([], purpose="x")
-    c.ingest_document("chunks", "manifest", purpose="x")
+    c.rag_store_elements([], "source.txt", purpose="x")
+    c.ingest_document("source.txt", "body text", purpose="x")
     c.remember("hello", purpose="x")
     c.recall("hello", purpose="x")
 
