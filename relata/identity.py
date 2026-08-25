@@ -125,12 +125,20 @@ class IdentityClient:
         subject_identity: str,
         reason: str,
         *,
-        certify: bool = True,
+        certify: bool | None = None,
         purpose: str,
     ) -> dict[str, Any]:
         """Issue ``ERASE SUBJECT '<id>' REASON '<r>' [CERTIFY]`` via the parent
         client's query path. Returns the server's Art. 17 receipt. ``subject_identity``
         and ``reason`` are bound as ``$1``/``$2`` (#3211).
+
+        ``certify`` is destructive **opt-in**: omitted or ``False`` omits the
+        CERTIFY keyword, and the server refuses the erasure with
+        "CERTIFY keyword required to confirm irreversible erasure" — matching
+        the engine's own safety rail. Only an explicit ``certify=True``
+        confirms the irreversible crypto-shred. (Historically the omitted
+        default was ``True``, which silently confirmed destruction for
+        callers that never considered the flag.)
 
         Pairs with #61 — today the server does governed-tombstone only (the
         DEK survives). Once #61 ships the per-subject DEK destroy, this same
@@ -249,9 +257,12 @@ class AsyncIdentityClient:
         subject_identity: str,
         reason: str,
         *,
-        certify: bool = True,
+        certify: bool | None = None,
         purpose: str,
     ) -> dict[str, Any]:
+        """Async variant — ``certify`` is destructive opt-in (see the sync
+        :meth:`IdentityClient.erase_subject` docstring): omitted or ``False``
+        omits the CERTIFY keyword and the server refuses the erasure."""
         certify_kw = " CERTIFY" if certify else ""
         sql = f"ERASE SUBJECT $1 REASON $2{certify_kw}"
         return await self._t.post(

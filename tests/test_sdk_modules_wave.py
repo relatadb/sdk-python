@@ -326,6 +326,17 @@ def test_identity_erase_subject_builds_sql() -> None:
     assert seen[0]["params"] == ["alice@example.com", "gdpr-art-17"]
     assert seen[0]["purpose"] == "gdpr"
 
+    # CERTIFY is destructive opt-in: explicitly false and omitted both omit
+    # the keyword — the server then refuses the erasure ("CERTIFY keyword
+    # required to confirm irreversible erasure").
+    c.erase_subject("alice@example.com", "gdpr-art-17", certify=False, purpose="gdpr")
+    assert "CERTIFY" not in seen[1]["sql"]
+    assert "ERASE SUBJECT $1 REASON $2" in seen[1]["sql"]
+
+    c.erase_subject("alice@example.com", "gdpr-art-17", purpose="gdpr")
+    assert "CERTIFY" not in seen[2]["sql"]
+    assert seen[2]["sql"] == "ERASE SUBJECT $1 REASON $2"
+
 
 # ---------------------------------------------------------------------------
 # #82 — ObjectClient upsert via /ingest
