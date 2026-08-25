@@ -76,6 +76,18 @@ def _graphql_data(resp: dict[str, object]) -> dict[str, object] | list[dict[str,
 #: and lets the server auto-detect.
 _VALID_DIALECTS = ("sql", "cypher", "gql")
 
+#: :meth:`RelataClient.schema_alter`'s documented short action verbs, mapped
+#: to the server's long-form verbs (`crates/relata-cli/src/serve/types_routes.rs`
+#: ``schema_alter_handler``). The server only ever understood the long form —
+#: this SDK previously sent the short verbs through unchanged, so every call
+#: following the method's own docstring 400'd (#4704).
+_SCHEMA_ALTER_ACTIONS = {
+    "add": "add_column",
+    "drop": "remove_column",
+    "rename": "rename_column",
+    "retype": "change_type",
+}
+
 
 def _dialect_headers(dialect: str | None) -> dict[str, str] | None:
     """Build the ``x-query-dialect`` header for :meth:`RelataClient.query`.
@@ -1106,9 +1118,16 @@ class RelataClient:
 
         ``action`` is ``"add"`` | ``"drop"`` | ``"rename"`` | ``"retype"``;
         ``column`` is the target column; ``new_column`` / ``col_type`` /
-        ``optional`` apply to the relevant actions.
+        ``optional`` apply to the relevant actions. The short verbs above are
+        translated to the server's ``add_column`` / ``remove_column`` /
+        ``rename_column`` / ``change_type`` on the wire (#4704) — the
+        server's own long-form verbs are also accepted unchanged, for
+        callers who prefer to pass them directly.
         """
-        payload: dict[str, object] = {"action": action, "column": column}
+        payload: dict[str, object] = {
+            "action": _SCHEMA_ALTER_ACTIONS.get(action, action),
+            "column": column,
+        }
         if new_column is not None:
             payload["new_column"] = new_column
         if col_type is not None:
