@@ -27,13 +27,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install tools
-        run: pip install hatch tomli tomli-w
+        run: pip install hatch tomli
 
       - name: Bump patch version
         id: bump
         run: |
           python3 - <<'EOF'
-          import tomli, tomli_w, urllib.request, sys, os
+          import tomli, urllib.request, sys, os, re
 
           with open("pyproject.toml", "rb") as f:
               data = tomli.load(f)
@@ -53,9 +53,22 @@ jobs:
               if e.code != 404:
                   raise
 
-          data["project"]["version"] = new_version
-          with open("pyproject.toml", "wb") as f:
-              tomli_w.dump(data, f)
+          # Rewrite ONLY the `version = "…"` line in [project] — a tomli_w
+          # round-trip of the whole file strips every comment (observed
+          # 2026-08-26: the 2.3.2 publish deleted the #2229 langgraph
+          # rationale comment from sdk-python's pyproject.toml). The version
+          # line is the first standalone `version = "…"` in the file, inside
+          # [project]; assert exactly one match so a future pyproject
+          # restructure fails loudly instead of silently bumping the wrong key.
+          text = open("pyproject.toml", encoding="utf-8").read()
+          new_text, n = re.subn(
+              r'(?m)^version = "[^"]*"$', f'version = "{new_version}"', text, count=1,
+          )
+          if n != 1 or tomli.loads(new_text)["project"]["version"] != new_version:
+              print("could not rewrite the [project] version line unambiguously", file=sys.stderr)
+              sys.exit(1)
+          with open("pyproject.toml", "w", encoding="utf-8") as f:
+              f.write(new_text)
 
           print(f"Bumped {current} → {new_version}")
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
