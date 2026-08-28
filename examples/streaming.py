@@ -23,6 +23,7 @@ import threading
 import time
 
 from relata import RelataClient
+from relata.ingest import IngestClient
 from relata.log import LogClient
 from relata.streaming import StreamingClient
 
@@ -34,6 +35,7 @@ def main() -> None:
     relata = RelataClient(url, bearer_token=token, purpose="analytics")
     streaming = StreamingClient.from_client(relata)
     log = LogClient.from_client(relata)
+    ingest = IngestClient.from_client(relata)
 
     # ── 1. Background thread: consume watch events for 5 seconds ──────────
     print("=== 1. Spawn StreamingClient.watch('SELECT * FROM Person') ===")
@@ -55,10 +57,10 @@ def main() -> None:
     time.sleep(0.3)
 
     # ── 2. Issue writes while the watcher runs ────────────────────────────
+    # `/query` is read-only (#782) — writes go through the governed ingest
+    # door, not SQL INSERT.
     print("\n=== 2. Issuing writes to trigger watch events ===")
-    relata.query(
-        "INSERT INTO Person (_pk, name) VALUES ('watch-1', 'Watch Test 1')"
-    )
+    ingest.bulk("Person", [{"_pk": "watch-1", "name": "Watch Test 1"}])
     print("  inserted Person watch-1")
     time.sleep(0.5)
 
@@ -78,7 +80,7 @@ def main() -> None:
     head = log.head()
     print(f"  log head (tree size) = {head}")
 
-    leaves = log.leaves()
+    leaves = log.load_leaves()
     print(f"  {len(leaves) if hasattr(leaves, '__len__') else '?'} leaf/leaves in log")
 
     relata.close()
