@@ -2,9 +2,12 @@
 Hybrid search example — BM25 + vector fusion via ``VectorClient.hybrid_search()`` (#2678).
 
 ``HYBRID_SEARCH`` is the operator that makes Relata more than "yet another
-vector DB" or "yet another BM25 engine": supply a ``query_text`` (BM25 leg),
-a ``query_embedding`` (vector leg), or both, and — when both are present —
-the server fuses the two rankings via reciprocal rank fusion (ADR-175).
+vector DB" or "yet another BM25 engine": supply a ``query_text`` and the
+server embeds it and fuses the BM25 + vector rankings via reciprocal rank
+fusion (ADR-175, #4491). A caller-supplied query embedding is a *separate*
+capability — ``VectorClient.knn_search()``, the pure-vector, no-BM25-leg
+path (the ``/query`` SQL surface has no vector-literal grammar, so
+``hybrid_search()`` itself only ever accepts ``query_text``).
 
 This walkthrough:
 
@@ -12,8 +15,10 @@ This walkthrough:
    #1172) and writes them into a ``Document`` namespace with the embedding
    pre-computed in the ``_emb_text`` slot (the caller-supplied convention,
    see ``docs/src/end-users/search.md``).
-2. Runs ``hybrid_search`` three ways — BM25-only, vector-only, and fused —
-   so the effect of fusion is visible side by side.
+2. Runs three retrieval shapes side by side — BM25-only (``hybrid_search``
+   with no ``_emb_text`` involvement), vector-only (``knn_search`` against a
+   caller-supplied embedding), and fused BM25 + server-embedded-vector
+   (``hybrid_search``, #4491) — so the effect of fusion is visible.
 
 Run:
     RELATA_TOKEN=secret python -m examples.hybrid_search
@@ -66,25 +71,29 @@ def main() -> None:
         for row in vectors.hybrid_search("Document", query_text="graph retrieval", k=5):
             print(f"  score={row.get('_score', 0):.4f}  {row.get('title')}")
 
-        # ── 3. Vector-only leg (query_embedding, no text) ───────────────────
+        # ── 3. Vector-only leg (caller-supplied embedding, no BM25 text) ────
+        # `VectorClient.hybrid_search()` requires `query_text` (the `/query`
+        # SQL surface has no vector-literal grammar — see its docstring), so
+        # a caller-supplied-embedding, vector-only query goes through
+        # `knn_search()` instead, not `hybrid_search()`.
         print("\n=== 3. Vector-only: nearest neighbour to doc-2's embedding ===")
         query_embedding = vectors.embed("approximate nearest neighbour search")["embedding"]
-        for row in vectors.hybrid_search(
+        for row in vectors.knn_search(
             "Document",
-            query_embedding=query_embedding,
-            embedding_slot="_emb_text",
+            "_emb_text",
+            query_embedding,
             k=5,
         ):
             print(f"  score={row.get('_score', 0):.4f}  {row.get('title')}")
 
-        # ── 4. Fused: both legs — reciprocal rank fusion (ADR-175) ──────────
-        print("\n=== 4. Fused: query_text + query_embedding together ===")
-        fused_embedding = vectors.embed("graph retrieval with vectors")["embedding"]
+        # ── 4. Fused: BM25 + vector — reciprocal rank fusion (ADR-175) ──────
+        # `hybrid_search()` fuses BM25 with the vector channel by embedding
+        # `query_text` server-side (#4491) — it does not accept a
+        # caller-supplied `query_embedding`.
+        print("\n=== 4. Fused: query_text='graph retrieval with vectors' ===")
         for row in vectors.hybrid_search(
             "Document",
-            query_text="graph retrieval",
-            query_embedding=fused_embedding,
-            embedding_slot="_emb_text",
+            query_text="graph retrieval with vectors",
             k=5,
         ):
             print(f"  fused score={row.get('_score', 0):.4f}  {row.get('title')}")
