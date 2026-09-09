@@ -640,7 +640,7 @@ def test_vector_similar_to_builds_sql() -> None:
 
     v = VectorClient.from_client(_client_with_mock(handler))
     v.similar_to("Person", "p-1", k=2)
-    assert seen[0]["sql"] == "SELECT * FROM SIMILAR TO Person WHERE id = $1 LIMIT 2"
+    assert seen[0]["sql"] == "SIMILAR TO Person WHERE id = $1 LIMIT 2"
     assert seen[0]["params"] == ["p-1"]
 
 

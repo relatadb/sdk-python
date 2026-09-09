@@ -164,7 +164,7 @@ def test_similar_to_binds_reference_id(payload: str) -> None:
     v = VectorClient.from_client(_client(tracker))
     v.similar_to("Person", payload, k=3)
     body = tracker.bodies[0]
-    assert body["sql"] == "SELECT * FROM SIMILAR TO Person WHERE id = $1 LIMIT 3"
+    assert body["sql"] == "SIMILAR TO Person WHERE id = $1 LIMIT 3"
     assert body["params"] == [payload]
     assert payload not in body["sql"]
 

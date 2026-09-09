@@ -291,6 +291,7 @@ class GovernanceClient(_BaseGovernance):
         *,
         purpose: str | None = None,
         justification: str | None = None,
+        officer: str | None = None,
     ) -> dict[str, Any]:
         """Request emergency HUMINT breakglass access (fixed 4 h window).
 
@@ -300,6 +301,13 @@ class GovernanceClient(_BaseGovernance):
                 ``"humint_unmask"`` when omitted.
             justification: Free-text justification for the emergency access,
                 captured for audit.
+            officer: Delegated/on-behalf-of human officer identity (#5276).
+                Set this when a service principal (e.g. a BFF holding one
+                shared bearer token) is mediating for a human officer, so the
+                two-officer rule can tell two officers behind the same token
+                apart — otherwise every request/approve pair through a
+                shared token collapses to one identity and approval is
+                structurally impossible.
 
         Returns the request record including ``request_id`` and ``status``.
         Approval requires two distinct officers (``approve_breakglass``).
@@ -309,6 +317,8 @@ class GovernanceClient(_BaseGovernance):
             payload["purpose"] = purpose
         if justification is not None:
             payload["justification"] = justification
+        if officer is not None:
+            payload["officer"] = officer
         return self._t.post("/humint/breakglass/request", payload)
 
     def approve_breakglass(
@@ -316,16 +326,27 @@ class GovernanceClient(_BaseGovernance):
         request_id: str,
         *,
         approver_note: str | None = None,
+        officer: str | None = None,
     ) -> dict[str, Any]:
         """Approve a breakglass request (second-officer sign-off).
 
         The server enforces: requester cannot approve their own request, the
         approver must belong to the same tenant, and two distinct approvals
         are required before access is granted.
+
+        Args:
+            request_id: The ``request_id`` returned by ``request_breakglass``.
+            approver_note: Optional free-text approval note.
+            officer: Delegated/on-behalf-of human officer identity (#5276)
+                — see ``request_breakglass``'s ``officer`` doc for the full
+                rationale. Pass the approving officer here when this call is
+                made through a shared service-principal bearer token.
         """
         payload: dict[str, Any] = {"request_id": request_id}
         if approver_note is not None:
             payload["note"] = approver_note
+        if officer is not None:
+            payload["officer"] = officer
         return self._t.post("/humint/breakglass/approve", payload)
 
     def breakglass_status(self, request_id: str) -> dict[str, Any]:
@@ -542,12 +563,15 @@ class AsyncGovernanceClient(_BaseGovernance):
         *,
         purpose: str | None = None,
         justification: str | None = None,
+        officer: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"source_id": source_id}
         if purpose is not None:
             payload["purpose"] = purpose
         if justification is not None:
             payload["justification"] = justification
+        if officer is not None:
+            payload["officer"] = officer
         return await self._t.post("/humint/breakglass/request", payload)
 
     async def approve_breakglass(
@@ -555,10 +579,13 @@ class AsyncGovernanceClient(_BaseGovernance):
         request_id: str,
         *,
         approver_note: str | None = None,
+        officer: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"request_id": request_id}
         if approver_note is not None:
             payload["note"] = approver_note
+        if officer is not None:
+            payload["officer"] = officer
         return await self._t.post("/humint/breakglass/approve", payload)
 
     async def breakglass_status(self, request_id: str) -> dict[str, Any]:

@@ -208,13 +208,14 @@ class VectorClient:
         over every ``_emb_*`` slot on the reference row (#1013).
 
         ``reference_id`` is bound as ``$1`` via the server-side parameterized
-        path (#3211).
+        path (#3211). ``SIMILAR TO`` is a standalone statement form — it is
+        NOT wrapped in ``SELECT * FROM`` (#5269: the engine's parser
+        (``parse_similar_body`` in crates/relata-query/src/parser.rs) expects
+        ``[PURPOSE '<p>'] SIMILAR TO <type> WHERE id = '<id>' LIMIT <n>``
+        directly).
         """
         _validate_sql_identifier(object_type, kind="object_type")
-        sql = (
-            f"SELECT * FROM SIMILAR TO {object_type} "
-            f"WHERE id = $1 LIMIT {int(k)}"
-        )
+        sql = f"SIMILAR TO {object_type} WHERE id = $1 LIMIT {int(k)}"
         result = self._client.query_params(sql, [reference_id], purpose=self._purpose(purpose))
         return result.rows
 
@@ -371,10 +372,8 @@ class AsyncVectorClient:
         purpose: str | None = None,
     ) -> list[dict[str, Any]]:
         _validate_sql_identifier(object_type, kind="object_type")
-        sql = (
-            f"SELECT * FROM SIMILAR TO {object_type} "
-            f"WHERE id = $1 LIMIT {int(k)}"
-        )
+        # #5269: SIMILAR TO is a standalone statement form, not SELECT * FROM …
+        sql = f"SIMILAR TO {object_type} WHERE id = $1 LIMIT {int(k)}"
         result = await self._client.aquery_params(
             sql, [reference_id], purpose=self._purpose(purpose)
         )
