@@ -1091,8 +1091,33 @@ class RelataClient:
         return self._sync.get("/types")
 
     def register_type(self, name: str, **kwargs: object) -> dict[str, object]:
-        """Register a custom object type at runtime. ``kwargs`` may include
-        ``description``, ``owner``, ``properties``, ``computed_columns``."""
+        """Register a custom object type at runtime (``POST /types``).
+
+        ``kwargs`` (all optional) mirrors the server's full ``TypeDef`` body
+        (``crates/relata-cli/src/serve/types_routes.rs``):
+
+        - ``description`` (``str``) -- free-text note, not schema-enforced.
+        - ``owner`` (``str``) -- tenant/agency owning this type.
+        - ``properties`` (``list[dict]``) -- each ``{"name": str, "required":
+          bool, "state_machine": {"initial_state": str, "transitions":
+          [{"from": str, "to": str}, ...]}}``. ``state_machine`` constrains
+          that one property's value transitions.
+        - ``computed_columns`` (``list[dict]``) -- each ``{"name": str,
+          "kind": "concat" | "static", "fields": list[str], "separator":
+          str, "value": str}``.
+        - ``graph_triggers`` (``list[dict]``) -- each ``{"link_type": str,
+          "src_field": str, "dst_field": str}``: on every row of this type,
+          materialise a ``LinkStore`` edge from the ``src_field`` value to
+          the ``dst_field`` value, typed ``link_type`` -- the mechanism
+          behind automatic graph wiring on ingest.
+        - ``bm25_params`` (``dict``) -- ``{"k1": float, "b": float}``,
+          overrides the process-wide full-text scoring preset for this type
+          only; both fields are required together.
+        - ``force`` (``bool``) -- required to redefine a ``computed_columns``
+          formula or ``state_machine`` on a type that already has rows
+          (otherwise the server returns 409); existing rows are never
+          retroactively recomputed/revalidated.
+        """
         payload: dict[str, object] = {"name": name, **kwargs}
         return self._sync.post("/types", payload)
 
@@ -1314,9 +1339,25 @@ class RelataClient:
         qs = urlencode({"type": object_type, "format": format, "purpose": "export"})
         return self._sync.get(f"/export?{qs}")
 
-    def register_webhook(self, url: str, event_types: list[str] | None = None) -> dict[str, object]:
-        """Register a webhook for push notifications (#967 Tier 5b)."""
-        return self._sync.post("/webhooks", {"url": url, "event_types": event_types or []})
+    def register_webhook(
+        self,
+        url: str,
+        event_types: list[str] | None = None,
+        *,
+        secret: str | None = None,
+    ) -> dict[str, object]:
+        """Register a webhook for push notifications (#967 Tier 5b).
+
+        ``secret``, when supplied, is stored server-side (never echoed back
+        by ``GET /webhooks``) and used to sign every delivered payload with
+        HMAC-SHA256 in the ``X-Webhook-Signature`` header -- the only way to
+        get a *signed* (verifiable) webhook; omitting it registers an
+        unsigned one.
+        """
+        body: dict[str, object] = {"url": url, "event_types": event_types or []}
+        if secret is not None:
+            body["secret"] = secret
+        return self._sync.post("/webhooks", body)
 
     def list_webhooks(self) -> dict[str, object]:
         """List registered webhooks."""

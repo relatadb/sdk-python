@@ -445,18 +445,24 @@ read. Register custom types at runtime via `POST /types` (persisted across
 restart):
 
 ```python
-# Register a custom type
-client._sync.post("/types", {
-    "name": "AgentTask",
-    "fields": [
-        {"name": "task_id", "type": "string"},
-        {"name": "status", "type": "string"},
-    ]
-})
+# Register a custom type — use the register_type() wrapper (below), not a raw
+# POST: the field is "properties" (each {"name", "required", "state_machine"}),
+# not "fields"/"type" — the server silently ignores unrecognized keys, so a
+# hand-rolled body that gets this wrong registers a type with NO declared
+# properties rather than erroring.
+client.register_type(
+    "AgentTask",
+    properties=[
+        {"name": "task_id", "required": True},
+        {"name": "status", "required": True},
+    ],
+)
 
 # Now ingest + query work
 client._sync.post("/ingest?object_type=AgentTask", {"task_id": "t-1", "status": "done"})
 ```
+
+`register_type()` also accepts `graph_triggers`, `computed_columns`, and `bm25_params` — see its docstring for the full shape of each.
 
 For ACL access in strict mode, grant via env var:
 ```bash
