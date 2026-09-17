@@ -42,10 +42,7 @@ def test_face_search_sql_from_list() -> None:
     from relata.client import _face_search_sql
 
     sql = _face_search_sql("gallery-1", [0.1, 0.2, 0.3], k=5, threshold=0.6)
-    assert sql == (
-        "SELECT * FROM FACE_SEARCH('0.1,0.2,0.3', 'gallery-1', "
-        "K => 5, THRESHOLD => 0.6)"
-    )
+    assert sql == "FACE_SEARCH('0.1,0.2,0.3', 'gallery-1', K => 5, THRESHOLD => 0.6)"
 
 
 def test_face_search_sql_from_string() -> None:
@@ -55,11 +52,25 @@ def test_face_search_sql_from_string() -> None:
     assert "FACE_SEARCH('1.0,0.0', 'g', K => 10, THRESHOLD => 0.7)" in sql
 
 
+def test_multimedia_sql_never_wraps_operator_in_select_from() -> None:
+    """#5497: the engine only parses the bare top-level OPERATOR(...) form.
+
+    A ``SELECT * FROM`` wrapper parses the operator name as a table
+    identifier and fails on the trailing ``(`` — every builder here must
+    emit the bare form (mirrors the TS SDK's #5496 regression test).
+    """
+    from relata.client import _face_search_sql, _match_pdq_sql, _similar_image_sql
+
+    assert "SELECT" not in _face_search_sql("g", [0.1], k=10, threshold=0.7)
+    assert "SELECT" not in _match_pdq_sql("c", "ff", threshold=0.9)
+    assert "SELECT" not in _similar_image_sql("m", threshold=None, index=None)
+
+
 def test_match_pdq_sql_shape() -> None:
     from relata.client import _match_pdq_sql
 
     sql = _match_pdq_sql("ncmec", "ffff", threshold=0.9)
-    assert sql == "SELECT * FROM MATCH_PDQ('ffff', 'ncmec', THRESHOLD => 0.9)"
+    assert sql == "MATCH_PDQ('ffff', 'ncmec', THRESHOLD => 0.9)"
 
 
 def test_multimedia_sql_quotes_single_quotes() -> None:
@@ -67,10 +78,10 @@ def test_multimedia_sql_quotes_single_quotes() -> None:
     from relata.client import _face_search_sql, _match_pdq_sql
 
     assert _face_search_sql("o'reilly", [0.1], k=1, threshold=0.5) == (
-        "SELECT * FROM FACE_SEARCH('0.1', 'o''reilly', K => 1, THRESHOLD => 0.5)"
+        "FACE_SEARCH('0.1', 'o''reilly', K => 1, THRESHOLD => 0.5)"
     )
     assert _match_pdq_sql("o'reilly", "ff", threshold=0.5) == (
-        "SELECT * FROM MATCH_PDQ('ff', 'o''reilly', THRESHOLD => 0.5)"
+        "MATCH_PDQ('ff', 'o''reilly', THRESHOLD => 0.5)"
     )
 
 
@@ -79,7 +90,7 @@ def test_similar_image_sql_bare_form() -> None:
     from relata.client import _similar_image_sql
 
     sql = _similar_image_sql("media-42", threshold=None, index=None)
-    assert sql == "SELECT * FROM SIMILAR_IMAGE('media-42')"
+    assert sql == "SIMILAR_IMAGE('media-42')"
 
 
 def test_similar_image_sql_with_threshold_and_index() -> None:
@@ -87,7 +98,7 @@ def test_similar_image_sql_with_threshold_and_index() -> None:
 
     sql = _similar_image_sql("media-42", threshold=0.6, index="ncmec")
     assert sql == (
-        "SELECT * FROM SIMILAR_IMAGE('media-42', THRESHOLD => 0.6, INDEX => 'ncmec')"
+        "SIMILAR_IMAGE('media-42', THRESHOLD => 0.6, INDEX => 'ncmec')"
     )
 
 
@@ -95,7 +106,7 @@ def test_similar_image_sql_threshold_only() -> None:
     from relata.client import _similar_image_sql
 
     sql = _similar_image_sql("media-42", threshold=0.6, index=None)
-    assert sql == "SELECT * FROM SIMILAR_IMAGE('media-42', THRESHOLD => 0.6)"
+    assert sql == "SIMILAR_IMAGE('media-42', THRESHOLD => 0.6)"
 
 
 def test_similar_image_sql_quotes_single_quotes() -> None:
@@ -103,7 +114,7 @@ def test_similar_image_sql_quotes_single_quotes() -> None:
 
     sql = _similar_image_sql("o'reilly", threshold=0.5, index="o'index")
     assert sql == (
-        "SELECT * FROM SIMILAR_IMAGE('o''reilly', THRESHOLD => 0.5, INDEX => 'o''index')"
+        "SIMILAR_IMAGE('o''reilly', THRESHOLD => 0.5, INDEX => 'o''index')"
     )
 
 
@@ -130,7 +141,8 @@ def test_face_search_posts_face_search_operator() -> None:
 
     client = _mocked_client(handler)
     result = client.face_search("gallery-1", [0.1, 0.2], k=5, threshold=0.6)
-    assert "SELECT * FROM FACE_SEARCH(" in str(seen[0]["sql"])
+    assert "FACE_SEARCH(" in str(seen[0]["sql"])
+    assert "SELECT" not in str(seen[0]["sql"])
     assert "K => 5" in str(seen[0]["sql"])
     assert "THRESHOLD => 0.6" in str(seen[0]["sql"])
     assert seen[0]["purpose"] == "analytics"
@@ -150,9 +162,7 @@ def test_match_pdq_posts_match_pdq_operator() -> None:
 
     client = _mocked_client(handler)
     result = client.match_pdq("ncmec", "ffff", threshold=0.95, purpose="investigation")
-    assert str(seen[0]["sql"]) == (
-        "SELECT * FROM MATCH_PDQ('ffff', 'ncmec', THRESHOLD => 0.95)"
-    )
+    assert str(seen[0]["sql"]) == "MATCH_PDQ('ffff', 'ncmec', THRESHOLD => 0.95)"
     assert seen[0]["purpose"] == "investigation"
     assert result.rows[0]["entity_id"] == "e-9"
 
@@ -174,7 +184,7 @@ def test_similar_image_posts_similar_image_operator() -> None:
         "media-42", threshold=0.6, index="ncmec", purpose="investigation"
     )
     assert str(seen[0]["sql"]) == (
-        "SELECT * FROM SIMILAR_IMAGE('media-42', THRESHOLD => 0.6, INDEX => 'ncmec')"
+        "SIMILAR_IMAGE('media-42', THRESHOLD => 0.6, INDEX => 'ncmec')"
     )
     assert seen[0]["purpose"] == "investigation"
     assert result.rows[0]["entity_id"] == "e-7"
@@ -202,7 +212,7 @@ async def test_asimilar_image_uses_same_sql() -> None:
 def _async_similar_image_handler(req: httpx.Request) -> httpx.Response:
     body = json.loads(req.content)
     assert body["sql"] == (
-        "SELECT * FROM SIMILAR_IMAGE('media-42', THRESHOLD => 0.6, INDEX => 'ncmec')"
+        "SIMILAR_IMAGE('media-42', THRESHOLD => 0.6, INDEX => 'ncmec')"
     )
     return httpx.Response(
         200, json={"rows": [{"entity_id": "y"}], "query_id": "q", "elapsed_ms": 0}

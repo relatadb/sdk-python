@@ -160,31 +160,35 @@ def _face_search_sql(
     k: int,
     threshold: float,
 ) -> str:
-    """Build a ``SELECT * FROM FACE_SEARCH(...)`` ticket (#2251).
+    """Build a bare ``FACE_SEARCH(...)`` ticket (#2251, #5497).
 
     Mirrors the server operator registered in
     ``relata_query::parser`` — ``FACE_SEARCH('<csv floats>', '<gallery>',
-    K => <n>, THRESHOLD => <f>)`` (defaults K=10, THRESHOLD=0.7).
+    K => <n>, THRESHOLD => <f>)`` (defaults K=10, THRESHOLD=0.7). The
+    engine dispatches this as a bare top-level statement only — wrapping
+    it in ``SELECT * FROM`` is a parse error (#5497, fixed in the TS SDK
+    by #5496).
     """
     if isinstance(embedding, str):
         emb_csv = embedding
     else:
         emb_csv = ",".join(repr(float(x)) for x in embedding)
     return (
-        "SELECT * FROM FACE_SEARCH("
+        "FACE_SEARCH("
         f"{_sql_literal(emb_csv)}, {_sql_literal(gallery_id)}, "
         f"K => {int(k)}, THRESHOLD => {float(threshold)})"
     )
 
 
 def _match_pdq_sql(corpus_id: str, query_hash: str, *, threshold: float) -> str:
-    """Build a ``SELECT * FROM MATCH_PDQ(...)`` ticket (#2251).
+    """Build a bare ``MATCH_PDQ(...)`` ticket (#2251, #5497).
 
     Mirrors ``MATCH_PDQ('<hash>', '<corpus>', THRESHOLD => <f>)``
-    (default THRESHOLD=0.9).
+    (default THRESHOLD=0.9). Bare top-level form only — see
+    ``_face_search_sql``'s #5497 note.
     """
     return (
-        "SELECT * FROM MATCH_PDQ("
+        "MATCH_PDQ("
         f"{_sql_literal(query_hash)}, {_sql_literal(corpus_id)}, "
         f"THRESHOLD => {float(threshold)})"
     )
@@ -196,15 +200,16 @@ def _similar_image_sql(
     threshold: float | None,
     index: str | None,
 ) -> str:
-    """Build a ``SELECT * FROM SIMILAR_IMAGE(...)`` ticket (#2840, PR #2859).
+    """Build a bare ``SIMILAR_IMAGE(...)`` ticket (#2840, PR #2859, #5497).
 
     Mirrors the server operator registered in ``relata_query::parser``
     (``SIMILAR_IMAGE('<media_ref>', THRESHOLD => <f>, INDEX => '<corpus>')``
     — ``THRESHOLD`` defaults to 0.9 server-side when omitted, ``INDEX`` is
     optional with no server default and scopes the search to a named
-    corpus/index when given).
+    corpus/index when given). Bare top-level form only — see
+    ``_face_search_sql``'s #5497 note.
     """
-    sql = f"SELECT * FROM SIMILAR_IMAGE({_sql_literal(media_ref)}"
+    sql = f"SIMILAR_IMAGE({_sql_literal(media_ref)}"
     if threshold is not None:
         sql += f", THRESHOLD => {float(threshold)}"
     if index is not None:
@@ -1688,8 +1693,7 @@ class RelataClient:
     ) -> QueryResult:
         """Biometric face k-NN search against a gallery (#2251, ADR-030).
 
-        Executes ``SELECT * FROM FACE_SEARCH(...)`` through the governed
-        ``/query`` door.
+        Executes ``FACE_SEARCH(...)`` through the governed ``/query`` door.
 
         Args:
             gallery_id: Gallery to search (matches ``MediaEmbedding.gallery_id``).
@@ -1739,8 +1743,8 @@ class RelataClient:
     ) -> QueryResult:
         """Perceptual-hash (PDQ) near-duplicate search over a corpus (#2251).
 
-        Executes ``SELECT * FROM MATCH_PDQ(...)`` through the governed
-        ``/query`` door. PDQ near-duplicates differ by ≤ 31 bits (ADR-187).
+        Executes ``MATCH_PDQ(...)`` through the governed ``/query`` door. PDQ
+        near-duplicates differ by ≤ 31 bits (ADR-187).
 
         Args:
             corpus_id: Hash corpus to search (matches ``MediaHash.corpus_id``).
@@ -1778,8 +1782,7 @@ class RelataClient:
     ) -> QueryResult:
         """Near-duplicate / similar-image search (#2840, PR #2859).
 
-        Executes ``SELECT * FROM SIMILAR_IMAGE(...)`` through the governed
-        ``/query`` door.
+        Executes ``SIMILAR_IMAGE(...)`` through the governed ``/query`` door.
 
         Args:
             media_ref: Reference media identifier to search from.
