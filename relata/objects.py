@@ -98,6 +98,12 @@ class ObjectClient:
             on_conflict: ``"upsert"`` (default) overwrites; ``"skip"`` ignores
                 existing rows; ``"error"`` raises on conflict (HTTP 409).
 
+        Schema rejections do NOT raise: a rejected row resolves normally with
+        ``rows_rejected > 0`` and a populated ``errors`` list (e.g.
+        ``{"rows_queued": 0, "rows_rejected": 1, "errors": ["Type.field:
+        minCount 1 not met"]}``). "No exception" does not mean "stored" —
+        always check ``rows_rejected`` / ``errors`` on the returned ack.
+
         Durability contract (#4628): ``POST /ingest`` is **asynchronous** —
         this does NOT return the server's upsert receipt (``object_id``,
         ``write_seq``, ``valid_from``); that description was wrong. It
