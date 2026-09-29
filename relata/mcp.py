@@ -137,7 +137,9 @@ class McpClient:
 
         #253: the registered schema declares ``entity_type`` (not ``object_type``)
         and ``filters`` as a key-value object (not a ``filter`` string); sending
-        the old names 400'd before dispatch.
+        the old names 400'd before dispatch. Filters are pushed into the SQL
+        WHERE clause server-side before LIMIT (#5533): string values match
+        exactly but case-insensitively, numbers/booleans exactly.
         """
         args: dict[str, Any] = {"entity_type": object_type, "limit": limit}
         if filters:
