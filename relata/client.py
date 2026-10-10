@@ -1372,10 +1372,6 @@ class RelataClient:
         """Delete a webhook."""
         return self._sync.delete(f"/webhooks/{path_segment(webhook_id)}")
 
-    def sparql(self, query: str) -> dict[str, object]:
-        """Execute a SPARQL query."""
-        return self._sync.post("/sparql", {"query": query})
-
     def cluster_topology(self) -> dict[str, object]:
         """Get cluster topology (nodes, partitions, roles)."""
         return self._sync.get("/cluster/topology")
