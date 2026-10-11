@@ -10,7 +10,9 @@ from relata import (
     EventAppendReceipt,
     EventAppendRequest,
     EventTarget,
+    LegacyUsageBaseline,
     aggregate_usage_events,
+    aggregate_usage_with_baseline,
     arecord_usage,
     record_usage,
 )
@@ -161,3 +163,80 @@ def test_aggregate_usage_events_preserves_modern_epoch_nanoseconds() -> None:
         _usage_row("evt-earlier", observed_at=str(base), cited=True),
     ]
     assert aggregate_usage_events(rows, target=_target()).last_cited_at == base + 1
+
+
+def test_aggregate_usage_with_baseline_keeps_unknown_legacy_feedback_separate() -> None:
+    baseline = LegacyUsageBaseline(
+        format_version="document-usage-baseline-v1",
+        target=_target(),
+        cutover_at=100,
+        citation_count=8,
+        retrieval_count=12,
+        feedback_avg=0.6,
+        feedback_count=None,
+        last_cited_at=90,
+    )
+    result = aggregate_usage_with_baseline(
+        [_usage_row("evt-new", observed_at=101, cited=True, retrieved=True, feedback_score=0.9)],
+        target=_target(),
+        baseline=baseline,
+    )
+    assert result.citation_count == 9
+    assert result.retrieval_count == 13
+    assert result.last_cited_at == 101
+    assert result.post_cutover.feedback_avg == 0.9
+    assert result.legacy.feedback_avg == 0.6
+    assert result.feedback_count is None
+    assert result.feedback_avg is None
+
+
+def test_aggregate_usage_with_baseline_weights_only_trusted_count() -> None:
+    baseline = LegacyUsageBaseline(
+        format_version="document-usage-baseline-v1",
+        target=_target(),
+        cutover_at=100,
+        citation_count=8,
+        retrieval_count=12,
+        feedback_avg=0.5,
+        feedback_count=2,
+        last_cited_at=None,
+    )
+    result = aggregate_usage_with_baseline(
+        [_usage_row("evt-new", observed_at=100, feedback_score=1.0)],
+        target=_target(),
+        baseline=baseline,
+    )
+    assert result.feedback_count == 3
+    assert result.feedback_avg == pytest.approx(2 / 3)
+
+
+def test_aggregate_usage_with_baseline_rejects_pre_cutover_and_bad_baseline() -> None:
+    baseline = LegacyUsageBaseline(
+        format_version="document-usage-baseline-v1",
+        target=_target(),
+        cutover_at=100,
+        citation_count=0,
+        retrieval_count=0,
+        feedback_avg=0.5,
+        feedback_count=None,
+        last_cited_at=None,
+    )
+    with pytest.raises(ValueError, match="predates"):
+        aggregate_usage_with_baseline(
+            [_usage_row("evt-old", observed_at=99, cited=True)],
+            target=_target(),
+            baseline=baseline,
+        )
+    with pytest.raises(ValueError, match="format_version"):
+        aggregate_usage_with_baseline(
+            [], target=_target(), baseline=LegacyUsageBaseline(**{**baseline.__dict__, "format_version": "v2"})
+        )
+    with pytest.raises(ValueError, match="different target"):
+        aggregate_usage_with_baseline(
+            [],
+            target=_target(),
+            baseline=LegacyUsageBaseline(**{
+                **baseline.__dict__,
+                "target": EventTarget(object_type="DocumentSource", key="report_id", value="another-report"),
+            }),
+        )

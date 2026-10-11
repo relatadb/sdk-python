@@ -100,7 +100,15 @@ from relata.models import (
     StatusResponse,
     VersionInfo,
 )
-from relata.usage import UsageAggregate, aggregate_usage_events, arecord_usage, record_usage
+from relata.usage import (
+    LegacyUsageBaseline,
+    MigratedUsageAggregate,
+    UsageAggregate,
+    aggregate_usage_events,
+    aggregate_usage_with_baseline,
+    arecord_usage,
+    record_usage,
+)
 from relata.namespace import AsyncNamespace, Namespace
 from relata.objects import AsyncObjectClient, ObjectClient
 from relata.query import QueryBuilder, select
@@ -329,7 +337,10 @@ __all__ = [
     "record_usage",
     "arecord_usage",
     "aggregate_usage_events",
+    "aggregate_usage_with_baseline",
     "UsageAggregate",
+    "LegacyUsageBaseline",
+    "MigratedUsageAggregate",
     "VersionInfo",
     "Stats",
     "ReadyReport",

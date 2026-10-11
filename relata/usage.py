@@ -31,6 +31,38 @@ class UsageAggregate:
     last_cited_at: int | None
 
 
+@dataclass(frozen=True)
+class LegacyUsageBaseline:
+    """Versioned snapshot of counters read before the usage-event cutover.
+
+    ``feedback_count`` is nullable because older aggregates persisted only a
+    mean. Leave it unknown unless an independent, trusted source supplies the
+    original sample count.
+    """
+
+    format_version: str
+    target: EventTarget
+    cutover_at: int
+    citation_count: int
+    retrieval_count: int
+    feedback_avg: float | None
+    feedback_count: int | None
+    last_cited_at: int | None
+
+
+@dataclass(frozen=True)
+class MigratedUsageAggregate:
+    """A frozen legacy baseline plus separately reduced post-cutover events."""
+
+    legacy: LegacyUsageBaseline
+    post_cutover: UsageAggregate
+    citation_count: int
+    retrieval_count: int
+    feedback_count: int | None
+    feedback_avg: float | None
+    last_cited_at: int | None
+
+
 def aggregate_usage_events(
     rows: Iterable[Mapping[str, Any]], *, target: EventTarget
 ) -> UsageAggregate:
@@ -97,6 +129,114 @@ def aggregate_usage_events(
         feedback_avg=(sum(feedback_scores) / len(feedback_scores)) if feedback_scores else None,
         last_cited_at=max(cited_timestamps) if cited_timestamps else None,
     )
+
+
+def aggregate_usage_with_baseline(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    target: EventTarget,
+    baseline: LegacyUsageBaseline,
+) -> MigratedUsageAggregate:
+    """Combine a frozen v1 snapshot with a complete post-cutover event set.
+
+    The caller must stop old writers before taking the baseline. Events before
+    ``cutover_at`` are rejected. If the old feedback sample count is unknown,
+    the two means stay separate and combined feedback fields are ``None``.
+    """
+    _validate_legacy_usage_baseline(baseline)
+    if baseline.target != target:
+        raise ValueError("legacy usage baseline belongs to a different target")
+    materialized = list(rows)
+    usage = aggregate_usage_events(materialized, target=target)
+    for row in materialized:
+        observed_at = row.get("observed_at")
+        if isinstance(observed_at, str) and observed_at.lstrip("-").isdigit():
+            observed_at = int(observed_at)
+        if isinstance(observed_at, bool) or not isinstance(observed_at, int):
+            raise ValueError("observed_at must be an integer timestamp")
+        if observed_at < baseline.cutover_at:
+            raise ValueError("usage event predates the baseline cutover")
+
+    max_count = (1 << 63) - 1
+    if baseline.citation_count + usage.citation_count > max_count:
+        raise ValueError("combined citation_count exceeds the signed 64-bit range")
+    if baseline.retrieval_count + usage.retrieval_count > max_count:
+        raise ValueError("combined retrieval_count exceeds the signed 64-bit range")
+
+    if baseline.feedback_count is None:
+        combined_feedback_count = None
+        combined_feedback_avg = None
+    else:
+        combined_feedback_count = baseline.feedback_count + usage.feedback_count
+        if combined_feedback_count > max_count:
+            raise ValueError("combined feedback_count exceeds the signed 64-bit range")
+        total = 0.0
+        if baseline.feedback_count and baseline.feedback_avg is not None:
+            total += baseline.feedback_avg * baseline.feedback_count
+        if usage.feedback_count and usage.feedback_avg is not None:
+            total += usage.feedback_avg * usage.feedback_count
+        combined_feedback_avg = (
+            total / combined_feedback_count if combined_feedback_count else None
+        )
+
+    last_cited_at = baseline.last_cited_at
+    if usage.last_cited_at is not None and (
+        last_cited_at is None or usage.last_cited_at > last_cited_at
+    ):
+        last_cited_at = usage.last_cited_at
+    return MigratedUsageAggregate(
+        legacy=baseline,
+        post_cutover=usage,
+        citation_count=baseline.citation_count + usage.citation_count,
+        retrieval_count=baseline.retrieval_count + usage.retrieval_count,
+        feedback_count=combined_feedback_count,
+        feedback_avg=combined_feedback_avg,
+        last_cited_at=last_cited_at,
+    )
+
+
+def _validate_legacy_usage_baseline(baseline: LegacyUsageBaseline) -> None:
+    if baseline.format_version != "document-usage-baseline-v1":
+        raise ValueError("unsupported legacy usage baseline format_version")
+    if not isinstance(baseline.target, EventTarget) or not all(
+        isinstance(value, str) and value.strip()
+        for value in (baseline.target.object_type, baseline.target.key, baseline.target.value)
+    ):
+        raise ValueError("baseline target object_type, key, and value are required")
+    if isinstance(baseline.cutover_at, bool) or not isinstance(baseline.cutover_at, int):
+        raise ValueError("cutover_at must be an integer timestamp")
+    if not -(1 << 63) <= baseline.cutover_at < (1 << 63):
+        raise ValueError("cutover_at must fit a signed 64-bit timestamp")
+    for name, value in (
+        ("citation_count", baseline.citation_count),
+        ("retrieval_count", baseline.retrieval_count),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < (1 << 63):
+            raise ValueError(f"{name} must be a non-negative integer")
+    if baseline.feedback_count is not None and (
+        isinstance(baseline.feedback_count, bool)
+        or not isinstance(baseline.feedback_count, int)
+        or not 0 <= baseline.feedback_count < (1 << 63)
+    ):
+        raise ValueError("feedback_count must be a non-negative integer or None")
+    if baseline.feedback_avg is not None and (
+        isinstance(baseline.feedback_avg, bool)
+        or not isinstance(baseline.feedback_avg, (int, float))
+        or not math.isfinite(baseline.feedback_avg)
+        or not 0 <= baseline.feedback_avg <= 1
+    ):
+        raise ValueError("feedback_avg must be finite and between 0 and 1")
+    if baseline.feedback_count == 0 and baseline.feedback_avg is not None:
+        raise ValueError("feedback_avg must be None when feedback_count is zero")
+    if baseline.feedback_count is not None and baseline.feedback_count > 0 and baseline.feedback_avg is None:
+        raise ValueError("feedback_avg is required when feedback_count is positive")
+    if baseline.last_cited_at is not None and (
+        isinstance(baseline.last_cited_at, bool)
+        or not isinstance(baseline.last_cited_at, int)
+    ):
+        raise ValueError("last_cited_at must be an integer timestamp or None")
+    if baseline.last_cited_at is not None and not -(1 << 63) <= baseline.last_cited_at < (1 << 63):
+        raise ValueError("last_cited_at must fit a signed 64-bit timestamp")
 
 
 def _request(

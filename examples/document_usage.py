@@ -3,7 +3,14 @@
 import json
 import os
 
-from relata import EventTarget, RelataClient, aggregate_usage_events, record_usage
+from relata import (
+    EventTarget,
+    LegacyUsageBaseline,
+    RelataClient,
+    aggregate_usage_events,
+    aggregate_usage_with_baseline,
+    record_usage,
+)
 
 tenant = os.environ.get("RELATA_TENANT")
 if not tenant:
@@ -48,6 +55,42 @@ with RelataClient(
         events.rows,
         target=EventTarget(object_type="DocumentSource", key="report_id", value=target_id),
     )
+    target = EventTarget(object_type="DocumentSource", key="report_id", value=target_id)
+    # A fixed synthetic frozen snapshot demonstrates migration arithmetic;
+    # replace it with the tenant-governed pre-cutover export in applications.
+    baseline = LegacyUsageBaseline(
+        format_version="document-usage-baseline-v1",
+        target=target,
+        cutover_at=0,
+        citation_count=7,
+        retrieval_count=11,
+        feedback_avg=0.6,
+        feedback_count=None,
+        last_cited_at=None,
+    )
+    migrated = aggregate_usage_with_baseline(events.rows, target=target, baseline=baseline)
+    trusted_baseline = LegacyUsageBaseline(
+        **{**baseline.__dict__, "feedback_count": 2}
+    )
+    trusted_migrated = aggregate_usage_with_baseline(
+        events.rows, target=target, baseline=trusted_baseline
+    )
+    try:
+        aggregate_usage_with_baseline(
+            events.rows,
+            target=target,
+            baseline=LegacyUsageBaseline(
+                **{
+                    **baseline.__dict__,
+                    "target": EventTarget(
+                        object_type="DocumentSource", key="report_id", value="other"
+                    ),
+                }
+            ),
+        )
+        wrong_target_rejected = False
+    except ValueError:
+        wrong_target_rejected = True
     aggregate = {
         "target_type": summary.target_type,
         "target_id": summary.target_id,
@@ -60,4 +103,19 @@ with RelataClient(
             str(summary.last_cited_at) if summary.last_cited_at is not None else None
         ),
     }
-    print(json.dumps({"receipt": receipt.model_dump(mode="json"), "summary": aggregate}))
+    print(json.dumps({
+        "receipt": receipt.model_dump(mode="json"),
+        "summary": aggregate,
+        "migration": {
+            "baseline_format_version": migrated.legacy.format_version,
+            "citation_count": migrated.citation_count,
+            "retrieval_count": migrated.retrieval_count,
+            "legacy_feedback_avg": migrated.legacy.feedback_avg,
+            "post_cutover_feedback_avg": migrated.post_cutover.feedback_avg,
+            "feedback_count": migrated.feedback_count,
+            "feedback_avg": migrated.feedback_avg,
+            "trusted_feedback_count": trusted_migrated.feedback_count,
+            "trusted_feedback_avg": trusted_migrated.feedback_avg,
+            "wrong_target_rejected": wrong_target_rejected,
+        },
+    }))
