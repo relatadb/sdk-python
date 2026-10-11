@@ -1,9 +1,9 @@
 """Bulk ingest SDK (#83).
 
-Surfaces the server's ``POST /ingest?object_type=<Type>`` for NDJSON / CSV /
-Arrow batches. Distinct from :class:`relata.client.RelataClient.ingest_document`
-which is the datagrep-extractor envelope; this module is the general batch
-path the partner contract (§4) calls for.
+Exposes the generic row-ingest APIs. :meth:`relata.client.RelataClient.ingest_document`
+sends prepared document rows as a queued mixed-type request to
+``/ingest/bulk``; document extraction and source-format mapping belong in an
+application adapter.
 """
 
 from __future__ import annotations
