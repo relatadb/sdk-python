@@ -6,6 +6,11 @@ Python SDK for the [Relata DB](https://relatadb.dev) enterprise-grade data engin
 - **Docs:** [relatadb.dev](https://relatadb.dev) · [Issues](https://github.com/relatadb/sdk-python/issues)
 - **By:** [ZySec AI](https://zysec.ai) — Frontier Sovereign Intelligence · hello@zysec.ai
 
+For the v3.0 platform boundary and SDK migration plan, see the
+[SDK migration guide](../README-v3-migration.md).
+Python is one of the three supported consumer SDKs (Python, TypeScript, Go).
+Other languages use the HTTP API and its OpenAPI reference at `GET /openapi.json`.
+
 Relata DB is a Rust-native, ontology-driven engine built for bi-temporal, governed knowledge workloads: link analysis, identity resolution, full-text and vector search, access-scoped restricted data, and provenance-tracked analytics.
 
 ## Requirements
@@ -296,48 +301,28 @@ async def main():
 asyncio.run(main())
 ```
 
-### Plain gRPC query with Arrow-IPC opt-in (#4090)
+### HTTP Arrow IPC
 
-`RelataClient.query_grpc` runs a SQL query over the server's plain gRPC
-`RelataQuery/Execute` RPC (default port 50051, `RELATA_GRPC_PORT`) and opts
-into the negotiated Arrow-IPC row encoding (`QueryRequest.wants_arrow_ipc_rows`
-— server side landed in PR #4086). The server answers with whichever
-encoding it supports (`arrow_ipc_rows` or a `rows_json` fallback);
-`query_grpc` decodes either wire shape into the same `QueryResult` shape
-`query()` returns, so callers never need to know which one came back.
+For columnar results, `RelataClient.query_arrow()` returns a `pyarrow.Table`
+from the HTTP `POST /query/arrow` endpoint. Install `pyarrow` to use this
+helper. `StreamingClient.query_arrow_raw()` exposes the same HTTP response as
+byte chunks when the application wants to provide its own Arrow reader. The
+raw chunks can be joined before passing them to an Arrow IPC stream reader.
 
 ```python
-result = client.query_grpc("SELECT * FROM Person LIMIT 1000", purpose="analytics")
-print(result.row_count, result.rows[0]["name"])
+from relata import RelataClient, StreamingClient
+
+with RelataClient("http://localhost:9090", purpose="analytics") as client:
+    table = client.query_arrow("SELECT * FROM Person LIMIT 1000")
+    print(table.num_rows)
+
+    raw_bytes = b"".join(
+        StreamingClient.from_client(client).query_arrow_raw(
+            "SELECT * FROM Person LIMIT 1000"
+        )
+    )
+    print(f"Received {len(raw_bytes)} Arrow IPC bytes")
 ```
-
-Requires the optional `grpcio` dependency: `pip install relata-sdk[grpc]` (or
-`pip install grpcio` directly). Unlike `query_flight`/`query_arrow` (which
-only need the undeclared-optional `pyarrow`), the rest of this SDK has zero
-gRPC dependency — Python previously had none at all, so `grpcio` is declared
-as a real, versioned extra (mirrors the `langgraph` extra) rather than an
-undeclared lazy import. `arrow_ipc_rows` decoding still needs `pyarrow`
-(already optional elsewhere in this SDK) — only reached when the server
-actually answers with that encoding. TLS is selected automatically for
-`grpcs://`/`tls://` endpoints (`grpc_endpoint="grpcs://host:port"`).
-
-`query_grpc_stream` is the same opt-in over the server-streaming
-`RelataQuery/ExecuteStream` RPC: the server answers with a stream of
-`RowBatch` frames instead of one buffered `QueryResponse`, and **each frame
-independently** negotiates `arrow_ipc_rows` vs `rows_json` (same
-empty-means-fall-back contract, applied per frame). Every frame is collected
-into the same `QueryResult` shape, so a large result set needs no different
-consumption model than a small one.
-
-```python
-result = client.query_grpc_stream("SELECT * FROM Person", purpose="analytics")
-print(result.row_count)
-```
-
-Because `RowBatch` carries no `row_count` field, the returned `row_count` is
-the number of rows actually received (whereas `query_grpc` reports the
-server's own `QueryResponse.row_count`). `aquery_grpc` / `aquery_grpc_stream`
-are the async variants of both.
 
 ### Error handling
 
@@ -410,14 +395,18 @@ Each module inherits the parent client's auth, tenant, and purpose context:
 | `relata.audit` | `AuditClient` | Audit entries (filtered/paginated) + signed receipts + PDF export |
 | `relata.identity` | `IdentityClient` | Identity label/uncertainty + lookup tables + ERASE SUBJECT |
 | `relata.objects` | `ObjectClient` | Typed upsert + batch + point-lookup (`get`) + delete via `/ingest?object_type=` |
-| `relata.ingest` | `IngestClient` | Bulk NDJSON + CSV + media status |
+| `relata.ingest` | `IngestClient` | Bulk NDJSON + CSV + media task status; it does not upload raw media bytes |
 | `relata.vectors` | `VectorClient` | KNN + hybrid search + similar-to (SQL-backed) |
-| `relata.s3` | `S3Client` | boto3 / httpx / aiobotocore wrapper for the S3 protocol door |
 | `relata.system` | `SystemClient` | LLM config + test + jobs status |
 | `relata.streaming` | `StreamingClient` | NDJSON row streams + SSE consumers (watch/alerts) + Arrow IPC |
 | `relata.tenants` | `TenantAdminClient` | Tenant CRUD + quota + sharing agreements + platform admin |
 
 Each has an async mirror (`Async*`).
+
+`IngestClient.media_status()` polls an existing task but does not upload raw
+media bytes. `McpClient.ingest_media()` is the available MCP tool wrapper and
+uses that tool's base64/payload shape; it is separate from a raw
+`POST /ingest/media` upload.
 
 **Admin-listener reachability (`admin_base_url`, #2321):** on a hardened
 `server`/`cluster` deployment, `/admin/*` and `/platform/*` are mounted only
