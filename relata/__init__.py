@@ -39,7 +39,6 @@ Public API
 from relata.a2a import A2AClient, AsyncA2AClient
 from relata.audit import AsyncAuditClient, AuditClient
 from relata.backup import AsyncBackupClient, BackupClient
-from relata.flight import AsyncFlightClient, FlightClient
 from relata.client import RelataClient
 from relata import aml
 from relata import canonical
@@ -147,7 +146,6 @@ from relata.rag_understanding import (
     rrf_merge,
     smart_rag_query,
 )
-from relata.s3 import AsyncS3Client, S3Client
 from relata.search import AsyncSearchClient, SearchClient
 from relata.structural_navigation import (
     ChildSelector,
@@ -195,14 +193,10 @@ __all__ = [
     "AsyncIngestClient",
     "VectorClient",
     "AsyncVectorClient",
-    "S3Client",
-    "AsyncS3Client",
     "SystemClient",
     "AsyncSystemClient",
     "StreamingClient",
     "AsyncStreamingClient",
-    "FlightClient",
-    "AsyncFlightClient",
     "TenantAdminClient",
     "AsyncTenantAdminClient",
     # #2757: previously import-only (required an explicit submodule import)

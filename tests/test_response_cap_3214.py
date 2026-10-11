@@ -78,14 +78,6 @@ def test_close_strips_auth_header_from_open_async_transport() -> None:
     assert "Authorization" not in async_t._client.headers
 
 
-def test_s3_client_bearer_private_and_close_clears() -> None:
-    from relata.s3 import S3Client
-
-    s3 = S3Client(BASE, bearer_token="s3cr3t")
-    assert not hasattr(s3, "bearer_token")
-    assert s3._bearer_token == "s3cr3t"
-    s3.close()
-    assert s3._bearer_token is None
 
 
 def test_langgraph_checkpointer_token_private_and_close_clears() -> None:

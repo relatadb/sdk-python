@@ -689,14 +689,6 @@ def test_vector_embed_batch_posts_to_embed_batch_endpoint() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_s3_client_boto3_configured() -> None:
-    pytest.importorskip("boto3")
-    from relata.s3 import S3Client
-
-    s3 = S3Client("http://localhost:9090", bearer_token="tok", tenant="acme").boto3()
-    assert s3.meta.region_name == "us-east-1"
-    # endpoint_url is stored on the meta endpoint URL.
-    assert "localhost:9090" in s3.meta.endpoint_url
 
 
 def test_query_result_processing_time_ms_from_new_field() -> None:

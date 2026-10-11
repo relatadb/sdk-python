@@ -1,9 +1,4 @@
-"""Tests for the multimedia ops (#2251) + Arrow Flight client (#2253).
-
-Uses ``httpx.MockTransport`` for the SQL-door multimedia ops (no live server)
-and pure unit tests for the Flight ticket/endpoint builders. The live Flight
-RPC needs a running server + ``pyarrow`` so it is not exercised here.
-"""
+"""Tests for multimedia operators over native HTTP using mock transports."""
 
 from __future__ import annotations
 
@@ -233,36 +228,12 @@ def _async_face_handler(req: httpx.Request) -> httpx.Response:
 # ---------------------------------------------------------------------------
 
 
-def test_flight_ticket_injects_purpose_comment() -> None:
-    from relata.client import _flight_ticket
-
-    assert _flight_ticket("SELECT 1", None) == "SELECT 1"
-    assert _flight_ticket("SELECT 1", "analytics") == "/* PURPOSE 'analytics' */ SELECT 1"
 
 
-def test_flight_ticket_escapes_purpose_quote() -> None:
-    from relata.client import _flight_ticket
-
-    # The server scans for /* PURPOSE ' up to the next '; an embedded quote
-    # must be doubled so the purpose is not truncated.
-    assert _flight_ticket("SELECT 1", "o'reilly") == "/* PURPOSE 'o''reilly' */ SELECT 1"
 
 
-def test_flight_endpoint_derives_from_base_url() -> None:
-    from relata.client import _flight_endpoint_from
-
-    assert _flight_endpoint_from("http://localhost:9090", None) == "grpc://localhost:8815"
-    assert _flight_endpoint_from("https://relata.example.com", None) == (
-        "grpc://relata.example.com:8815"
-    )
 
 
-def test_flight_endpoint_explicit_override_wins() -> None:
-    from relata.client import _flight_endpoint_from
-
-    assert _flight_endpoint_from("http://localhost:9090", "grpc://host:9999") == (
-        "grpc://host:9999"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -271,75 +242,3 @@ def test_flight_endpoint_explicit_override_wins() -> None:
 # the HTTP door does, or a multi-tenant cluster silently falls back to the
 # default tenant.
 # ---------------------------------------------------------------------------
-
-
-def test_flight_metadata_threads_tenant_scope() -> None:
-    from relata import RelataClient
-    from relata.flight import flight_call_headers
-
-    client = RelataClient(
-        BASE,
-        bearer_token="tok",
-        tenant="acme",
-        acting_as="agent-1",
-        delegated_by="root-org",
-        headers={"X-Verified-Principal": "svc-a"},
-    )
-    headers = dict(flight_call_headers(client, None))
-    assert headers[b"authorization"] == b"Bearer tok"
-    assert headers[b"x-relata-tenant-id"] == b"acme"
-    assert headers[b"x-acting-as"] == b"agent-1"
-    assert headers[b"x-delegated-by"] == b"root-org"
-    assert headers[b"x-verified-principal"] == b"svc-a"
-    # Per-request correlation id is always present.
-    assert b"x-request-id" in headers
-    assert headers[b"x-request-id"]
-
-
-def test_flight_metadata_bearer_override_wins() -> None:
-    from relata import RelataClient
-    from relata.flight import flight_call_headers
-
-    client = RelataClient(BASE, bearer_token="tok", tenant="acme")
-    headers = dict(flight_call_headers(client, "override-tok"))
-    assert headers[b"authorization"] == b"Bearer override-tok"
-    assert headers[b"x-relata-tenant-id"] == b"acme"
-
-
-def test_flight_metadata_unauthenticated_still_threads_tenant() -> None:
-    from relata import RelataClient
-    from relata.flight import flight_call_headers
-
-    client = RelataClient(BASE, tenant="acme")
-    headers = dict(flight_call_headers(client, None))
-    assert b"authorization" not in headers
-    assert headers[b"x-relata-tenant-id"] == b"acme"
-    assert b"x-request-id" in headers
-
-
-def test_flight_metadata_caller_request_id_wins() -> None:
-    from relata import RelataClient
-    from relata.flight import flight_call_headers
-
-    client = RelataClient(BASE, headers={"X-Request-ID": "pinned-rid"})
-    headers = dict(flight_call_headers(client, None))
-    assert headers[b"x-request-id"] == b"pinned-rid"
-
-
-def test_query_flight_requires_pyarrow(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If pyarrow is not importable the method raises ImportError, not a crash."""
-    import builtins
-
-    from relata import RelataClient
-
-    real_import = builtins.__import__
-
-    def _block(name: str, *args: object) -> object:
-        if name.startswith("pyarrow"):
-            raise ImportError(f"No module named '{name}'")
-        return real_import(name, *args)  # type: ignore[misc]
-
-    monkeypatch.setattr(builtins, "__import__", _block)
-    client = RelataClient(BASE, purpose="analytics")
-    with pytest.raises(ImportError):
-        client.query_flight("SELECT 1")

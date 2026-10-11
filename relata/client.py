@@ -57,19 +57,6 @@ if TYPE_CHECKING:
     from relata.query import QueryBuilder
 
 
-def _graphql_data(resp: dict[str, object]) -> dict[str, object] | list[dict[str, object]] | None:
-    """Return the ``data`` field of a GraphQL envelope, raising on ``errors``.
-
-    The server wraps every ``/graphql`` response in ``{"data": …, "errors": […]}``.
-    On a non-empty ``errors`` array, raise :class:`RelataError` carrying the
-    first error message; otherwise return ``data``.
-    """
-    errors = resp.get("errors") or []
-    if errors:
-        first = errors[0]
-        msg = first.get("message", "graphql error") if isinstance(first, dict) else str(first)
-        raise RelataError(f"graphql: {msg}")
-    return resp.get("data")
 
 
 #: Valid ``x-query-dialect`` header values (#3265). ``None`` omits the header
@@ -218,30 +205,24 @@ def _similar_image_sql(
     return sql
 
 
-def _flight_ticket(sql: str, purpose: str | None) -> str:
-    """Assemble an Arrow Flight ``do_get`` ticket from SQL + optional PURPOSE.
 
-    The Flight door (``crates/relata-cli/src/flight_server.rs::do_get``) reads
-    the ticket as raw UTF-8 SQL and extracts ``/* PURPOSE '<id>' */`` from a
-    leading SQL comment, defaulting to ``"flight_query"`` when absent (#958).
+
+
+
+def _graphql_data(resp: dict[str, object]) -> dict[str, object] | list[dict[str, object]] | None:
+    """Return the ``data`` field of a GraphQL envelope, raising on ``errors``.
+
+    The server wraps every ``/graphql`` response in ``{"data": …, "errors": […]}``.
+    On a non-empty ``errors`` array, raise :class:`RelataError` carrying the
+    first error message; otherwise return ``data``.
     """
-    if not purpose:
-        return sql
-    return f"/* PURPOSE '{purpose.replace("'", "''")}' */ {sql}"
+    errors = resp.get("errors") or []
+    if errors:
+        first = errors[0]
+        msg = first.get("message", "graphql error") if isinstance(first, dict) else str(first)
+        raise RelataError(f"graphql: {msg}")
+    return resp.get("data")
 
-
-def _flight_endpoint_from(base_url: str, flight_endpoint: str | None) -> str:
-    """Resolve the Arrow Flight gRPC endpoint.
-
-    Defaults to ``grpc://<base_url host>:8815`` (the server's default Flight
-    port, ``RELATA_FLIGHT_PORT``). Pass ``flight_endpoint`` to override.
-    """
-    if flight_endpoint:
-        return flight_endpoint
-    from urllib.parse import urlparse
-
-    host = urlparse(base_url).hostname or "localhost"
-    return f"grpc://{host}:8815"
 
 
 class RelataClient:
@@ -652,249 +633,11 @@ class RelataClient:
         buf = io.BytesIO(b"".join(chunks))
         return ipc.open_stream(buf).read_all()
 
-    def query_flight(
-        self,
-        sql: str,
-        *,
-        flight_endpoint: str | None = None,
-        purpose: str | None = None,
-        bearer_token: str | None = None,
-    ) -> "pyarrow.Table":  # type: ignore[name-defined]  # noqa: F821
-        """Execute a SQL query over Arrow Flight ``do_get`` and return the
-        result as a zero-copy ``pyarrow.Table`` (#2253, #958).
 
-        Unlike :meth:`query_arrow` (which decodes the HTTP Arrow-IPC stream
-        from ``POST /query/arrow``), this opens a real Arrow Flight client to
-        the server's gRPC Flight door and runs ``do_get`` with the SQL as the
-        ticket bytes — no JSON intermediate.
 
-        The Flight door is enabled server-side with ``RELATA_FLIGHT_ENABLE=true``
-        (default port 8815). The ticket is the raw UTF-8 SQL, optionally
-        prefixed with ``/* PURPOSE '<id>' */`` which the server extracts as the
-        query purpose (defaulting to ``"flight_query"``).
 
-        Requires ``pyarrow`` to be installed (``pip install pyarrow``).
 
-        Args:
-            sql: SQL query string used verbatim as the Flight ticket.
-            flight_endpoint: Flight gRPC endpoint (e.g.
-                ``"grpc://localhost:8815"``). Defaults to
-                ``grpc://<base_url host>:8815``.
-            purpose: Optional purpose injected as a ``/* PURPOSE '...' */``
-                SQL comment. Note this is **not** resolved from the client
-                default — Flight has no purposeless-query gate, so callers
-                pass it explicitly when they want one.
-            bearer_token: Bearer token for Flight metadata. Defaults to the
-                client's token.
 
-        Returns:
-            A ``pyarrow.Table`` with the governed result set.
-
-        Example::
-
-            tbl = client.query_flight(
-                "SELECT * FROM Person LIMIT 1000", purpose="analytics",
-            )
-            df = tbl.to_pandas()
-        """
-        from relata.flight import FlightClient
-
-        return FlightClient.from_client(self).query_flight(
-            sql,
-            flight_endpoint=flight_endpoint,
-            purpose=purpose,
-            bearer_token=bearer_token,
-        )
-
-    async def aquery_flight(
-        self,
-        sql: str,
-        *,
-        flight_endpoint: str | None = None,
-        purpose: str | None = None,
-        bearer_token: str | None = None,
-    ) -> "pyarrow.Table":  # type: ignore[name-defined]  # noqa: F821
-        """Async variant of :meth:`query_flight`.
-
-        ``pyarrow.flight`` is synchronous, so the call is dispatched to a
-        worker thread via :func:`asyncio.to_thread`.
-        """
-        import asyncio
-
-        return await asyncio.to_thread(
-            self.query_flight,
-            sql,
-            flight_endpoint=flight_endpoint,
-            purpose=purpose,
-            bearer_token=bearer_token,
-        )
-
-    def query_grpc(
-        self,
-        sql: str,
-        *,
-        grpc_endpoint: str | None = None,
-        purpose: str | None = None,
-        bearer_token: str | None = None,
-        timeout: float = 30.0,
-    ) -> QueryResult:
-        """Execute a SQL query over the plain gRPC ``RelataQuery.Execute``
-        RPC, opting into the negotiated Arrow-IPC row encoding (#4090,
-        ``QueryRequest.wants_arrow_ipc_rows`` — landed server-side in
-        PR #4086).
-
-        The server transparently answers with either ``arrow_ipc_rows`` or
-        ``rows_json`` (an older/unsupported result falls back to JSON rows,
-        per the proto's documented contract); this method decodes either wire
-        shape into the same :class:`~relata.models.QueryResult` shape
-        :meth:`query` returns, so callers never need to know which one the
-        server picked.
-
-        Requires the optional ``grpcio`` dependency
-        (``pip install relata-sdk[grpc]``, or ``pip install grpcio``
-        directly) — unlike :meth:`query_flight`, which only needs ``pyarrow``.
-
-        Args:
-            sql: SQL query string.
-            grpc_endpoint: Plain gRPC endpoint (e.g.
-                ``"grpc://localhost:50051"``). Defaults to
-                ``grpc://<base_url host>:50051``.
-            purpose: Optional purpose. Falls back to the client's default
-                purpose when unset.
-            bearer_token: Bearer token for gRPC metadata. Defaults to the
-                client's token.
-            timeout: Per-call RPC deadline in seconds (default 30).
-
-        Returns:
-            A :class:`~relata.models.QueryResult`.
-
-        Raises:
-            ImportError: if ``grpcio`` is not installed.
-
-        Example::
-
-            result = client.query_grpc(
-                "SELECT * FROM Person LIMIT 1000", purpose="analytics",
-            )
-        """
-        from relata.grpc_query import GrpcQueryClient
-
-        return GrpcQueryClient.from_client(self).query_grpc(
-            sql,
-            grpc_endpoint=grpc_endpoint,
-            purpose=purpose,
-            bearer_token=bearer_token,
-            timeout=timeout,
-        )
-
-    async def aquery_grpc(
-        self,
-        sql: str,
-        *,
-        grpc_endpoint: str | None = None,
-        purpose: str | None = None,
-        bearer_token: str | None = None,
-        timeout: float = 30.0,
-    ) -> QueryResult:
-        """Async variant of :meth:`query_grpc`.
-
-        grpcio's synchronous ``Channel`` API is used here, so the call is
-        dispatched to a worker thread via :func:`asyncio.to_thread` (same
-        pattern as :meth:`aquery_flight`).
-        """
-        import asyncio
-
-        return await asyncio.to_thread(
-            self.query_grpc,
-            sql,
-            grpc_endpoint=grpc_endpoint,
-            purpose=purpose,
-            bearer_token=bearer_token,
-            timeout=timeout,
-        )
-
-    def query_grpc_stream(
-        self,
-        sql: str,
-        *,
-        grpc_endpoint: str | None = None,
-        purpose: str | None = None,
-        bearer_token: str | None = None,
-        timeout: float = 30.0,
-    ) -> QueryResult:
-        """Execute a SQL query over the server-streaming gRPC
-        ``RelataQuery.ExecuteStream`` RPC, opting into the negotiated
-        Arrow-IPC row encoding (#4090, ``QueryRequest.wants_arrow_ipc_rows``).
-
-        The streaming counterpart to :meth:`query_grpc`: the server answers
-        with a stream of ``RowBatch`` frames instead of one buffered
-        ``QueryResponse``, and each frame independently negotiates
-        ``arrow_ipc_rows`` vs ``rows_json`` (same empty-means-fall-back
-        contract). Every frame is collected into the same
-        :class:`~relata.models.QueryResult` shape :meth:`query_grpc` returns.
-
-        Requires the optional ``grpcio`` dependency
-        (``pip install relata-sdk[grpc]``).
-
-        Args:
-            sql: SQL query string.
-            grpc_endpoint: Plain gRPC endpoint (e.g.
-                ``"grpc://localhost:50051"``). Defaults to
-                ``grpc://<base_url host>:50051``.
-            purpose: Optional purpose. Falls back to the client's default
-                purpose when unset.
-            bearer_token: Bearer token for gRPC metadata. Defaults to the
-                client's token.
-            timeout: Per-call RPC deadline in seconds (default 30), covering
-                the whole stream.
-
-        Returns:
-            A :class:`~relata.models.QueryResult` holding every streamed row.
-            Its ``row_count`` is the number of rows actually received —
-            ``RowBatch`` carries no ``row_count`` field.
-
-        Raises:
-            ImportError: if ``grpcio`` is not installed.
-
-        Example::
-
-            result = client.query_grpc_stream("SELECT * FROM Person")
-        """
-        from relata.grpc_query import GrpcQueryClient
-
-        return GrpcQueryClient.from_client(self).query_grpc_stream(
-            sql,
-            grpc_endpoint=grpc_endpoint,
-            purpose=purpose,
-            bearer_token=bearer_token,
-            timeout=timeout,
-        )
-
-    async def aquery_grpc_stream(
-        self,
-        sql: str,
-        *,
-        grpc_endpoint: str | None = None,
-        purpose: str | None = None,
-        bearer_token: str | None = None,
-        timeout: float = 30.0,
-    ) -> QueryResult:
-        """Async variant of :meth:`query_grpc_stream`.
-
-        grpcio's synchronous ``Channel`` API is used here, so the call is
-        dispatched to a worker thread via :func:`asyncio.to_thread` (same
-        pattern as :meth:`aquery_grpc`).
-        """
-        import asyncio
-
-        return await asyncio.to_thread(
-            self.query_grpc_stream,
-            sql,
-            grpc_endpoint=grpc_endpoint,
-            purpose=purpose,
-            bearer_token=bearer_token,
-            timeout=timeout,
-        )
 
     def search(
         self,
@@ -1041,51 +784,7 @@ class RelataClient:
         """Async variant of :meth:`multi_search`."""
         return await self._async.post("/multi-search", {"queries": queries})
 
-    def graphql(
-        self,
-        query: str,
-        variables: dict[str, object] | None = None,
-        operation_name: str | None = None,
-    ) -> dict[str, object] | list[dict[str, object]] | None:
-        """Execute a GraphQL query against the governed query path (ADR-220).
 
-        Args:
-            query: The GraphQL query string.
-            variables: Optional variables map. ``$var`` references in ``limit``
-                and ``where`` are bound server-side (#3260). A referenced
-                variable that is missing, null, or wrong-typed is a hard server
-                error (surfaced as :class:`RelataError`) — never silently
-                dropped. String values are bound as quoted literals, so
-                variable content cannot inject SQL.
-            operation_name: Optional operation name (multi-operation documents).
-
-        Returns:
-            The ``data`` field — a list of row objects for a query, or the
-            ``__schema`` object for an introspection request.
-
-        Raises:
-            RelataError: if the server returns a non-empty ``errors`` array.
-        """
-        body: dict[str, object] = {"query": query}
-        if variables is not None:
-            body["variables"] = variables
-        if operation_name is not None:
-            body["operationName"] = operation_name
-        return _graphql_data(self._sync.post("/graphql", body))
-
-    async def agraphql(
-        self,
-        query: str,
-        variables: dict[str, object] | None = None,
-        operation_name: str | None = None,
-    ) -> dict[str, object] | list[dict[str, object]] | None:
-        """Async variant of :meth:`graphql`."""
-        body: dict[str, object] = {"query": query}
-        if variables is not None:
-            body["variables"] = variables
-        if operation_name is not None:
-            body["operationName"] = operation_name
-        return _graphql_data(await self._async.post("/graphql", body))
 
     # ------------------------------------------------------------------
     # Type management & ontology (#967)
@@ -2284,3 +1983,50 @@ class RelataClient:
             f"purpose={self._default_purpose!r}, "
             f"auth={auth!r})"
         )
+
+    def graphql(
+        self,
+        query: str,
+        variables: dict[str, object] | None = None,
+        operation_name: str | None = None,
+    ) -> dict[str, object] | list[dict[str, object]] | None:
+        """Execute a GraphQL query against the governed query path (ADR-220).
+
+        Args:
+            query: The GraphQL query string.
+            variables: Optional variables map. ``$var`` references in ``limit``
+                and ``where`` are bound server-side (#3260). A referenced
+                variable that is missing, null, or wrong-typed is a hard server
+                error (surfaced as :class:`RelataError`) — never silently
+                dropped. String values are bound as quoted literals, so
+                variable content cannot inject SQL.
+            operation_name: Optional operation name (multi-operation documents).
+
+        Returns:
+            The ``data`` field — a list of row objects for a query, or the
+            ``__schema`` object for an introspection request.
+
+        Raises:
+            RelataError: if the server returns a non-empty ``errors`` array.
+        """
+        body: dict[str, object] = {"query": query}
+        if variables is not None:
+            body["variables"] = variables
+        if operation_name is not None:
+            body["operationName"] = operation_name
+        return _graphql_data(self._sync.post("/graphql", body))
+
+
+    async def agraphql(
+        self,
+        query: str,
+        variables: dict[str, object] | None = None,
+        operation_name: str | None = None,
+    ) -> dict[str, object] | list[dict[str, object]] | None:
+        """Async variant of :meth:`graphql`."""
+        body: dict[str, object] = {"query": query}
+        if variables is not None:
+            body["variables"] = variables
+        if operation_name is not None:
+            body["operationName"] = operation_name
+        return _graphql_data(await self._async.post("/graphql", body))
