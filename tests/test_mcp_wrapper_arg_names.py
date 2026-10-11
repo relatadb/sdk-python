@@ -217,17 +217,6 @@ def test_recall_omits_adr145_params_when_unset() -> None:
         assert key not in args
 
 
-def test_suggest_extensions_sends_no_args() -> None:
-    # #341: the handler takes no arguments (it ignores any) and returns pack
-    # suggestions — the previous `prefix` arg was misleading and dropped.
-    client, seen = _capture()
-    client.suggest_extensions()
-    # call_tool omits the `arguments` key entirely for an empty map, so no
-    # `prefix` is ever sent (the handler takes no args).
-    assert "arguments" not in seen
-    assert seen.get("name") == "suggest_extensions"
-
-
 # ---------------------------------------------------------------------------
 # #2322 — 42 (+4) previously Rust-only MCP tool wrappers, ported to Python.
 #

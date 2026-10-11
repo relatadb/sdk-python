@@ -114,12 +114,6 @@ class McpClient:
         apply to ``sql`` without executing it."""
         return self.call_tool("explain_policy", {"sql": sql, "purpose": purpose})
 
-    def suggest_extensions(self) -> dict[str, Any]:
-        """``suggest_extensions`` — list extension packs and their data
-        availability. #341: takes no arguments (the handler ignores any) and
-        returns pack suggestions, not type/kind autocomplete."""
-        return self.call_tool("suggest_extensions", {})
-
     # --- Entity / type discovery ---
 
     def list_entity_types(self) -> dict[str, Any]:
@@ -1045,11 +1039,6 @@ class AsyncMcpClient:
         """``explain_policy`` — show the ACL / org-isolation policy that would
         apply to ``sql`` without executing it."""
         return await self.call_tool("explain_policy", {"sql": sql, "purpose": purpose})
-
-    async def suggest_extensions(self) -> dict[str, Any]:
-        """``suggest_extensions`` — list extension packs and their data
-        availability."""
-        return await self.call_tool("suggest_extensions", {})
 
     # --- Entity / type discovery ---
 

@@ -4,7 +4,7 @@ Locks the SDK against the server's agent surface so any future server-side
 addition shows up as a test failure here before it ships in production.
 
 Covers:
-- All 30 server MCP tools reachable via McpClient (typed wrapper or via
+- All current server MCP tools reachable via McpClient (typed wrapper or via
   ``call_tool`` fallback for the 8 memory verbs covered by Memory).
 - A2AClient checkpoint save / load / list round-trip.
 - A2AClient agent card fetch.
@@ -33,7 +33,7 @@ def _wrap(handler: Handler) -> httpx.MockTransport:
 
 # Server MCP tool dispatch table (serve/mcp.rs:212-245). Keep in sync.
 SERVER_MCP_TOOLS: set[str] = {
-    "query", "query_knowledge", "explain_policy", "suggest_extensions",
+    "query", "query_knowledge", "explain_policy",
     "lookup_identity", "list_entity_types", "get_entities", "search_entities",
     "find_in_social_corpus", "ingest_document",
     "rag_store_answer", "rag_store_elements", "search_knowledge",
@@ -89,7 +89,6 @@ def test_mcp_typed_wrappers_match_server_names() -> None:
     c.query_knowledge("SELECT 1", purpose="x")
     c.search_knowledge("q", purpose="x")
     c.explain_policy("SELECT 1", purpose="x")
-    c.suggest_extensions()  # #341: takes no args (handler ignores any)
     c.list_entity_types()
     c.get_entities("Person")
     c.search_entities("q")

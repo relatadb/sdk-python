@@ -44,6 +44,7 @@ from relata import aml
 from relata import canonical
 from relata.coref import AsyncCorefResolver, CorefResolver, subject_from_hit
 from relata.domain_summary import summarize_domain
+from relata.extension_suggestions import suggest_extensions
 from relata.embedding_migration import (
     EmbeddingMigrationClient,
     Embedder,
