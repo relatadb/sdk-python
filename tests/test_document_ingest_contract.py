@@ -125,4 +125,3 @@ def test_append_event_uses_generic_contract_and_returns_receipt() -> None:
     assert receipt.durability == "local_wal_sync"
     assert [request.url.path for request in requests] == ["/events/append"]
     client.close()
-
