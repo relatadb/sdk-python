@@ -43,6 +43,7 @@ from relata.client import RelataClient
 from relata import aml
 from relata import canonical
 from relata.coref import AsyncCorefResolver, CorefResolver, subject_from_hit
+from relata.domain_summary import summarize_domain
 from relata.embedding_migration import (
     EmbeddingMigrationClient,
     Embedder,
@@ -64,6 +65,7 @@ from relata.exceptions import (
     ServerError,
     ValidationError,
 )
+from relata.feed_broker import AsyncFeedBrokerClient, FeedBrokerClient
 from relata.governance import AsyncGovernanceClient, GovernanceClient
 from relata.identity import AsyncIdentityClient, IdentityClient
 from relata.ingest import AsyncIngestClient, IngestClient
@@ -209,6 +211,9 @@ __all__ = [
     "AsyncVectorClient",
     "SystemClient",
     "AsyncSystemClient",
+    "summarize_domain",
+    "FeedBrokerClient",
+    "AsyncFeedBrokerClient",
     "StreamingClient",
     "AsyncStreamingClient",
     "TenantAdminClient",

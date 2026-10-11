@@ -408,11 +408,35 @@ Each module inherits the parent client's auth, tenant, and purpose context:
 | `relata.objects` | `ObjectClient` | Typed upsert + batch + point-lookup (`get`) + delete via `/ingest?object_type=` |
 | `relata.ingest` | `IngestClient` | Bulk NDJSON + CSV + media task status; it does not upload raw media bytes |
 | `relata.vectors` | `VectorClient` | KNN + hybrid search + similar-to (SQL-backed) |
-| `relata.system` | `SystemClient` | LLM config + test + jobs status |
+| `relata.system` | `SystemClient` | Generic jobs and operator surfaces; no feed broker routing |
+| `relata.feed_broker` | `FeedBrokerClient` / `AsyncFeedBrokerClient` | Optional RIFN broker health, channels, signed-entry publishing at an explicit broker URL |
 | `relata.streaming` | `StreamingClient` | NDJSON row streams + SSE consumers (watch/alerts) + Arrow IPC |
 | `relata.tenants` | `TenantAdminClient` | Tenant CRUD + quota + sharing agreements + platform admin |
 
 Each has an async mirror (`Async*`).
+
+The former `get_domain_summary` MCP route is not a core tool in v3.0. To build
+the same application-facing inventory, call the generic, tenant-scoped
+`mcp.list_entity_types()` and pass its result to
+`relata.summarize_domain("financial", inventory)`. The helper is local profile
+metadata; it performs no extra query or authorization check.
+
+```python
+from relata import McpClient, RelataClient, summarize_domain
+
+with RelataClient("http://localhost:9090", purpose="analytics") as db:
+    with McpClient.from_client(db) as mcp:
+        inventory = mcp.list_entity_types()
+        summary = summarize_domain("financial", inventory)
+        print(summary)
+```
+
+RIFN is a separate optional broker service, not a route on the Relata
+database listener. Construct `FeedBrokerClient` or `AsyncFeedBrokerClient`
+with the broker's own URL and credentials. `publish()` sends a complete,
+caller-signed feed entry and the matching `X-Publisher-Did`; the SDK does not
+create or sign entries. `SystemClient.from_client()` does not configure a
+broker client.
 
 `IngestClient.media_status()` polls an existing task but does not upload raw
 media bytes. `McpClient.ingest_media()` is the available MCP tool wrapper and

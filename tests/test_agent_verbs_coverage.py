@@ -35,7 +35,7 @@ def _wrap(handler: Handler) -> httpx.MockTransport:
 SERVER_MCP_TOOLS: set[str] = {
     "query", "query_knowledge", "explain_policy", "suggest_extensions",
     "lookup_identity", "list_entity_types", "get_entities", "search_entities",
-    "find_in_social_corpus", "get_domain_summary", "ingest_document",
+    "find_in_social_corpus", "ingest_document",
     "rag_store_answer", "rag_store_elements", "search_knowledge",
     "get_relationships", "get_entity_profile", "get_timeline",
     "find_connections", "add_case_note", "get_audit_trail", "get_case_summary",
@@ -93,7 +93,6 @@ def test_mcp_typed_wrappers_match_server_names() -> None:
     c.list_entity_types()
     c.get_entities("Person")
     c.search_entities("q")
-    c.get_domain_summary("financial")
     c.find_in_social_corpus("q")
     c.lookup_identity("alice@example.com")
     c.get_entity_profile("e-1", purpose="x")

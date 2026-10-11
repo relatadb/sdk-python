@@ -52,14 +52,6 @@ def test_search_entities_sends_entity_types_array() -> None:
     assert "object_type" not in args
 
 
-def test_get_domain_summary_sends_domain() -> None:
-    client, seen = _capture()
-    client.get_domain_summary("financial")
-    args = seen["arguments"]
-    assert args["domain"] == "financial"
-    assert "object_type" not in args
-
-
 def test_find_in_social_corpus_sends_object_type_and_text_query() -> None:
     client, seen = _capture()
     client.find_in_social_corpus("Post", text_query="protest", user="alice")

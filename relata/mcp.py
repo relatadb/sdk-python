@@ -158,15 +158,6 @@ class McpClient:
             args["entity_types"] = entity_types
         return self.call_tool("search_entities", args)
 
-    def get_domain_summary(self, domain: str) -> dict[str, Any]:
-        """``get_domain_summary`` — counts + freshness for a domain.
-
-        #253: the schema requires ``domain`` (enum: financial, telco, cyber,
-        humint, narcotics, fara, maritime, border, sanctions, all), not
-        ``object_type``.
-        """
-        return self.call_tool("get_domain_summary", {"domain": domain})
-
     def find_in_social_corpus(
         self,
         object_type: str,
@@ -1087,10 +1078,6 @@ class AsyncMcpClient:
         if entity_types:
             args["entity_types"] = entity_types
         return await self.call_tool("search_entities", args)
-
-    async def get_domain_summary(self, domain: str) -> dict[str, Any]:
-        """``get_domain_summary`` — counts + freshness for a domain."""
-        return await self.call_tool("get_domain_summary", {"domain": domain})
 
     async def find_in_social_corpus(
         self,

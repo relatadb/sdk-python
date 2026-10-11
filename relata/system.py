@@ -57,20 +57,6 @@ class SystemClient:
         """Status of a single background job by name. Wraps ``GET /jobs/:name``."""
         return self._t.get(f"/jobs/{quote(name, safe='')}")
 
-    # ── feed ─────────────────────────────────────────────────────────────────
-
-    def feed_health(self) -> dict[str, Any]:
-        """GET /feed/health — RIFN feed broker health."""
-        return self._t.get("/feed/health")
-
-    def feed_channels(self) -> dict[str, Any]:
-        """GET /feed/channels — list available feed channels."""
-        return self._t.get("/feed/channels")
-
-    def feed_publish(self, channel: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """POST /feed/publish — publish a record to a channel."""
-        return self._t.post("/feed/publish", {"channel": channel, "payload": payload})
-
     # ── notifications ─────────────────────────────────────────────────────────
 
     def notification_rules(self) -> list[dict[str, Any]]:
@@ -137,15 +123,6 @@ class AsyncSystemClient:
 
     async def job_status(self, name: str) -> dict[str, Any]:
         return await self._t.get(f"/jobs/{quote(name, safe='')}")
-
-    async def feed_health(self) -> dict[str, Any]:
-        return await self._t.get("/feed/health")
-
-    async def feed_channels(self) -> dict[str, Any]:
-        return await self._t.get("/feed/channels")
-
-    async def feed_publish(self, channel: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self._t.post("/feed/publish", {"channel": channel, "payload": payload})
 
     async def notification_rules(self) -> list[dict[str, Any]]:
         data = await self._t.get("/notifications/rules")
