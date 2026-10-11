@@ -6,7 +6,14 @@ import asyncio
 
 import pytest
 
-from relata import EventAppendReceipt, EventAppendRequest, EventTarget, arecord_usage, record_usage
+from relata import (
+    EventAppendReceipt,
+    EventAppendRequest,
+    EventTarget,
+    aggregate_usage_events,
+    arecord_usage,
+    record_usage,
+)
 
 
 class _FakeClient:
@@ -97,3 +104,60 @@ def test_record_usage_requires_key_and_observation_without_sending() -> None:
     with pytest.raises(ValueError, match="at least one"):
         record_usage(client, idempotency_key="stable", target=_target())  # type: ignore[arg-type]
     assert client.sync_requests == []
+
+
+def _usage_row(event_id: str, **values: object) -> dict[str, object]:
+    return {
+        "event_id": event_id,
+        "target_type": "DocumentSource",
+        "target_id": "report-42",
+        "observed_at": 10,
+        **values,
+    }
+
+
+def test_aggregate_usage_events_deduplicates_and_rebuilds_former_counters() -> None:
+    target = _target()
+    rows = [
+            _usage_row("evt-b", observed_at=20, cited=True, retrieved=True, feedback_score=0.4),
+            _usage_row("evt-a", observed_at=10, cited=True, retrieved=True, feedback_score=0.8),
+            _usage_row("evt-b", observed_at=20, cited=True, retrieved=True, feedback_score=0.4),
+            _usage_row("evt-c", observed_at=30, retrieved=True),
+        ]
+    result = aggregate_usage_events(
+        rows,
+        target=target,
+    )
+    assert result.event_count == 3
+    assert result.citation_count == 2
+    assert result.retrieval_count == 3
+    assert result.feedback_count == 2
+    assert result.feedback_avg == pytest.approx(0.6)
+    assert result.last_cited_at == 20
+    assert aggregate_usage_events(reversed(rows), target=target) == result
+
+
+@pytest.mark.parametrize(
+    "rows, message",
+    [
+        ([_usage_row("evt-1", cited=True), _usage_row("evt-1", cited=False)], "conflicting"),
+        ([_usage_row("evt-1", target_id="other", cited=True)], "different target"),
+        ([_usage_row(" ", cited=True)], "event_id"),
+        ([_usage_row("evt-1", feedback_score=float("nan"))], "feedback_score"),
+        ([_usage_row("evt-1", feedback_score=float("inf"))], "feedback_score"),
+        ([_usage_row("evt-1", feedback_score=1.1)], "feedback_score"),
+        ([_usage_row("evt-1", observed_at=True)], "observed_at"),
+    ],
+)
+def test_aggregate_usage_events_fails_closed(rows: list[dict[str, object]], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        aggregate_usage_events(rows, target=_target())
+
+
+def test_aggregate_usage_events_preserves_modern_epoch_nanoseconds() -> None:
+    base = 1_791_710_000_000_000_000
+    rows = [
+        _usage_row("evt-later", observed_at=str(base + 1), cited=True),
+        _usage_row("evt-earlier", observed_at=str(base), cited=True),
+    ]
+    assert aggregate_usage_events(rows, target=_target()).last_cited_at == base + 1
