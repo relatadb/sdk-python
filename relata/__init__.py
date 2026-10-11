@@ -70,11 +70,19 @@ from relata.ingest import AsyncIngestClient, IngestClient
 from relata.log import AsyncLogClient, LogClient
 from relata.mcp import AsyncMcpClient, McpClient
 from relata.memory import AsyncMemory, Memory
+from relata.natural_language import (
+    aquery_in_natural_language,
+    asummarise_memory,
+    query_in_natural_language,
+    summarise_memory,
+)
 from relata.models import (
     AuditCountResponse,
     Clarification,
     ClusterNode,
-    DocumentUsageResponse,
+    EventAppendReceipt,
+    EventAppendRequest,
+    EventTarget,
     EntityCandidate,
     HealthResponse,
     IngestDocumentResponse,
@@ -89,6 +97,7 @@ from relata.models import (
     StatusResponse,
     VersionInfo,
 )
+from relata.usage import arecord_usage, record_usage
 from relata.namespace import AsyncNamespace, Namespace
 from relata.objects import AsyncObjectClient, ObjectClient
 from relata.query import QueryBuilder, select
@@ -177,6 +186,10 @@ __all__ = [
     # High-level memory client
     "Memory",
     "AsyncMemory",
+    "query_in_natural_language",
+    "aquery_in_natural_language",
+    "summarise_memory",
+    "asummarise_memory",
     # v1.1 SDK modules
     "GovernanceClient",
     "AsyncGovernanceClient",
@@ -304,7 +317,11 @@ __all__ = [
     "ClusterNode",
     "IngestDocumentResponse",
     "IngestDocumentTaskStatus",
-    "DocumentUsageResponse",
+    "EventAppendReceipt",
+    "EventAppendRequest",
+    "EventTarget",
+    "record_usage",
+    "arecord_usage",
     "VersionInfo",
     "Stats",
     "ReadyReport",

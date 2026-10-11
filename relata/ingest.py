@@ -8,6 +8,7 @@ path the partner contract (§4) calls for.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any, AsyncIterable, Iterable
 from urllib.parse import urlencode
 
@@ -21,8 +22,7 @@ if TYPE_CHECKING:
 
 # ── CDR / OTLP ingest helpers (#2252) ──────────────────────────────────────────
 
-# Canonical CDR column → accepted aliases (mirrors the server's
-# `CdrRecord::from_csv_row` header recognition, case-insensitive server-side).
+# Canonical CDR field → accepted input aliases for the SDK domain adapter.
 _CDR_ALIASES: dict[str, tuple[str, ...]] = {
     "caller": ("caller", "caller_msisdn", "a_number", "a_msisdn"),
     "callee": ("callee", "callee_msisdn", "b_number", "b_msisdn", "called"),
@@ -31,31 +31,93 @@ _CDR_ALIASES: dict[str, tuple[str, ...]] = {
     "tower": ("tower", "tower_id", "cell_id", "site", "cell"),
     "type": ("type", "call_type", "record_type"),
 }
-_CDR_COLUMNS: tuple[str, ...] = ("caller", "callee", "start", "duration", "tower", "type")
 
 
-def _cdr_field(value: object) -> str:
-    """Render a CDR cell value — the server parses CSV via naive split(',')."""
-    if value is None:
-        return ""
-    # Strip commas / CR / LF so a value can never break column alignment.
-    return str(value).replace(",", "").replace("\r", " ").replace("\n", " ")
+def _cdr_value(row: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+    """Get the first supplied alias, matching header names case-insensitively."""
+    lower = {str(key).lower(): value for key, value in row.items()}
+    return next((lower[key] for key in aliases if key in lower), None)
 
 
-def _rows_to_cdr_csv(rows: Iterable[dict[str, Any]]) -> str:
-    """Serialise typed CDR rows into the CSV shape ``POST /ingest/cdr`` expects."""
-    lines = [",".join(_CDR_COLUMNS)]
-    for row in rows:
-        fields: list[str] = []
-        for col in _CDR_COLUMNS:
-            val: Any = ""
-            for key in _CDR_ALIASES[col]:
-                if key in row:
-                    val = row[key]
-                    break
-            fields.append(_cdr_field(val))
-        lines.append(",".join(fields))
-    return "\n".join(lines)
+def _cdr_metadata(row: dict[str, Any], normalized: dict[str, Any]) -> None:
+    """Preserve generic-ingest identity and source-file provenance fields."""
+    for field in ("_pk", "id"):
+        value = _cdr_value(row, (field,))
+        if value is not None:
+            normalized[field] = value
+    source_file_id = _cdr_value(row, ("source_file_id",))
+    if source_file_id is not None:
+        normalized["source_file_id"] = source_file_id
+
+
+def _cdr_int(value: Any, name: str, *, default: int | None = None) -> int:
+    if value is None and default is not None:
+        return default
+    text = str(value).strip()
+    try:
+        return int(text, 10)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} '{text}': invalid integer") from exc
+
+
+def _normalize_cdr_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Map telecom aliases to the persisted CdrRecord fields for generic ingest."""
+    normalized: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    now_ns = time.time_ns()
+    for row_number, row in enumerate(rows, 1):
+        try:
+            caller_raw = _cdr_value(row, _CDR_ALIASES["caller"])
+            callee_raw = _cdr_value(row, _CDR_ALIASES["callee"])
+            caller_digits = "".join(c for c in str("" if caller_raw is None else caller_raw) if c.isascii() and c.isdigit())
+            callee_digits = "".join(c for c in str("" if callee_raw is None else callee_raw) if c.isascii() and c.isdigit())
+            if len(caller_digits) > 15:
+                raise ValueError(f"caller_msisdn '{caller_raw}': too many digits (max 15 for E.164)")
+            if len(callee_digits) > 15:
+                raise ValueError(f"callee_msisdn '{callee_raw}': too many digits (max 15 for E.164)")
+            caller = _cdr_int(caller_digits, "caller_msisdn")
+            callee = _cdr_int(callee_digits, "callee_msisdn")
+            start_raw = _cdr_value(row, _CDR_ALIASES["start"])
+            start = _cdr_int(start_raw, "call_start", default=now_ns)
+            if not -(1 << 63) <= start <= (1 << 63) - 1:
+                raise ValueError(f"call_start '{start}': value out of range for i64")
+            if start < 10_000_000_000_000:
+                start = max(-(1 << 63), min((1 << 63) - 1, start * 1_000_000_000))
+            duration = _cdr_int(_cdr_value(row, _CDR_ALIASES["duration"]), "duration", default=0)
+            if not 0 <= duration <= 0xFFFFFFFF:
+                raise ValueError(f"duration '{duration}': value out of range for u32")
+            call_type_raw = _cdr_value(row, _CDR_ALIASES["type"])
+            call_type = str("" if call_type_raw is None else call_type_raw).strip().lower()
+            call_type = {
+                "voice": "voice", "call": "voice", "0": "voice",
+                "sms": "sms", "mms": "sms", "1": "sms",
+                "data": "data", "gprs": "data", "2": "data",
+            }.get(call_type, "unknown")
+            tower = _cdr_value(row, _CDR_ALIASES["tower"])
+            normalized_row = {
+                "caller_msisdn": caller,
+                "callee_msisdn": callee,
+                "call_start_ns": start,
+                "duration_secs": duration,
+                "tower_id": "" if tower is None else str(tower).strip(),
+                "call_type": call_type,
+                "source_file_id": 0,
+            }
+            _cdr_metadata(row, normalized_row)
+            normalized.append(normalized_row)
+        except (TypeError, ValueError) as exc:
+            errors.append({"row": row_number, "error": str(exc)})
+    return normalized, errors
+
+
+def _cdr_receipt(receipt: dict[str, Any], local_errors: list[dict[str, Any]]) -> dict[str, Any]:
+    server_errors = receipt.get("errors")
+    errors = list(local_errors)
+    if isinstance(server_errors, list):
+        errors.extend(server_errors)
+    result = {**receipt, "errors": errors}
+    result["rows_rejected"] = int(receipt.get("rows_rejected", 0)) + len(local_errors)
+    return result
 
 
 def _purpose_path(base: str, purpose: str | None) -> str:
@@ -191,20 +253,21 @@ class IngestClient:
         *,
         purpose: str | None = None,
     ) -> dict[str, Any]:
-        """Ingest CDR (call detail records) via ``POST /ingest/cdr`` (#2252).
+        """Normalize CDR rows and queue them through ``POST /ingest``.
 
-        Each row is a dict mapping CDR fields (``caller``, ``callee``, ``start``,
-        ``duration``, ``tower``, ``type``); common aliases like ``caller_msisdn``
-        / ``a_number`` are accepted. Rows are serialised to the CSV shape the
-        server's ``CdrBatch::from_csv`` expects. ``purpose`` is mandatory
-        server-side — pass it here or via the client's default purpose.
+        The returned receipt includes SDK-side ``errors`` for invalid rows and
+        the generic ingest ``task_id`` for accepted rows. Poll that task for
+        writer completion; acceptance is not durability.
         """
-        csv_text = _rows_to_cdr_csv(rows)
-        return self._t.post_raw(
-            _purpose_path("/ingest/cdr", purpose or self._purpose),
-            csv_text,
-            content_type="text/csv",
+        normalized, errors = _normalize_cdr_rows(rows)
+        receipt = (
+            self.bulk("CdrRecord", normalized, purpose=purpose)
+            if normalized
+            else self._t.post_raw(
+                f"/ingest?{self._params('CdrRecord', purpose)}", "[]", content_type="application/json"
+            )
         )
+        return _cdr_receipt(receipt, errors)
 
     def otlp_traces(self, payload: dict[str, Any], *, purpose: str | None = None) -> dict[str, Any]:
         """Ingest OTLP/JSON traces via ``POST /v1/traces`` (#2252)."""
@@ -363,13 +426,16 @@ class AsyncIngestClient:
         *,
         purpose: str | None = None,
     ) -> dict[str, Any]:
-        """Async ingest CDR (call detail records) via ``POST /ingest/cdr`` (#2252)."""
-        csv_text = _rows_to_cdr_csv(rows)
-        return await self._t.post_raw(
-            _purpose_path("/ingest/cdr", purpose or self._purpose),
-            csv_text,
-            content_type="text/csv",
+        """Async normalize CDR rows and queue them through generic ``/ingest``."""
+        normalized, errors = _normalize_cdr_rows(rows)
+        receipt = (
+            await self.bulk("CdrRecord", normalized, purpose=purpose)
+            if normalized
+            else await self._t.post_raw(
+                f"/ingest?{self._params('CdrRecord', purpose)}", "[]", content_type="application/json"
+            )
         )
+        return _cdr_receipt(receipt, errors)
 
     async def otlp_traces(
         self, payload: dict[str, Any], *, purpose: str | None = None

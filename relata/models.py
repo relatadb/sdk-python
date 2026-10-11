@@ -187,40 +187,33 @@ class AuditCountResponse(BaseModel):
 
 
 class IngestDocumentResponse(BaseModel):
-    """Response from ``POST /rag/ingest`` (renamed by #4499).
+    """Receipt from queued mixed-type ``POST /ingest/bulk``.
 
     Attributes:
-        report_id: Server-assigned manifest ID for the ingested document.
-        task_id: Server-assigned background task ID, when returned by the server.
-        chunks_ingested: Number of chunks accepted into the ingest queue.
-        relations_ingested: Number of relation rows accepted, when reported.
-        structure_nodes_ingested: Number of structure nodes accepted, when reported.
-        warnings: Non-fatal protocol warnings (e.g. newer-minor-version fields).
-        schema_version: Protocol version the server parsed the document as.
+        task_id: Process-local task ID used to poll persistence progress.
+        rows_queued: Number of rows accepted into the in-memory queue.
+        rows_rejected: Number of rows rejected before queue admission.
+        errors: Per-row errors returned before queue admission.
         queue_depth: Current ingest queue depth after this submission.
     """
 
-    report_id: str = Field(..., description="Manifest ID assigned by the server")
-    task_id: str | None = Field(None, description="Background ingest task ID")
-    chunks_ingested: int = Field(..., description="Chunks accepted into the ingest queue", ge=0)
-    relations_ingested: int | None = Field(None, description="Relation rows accepted", ge=0)
-    structure_nodes_ingested: int | None = Field(None, description="Structure nodes accepted", ge=0)
-    warnings: list[str] = Field(default_factory=list, description="Non-fatal server warnings")
-    schema_version: str = Field(..., description="Protocol version used during parsing")
+    task_id: str = Field(..., description="Process-local background ingest task ID")
+    rows_queued: int = Field(..., description="Rows accepted into the in-memory queue", ge=0)
+    rows_rejected: int = Field(0, description="Rows rejected before queue admission", ge=0)
+    errors: list[str] = Field(default_factory=list, description="Per-row admission errors")
     queue_depth: int = Field(0, description="Ingest queue depth after submission", ge=0)
 
     def __repr__(self) -> str:
         return (
             f"IngestDocumentResponse("
-            f"report_id={self.report_id!r}, "
             f"task_id={self.task_id!r}, "
-            f"chunks_ingested={self.chunks_ingested}, "
-            f"schema_version={self.schema_version!r})"
+            f"rows_queued={self.rows_queued}, "
+            f"rows_rejected={self.rows_rejected})"
         )
 
 
 class IngestDocumentTaskStatus(BaseModel):
-    """Current status returned by ``GET /rag/ingest/{task_id}``.
+    """Current status returned by ``GET /ingest/tasks/{task_id}``.
 
     Task state is process-local on the server. A successful submission receipt
     therefore does not promise that this status remains queryable after a
@@ -229,10 +222,10 @@ class IngestDocumentTaskStatus(BaseModel):
 
     task_id: str = Field(..., description="Background ingest task ID")
     status: str = Field(..., description="Current task status (pending or complete)")
-    report_id: str | None = Field(None, description="Document report ID once assigned")
-    chunks_total: int = Field(0, description="Chunks scheduled for persistence", ge=0)
-    chunks_written: int = Field(0, description="Chunks persisted so far", ge=0)
-    warnings: list[str] = Field(default_factory=list, description="Non-fatal server warnings")
+    rows_total: int = Field(0, description="Rows scheduled for persistence", ge=0)
+    rows_written: int = Field(0, description="Rows persisted so far", ge=0)
+    rows_dropped: int = Field(0, description="Rows dropped by the background writer", ge=0)
+    drop_reasons: list[str] = Field(default_factory=list, description="Writer drop reasons")
     write_token: dict[str, int] | None = Field(
         None,
         alias="_relata_write_token",
@@ -240,41 +233,31 @@ class IngestDocumentTaskStatus(BaseModel):
     )
 
 
-class DocumentUsageResponse(BaseModel):
-    """Response from ``POST /rag/documents/{report_id}/usage`` (#4498).
+class EventTarget(BaseModel):
+    """Tenant-scoped target reference for ``POST /events/append``."""
 
-    Reports the ``DocumentSource`` row's usage counters *after* applying this
-    call's increments — ``citation_count``/``retrieval_count``/
-    ``last_cited_at``/``feedback_avg`` are write-BACK signals maintained by
-    repeated calls to this endpoint, not ingest-time constants.
+    object_type: str
+    key: str
+    value: str
 
-    Attributes:
-        report_id: The document this usage event was recorded against.
-        citation_count: Total citations recorded so far.
-        retrieval_count: Total retrievals recorded so far.
-        last_cited_at: Nanoseconds since epoch of the most recent citation,
-            or ``None`` if the document has never been cited.
-        feedback_avg: Running mean of every ``feedback_score`` recorded so
-            far, or ``None`` if none has been recorded yet.
-    """
 
-    report_id: str = Field(..., description="The DocumentSource this usage event targeted")
-    citation_count: int | None = Field(None, description="Total citations recorded so far")
-    retrieval_count: int | None = Field(None, description="Total retrievals recorded so far")
-    last_cited_at: int | None = Field(
-        None, description="Nanoseconds since epoch of the most recent citation"
-    )
-    feedback_avg: float | None = Field(
-        None, description="Running mean of every feedback_score recorded so far"
-    )
+class EventAppendRequest(BaseModel):
+    """One generic event for an installed schema type marked ``append_only``."""
 
-    def __repr__(self) -> str:
-        return (
-            f"DocumentUsageResponse("
-            f"report_id={self.report_id!r}, "
-            f"citation_count={self.citation_count}, "
-            f"retrieval_count={self.retrieval_count})"
-        )
+    object_type: str
+    idempotency_key: str = Field(..., min_length=1, max_length=256)
+    target: EventTarget
+    attributes: dict[str, Any] = Field(..., min_length=1)
+    purpose: str | None = None
+
+
+class EventAppendReceipt(BaseModel):
+    """Receipt issued after local WAL fsync or an exact idempotent replay."""
+
+    event_id: str
+    object_type: str
+    status: str
+    durability: str
 
 
 # ---------------------------------------------------------------------------

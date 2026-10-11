@@ -42,7 +42,8 @@ from relata.exceptions import PurposeError, RelataError
 from relata.models import (
     AuditCountResponse,
     ClusterNode,
-    DocumentUsageResponse,
+    EventAppendReceipt,
+    EventAppendRequest,
     HealthResponse,
     IngestDocumentResponse,
     IngestDocumentTaskStatus,
@@ -795,6 +796,17 @@ class RelataClient:
         """List all registered object types with row counts."""
         return self._sync.get("/types")
 
+    def query_schema(self, *, purpose: str | None = None) -> dict[str, object]:
+        """Return names-only schema visible to this authenticated principal.
+
+        Intended for application-owned natural-language query composition.
+        Any generated statement must still go through :meth:`query` so the
+        server applies its normal authorization and validation.
+        """
+        selected = purpose or self._default_purpose
+        suffix = f"?{urlencode({'purpose': selected})}" if selected else ""
+        return self._sync.get(f"/query/schema{suffix}")
+
     def register_type(self, name: str, **kwargs: object) -> dict[str, object]:
         """Register a custom object type at runtime (``POST /types``).
 
@@ -921,6 +933,12 @@ class RelataClient:
     async def alist_edge_types(self) -> dict[str, object]:
         """Async variant of :meth:`list_edge_types`."""
         return await self._async.get("/types/edges")
+
+    async def aquery_schema(self, *, purpose: str | None = None) -> dict[str, object]:
+        """Async variant of :meth:`query_schema`."""
+        selected = purpose or self._default_purpose
+        suffix = f"?{urlencode({'purpose': selected})}" if selected else ""
+        return await self._async.get(f"/query/schema{suffix}")
 
     async def aregister_edge_type(
         self,
@@ -1325,36 +1343,6 @@ class RelataClient:
         if target_type is not None: parts.append(f", TARGET_TYPE => {_sql_literal(target_type)}")
         parts.append(")")
         return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
-
-    # ------------------------------------------------------------------
-    # Maritime operators (#2247)
-    # ------------------------------------------------------------------
-
-    def vessel_track(self, mmsi: int, *, window_secs: int | None = None, purpose: str | None = None) -> dict[str, object]:
-        """Track a vessel's AIS position reports over a time window."""
-        p = purpose or self._default_purpose or "analytics"
-        parts = [f"VESSEL_TRACK({mmsi}"]
-        if window_secs is not None: parts.append(f", WINDOW => {window_secs * 1_000_000_000}")
-        parts.append(")")
-        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
-
-    def dark_fleet_detect(self, *, max_gap_hours: float | None = None, purpose: str | None = None) -> dict[str, object]:
-        """Detect vessels with AIS gaps (transponder-off 'going dark' periods)."""
-        p = purpose or self._default_purpose or "analytics"
-        if max_gap_hours is not None:
-            sql = f"DARK_FLEET_DETECT(MAX_GAP_HOURS => {max_gap_hours})"
-        else:
-            sql = "DARK_FLEET_DETECT()"
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
-
-    def vessel_to_vessel_transfer(self, *, proximity_nm: float | None = None, time_window_minutes: int | None = None, purpose: str | None = None) -> dict[str, object]:
-        """Detect ship-to-ship transfers (close-proximity vessel encounters)."""
-        p = purpose or self._default_purpose or "analytics"
-        parts = []
-        if proximity_nm is not None: parts.append(f"PROXIMITY_NM => {proximity_nm}")
-        if time_window_minutes is not None: parts.append(f"TIME_WINDOW_MINUTES => {time_window_minutes}")
-        sql = f"VESSEL_TO_VESSEL_TRANSFER({', '.join(parts)})" if parts else "VESSEL_TO_VESSEL_TRANSFER()"
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
 
     # ------------------------------------------------------------------
     # Multimedia operators (#2251, epic #655 — ADR-030)
@@ -1839,154 +1827,84 @@ class RelataClient:
 
     def ingest_document(
         self,
-        chunks_jsonl: str,
-        manifest_json: str,
+        objects: list[dict[str, Any]],
+        *,
+        purpose: str | None = None,
     ) -> IngestDocumentResponse:
-        """Ingest a datagrep extractor document into Relata (synchronous).
+        """Queue prepared rows through the generic mixed-type bulk contract.
 
-        Submits the ``_chunks.jsonl`` and ``_manifest.json`` outputs from a
-        ``dgrep`` extraction run to ``POST /rag/ingest`` (renamed by #4499).
-        The server parses and version-checks the protocol envelope, then
-        queues the chunks for storage.  See ``GET /rag/specs`` for the
-        protocol version/field-contract handshake.
+        Document extraction and mapping belong in application adapters. Pass
+        ``DocumentSource``/``DocumentChunk`` rows with ``_type`` and stable
+        ``_pk`` fields. All types share one process-local task receipt;
+        acceptance is not crash-durable. Poll status for confirmed outcomes.
 
         Args:
-            chunks_jsonl: Newline-delimited JSON string — one chunk per line,
-                as produced by ``dgrep run --mode chunks``.
-            manifest_json: JSON string of the extraction manifest, as produced
-                by ``dgrep run``.
+            objects: Prepared object rows, each carrying ``_type`` and ``_pk``.
+            purpose: Optional purpose override for the request.
 
         Returns:
-            :class:`~relata.models.IngestDocumentResponse` with ``report_id``,
-            ``task_id``, the accepted record counts, ``warnings``, and
-            ``queue_depth``. Poll ``task_id`` with
-            :meth:`ingest_document_status` to observe persistence progress.
+            A process-local task receipt. Poll ``task_id`` with
+            :meth:`ingest_document_status` to observe writes and drops.
 
         Raises:
             :class:`~relata.exceptions.AuthError`: Invalid/missing token.
             :class:`~relata.exceptions.QuotaError`: Ingest queue full (HTTP 429).
             :class:`~relata.exceptions.ConnectionError`: Server unreachable.
-            :class:`~relata.exceptions.RelataError`: Protocol error (HTTP 422)
-                or any other server-side failure.
+            :class:`~relata.exceptions.RelataError`: Validation or server error.
 
-        Examples::
-
-            with open("report_chunks.jsonl") as f:
-                chunks = f.read()
-            with open("report_manifest.json") as f:
-                manifest = f.read()
-
-            result = client.ingest_document(chunks, manifest)
-            print(f"Ingested {result.chunks_ingested} chunks as {result.report_id}")
         """
-        payload = {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json}
-        data = self._sync.post("/rag/ingest", payload)
+        effective_purpose = purpose or self._default_purpose
+        payload: dict[str, Any] = {"objects": objects, "queued": True}
+        if effective_purpose:
+            payload["purpose"] = effective_purpose
+        data = self._sync.post("/ingest/bulk", payload)
         return IngestDocumentResponse.model_validate(data)
 
     async def aingest_document(
         self,
-        chunks_jsonl: str,
-        manifest_json: str,
+        objects: list[dict[str, Any]],
+        *,
+        purpose: str | None = None,
     ) -> IngestDocumentResponse:
-        """Ingest a datagrep extractor document into Relata (asynchronous).
+        """Queue prepared rows asynchronously through generic bulk ingest.
 
         Identical to :meth:`ingest_document` but non-blocking.
-
-        Args:
-            chunks_jsonl: Newline-delimited JSON chunk data.
-            manifest_json: JSON extraction manifest.
-
-        Returns:
-            :class:`~relata.models.IngestDocumentResponse`.
         """
-        payload = {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json}
-        data = await self._async.post("/rag/ingest", payload)
+        effective_purpose = purpose or self._default_purpose
+        payload: dict[str, Any] = {"objects": objects, "queued": True}
+        if effective_purpose:
+            payload["purpose"] = effective_purpose
+        data = await self._async.post("/ingest/bulk", payload)
         return IngestDocumentResponse.model_validate(data)
 
     def ingest_document_status(self, task_id: str) -> IngestDocumentTaskStatus:
         """Read the current status of a document-ingest task.
 
-        ``GET /rag/ingest/{task_id}`` reports process-local background writer
+        ``GET /ingest/tasks/{task_id}`` reports process-local background writer
         progress. It returns 404 when the task is unknown to this server.
         """
-        data = self._sync.get(f"/rag/ingest/{path_segment(task_id)}")
+        data = self._sync.get(f"/ingest/tasks/{path_segment(task_id)}")
         return IngestDocumentTaskStatus.model_validate(data)
 
     async def aingest_document_status(self, task_id: str) -> IngestDocumentTaskStatus:
         """Async counterpart to :meth:`ingest_document_status`."""
-        data = await self._async.get(f"/rag/ingest/{path_segment(task_id)}")
+        data = await self._async.get(f"/ingest/tasks/{path_segment(task_id)}")
         return IngestDocumentTaskStatus.model_validate(data)
 
-    def document_usage(
-        self,
-        report_id: str,
-        *,
-        cited: bool = False,
-        retrieved: bool = False,
-        feedback_score: float | None = None,
-    ) -> DocumentUsageResponse:
-        """Record a post-ingest usage signal against a ``DocumentSource`` (#4498).
+    def append_event(self, request: EventAppendRequest) -> EventAppendReceipt:
+        """Append a schema-governed event using its required idempotency key.
 
-        ``citation_count``/``retrieval_count``/``last_cited_at`` are
-        write-BACK signals, not ingest-time constants — an agentic RAG loop
-        calls this once per retrieval/citation/feedback event, e.g. right
-        after generating an answer that cites a chunk from ``report_id``:
-        ``client.document_usage(report_id, cited=True)``.
-
-        Args:
-            report_id: The ``DocumentSource.report_id`` this event targets.
-            cited: The generated answer cited a chunk from this document —
-                increments ``citation_count`` by 1 and sets
-                ``last_cited_at`` to now.
-            retrieved: This document was touched by a retrieval, regardless
-                of whether it was ultimately cited — increments
-                ``retrieval_count`` by 1.
-            feedback_score: A relevance/usefulness signal (recommended
-                range ``[0.0, 1.0]``, not enforced server-side) — folded
-                into ``feedback_avg`` as a running mean.
-
-        Returns:
-            :class:`~relata.models.DocumentUsageResponse` with the updated
-            counter values.
-
-        Raises:
-            :class:`~relata.exceptions.RelataError`: ``report_id`` has no
-                live ``DocumentSource`` for the caller's tenant (HTTP 404),
-                or no signal was supplied (HTTP 400).
-
-        Examples::
-
-            client.document_usage(report_id, cited=True, retrieved=True)
-            client.document_usage(report_id, feedback_score=0.9)
+        Exact retries return the original event receipt. A key reused with a
+        different payload raises the server's conflict error. The endpoint
+        requires a local persistent WAL and currently rejects cluster mode.
         """
-        payload: dict[str, Any] = {}
-        if cited:
-            payload["cited"] = True
-        if retrieved:
-            payload["retrieved"] = True
-        if feedback_score is not None:
-            payload["feedback_score"] = feedback_score
-        data = self._sync.post(f"/rag/documents/{path_segment(report_id)}/usage", payload)
-        return DocumentUsageResponse.model_validate(data)
+        data = self._sync.post("/events/append", request.model_dump(exclude_none=True))
+        return EventAppendReceipt.model_validate(data)
 
-    async def adocument_usage(
-        self,
-        report_id: str,
-        *,
-        cited: bool = False,
-        retrieved: bool = False,
-        feedback_score: float | None = None,
-    ) -> DocumentUsageResponse:
-        """Identical to :meth:`document_usage` but non-blocking."""
-        payload: dict[str, Any] = {}
-        if cited:
-            payload["cited"] = True
-        if retrieved:
-            payload["retrieved"] = True
-        if feedback_score is not None:
-            payload["feedback_score"] = feedback_score
-        data = await self._async.post(f"/rag/documents/{path_segment(report_id)}/usage", payload)
-        return DocumentUsageResponse.model_validate(data)
+    async def aappend_event(self, request: EventAppendRequest) -> EventAppendReceipt:
+        """Async counterpart to :meth:`append_event`."""
+        data = await self._async.post("/events/append", request.model_dump(exclude_none=True))
+        return EventAppendReceipt.model_validate(data)
 
     # ------------------------------------------------------------------
     # Repr

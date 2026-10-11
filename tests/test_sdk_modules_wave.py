@@ -401,21 +401,22 @@ def test_ingest_bulk_csv() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_ingest_cdr_serialises_csv_with_aliases() -> None:
+def test_ingest_cdr_normalizes_rows_through_generic_contract() -> None:
     from relata.ingest import IngestClient
 
     seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/ingest/cdr"
+        assert req.url.path == "/ingest"
         assert "purpose=finint" in str(req.url)
-        assert req.headers["content-type"] == "text/csv"
-        body_text = req.content.decode()
-        lines = body_text.split("\n")
-        # Header + 2 rows.
-        assert lines[0] == "caller,callee,start,duration,tower,type"
-        seen.append({"body": body_text})
-        return httpx.Response(200, json={"rows_queued": 2, "errors": [], "queue_depth": 0})
+        assert req.url.params["object_type"] == "CdrRecord"
+        assert req.headers["content-type"] == "application/x-ndjson"
+        rows = [json.loads(line) for line in req.content.decode().splitlines()]
+        assert rows[0]["caller_msisdn"] == 911234567890
+        assert rows[0]["call_type"] == "voice"
+        assert rows[1]["call_type"] == "sms"
+        seen.append({"rows": rows})
+        return httpx.Response(200, json={"rows_queued": 2, "rows_rejected": 0, "errors": [], "task_id": "itsk_test"})
 
     c = IngestClient(BASE, purpose="finint", transport=_wrap(handler))
     out = c.ingest_cdr(
@@ -423,20 +424,25 @@ def test_ingest_cdr_serialises_csv_with_aliases() -> None:
             {
                 "caller": "+911234567890", "callee": "919876543210",
                 "duration": 120, "tower": "CELL-042", "type": "voice",
+                "_pk": "cdr-stable-1", "source_file_id": 42,
             },
             {
                 "a_number": "911111111111", "b_number": "922222222222",
                 "tower_id": "CELL-001", "call_type": "sms",
+                "id": "cdr-stable-2", "source_file_id": 43,
             },
         ],
         purpose="finint",
     )
     assert out["rows_queued"] == 2
-    body = seen[0]["body"]
-    # Aliases resolve to canonical columns; digits kept (server strips non-digits).
-    assert "911234567890" in body
-    assert "911111111111" in body
-    assert "CELL-042" in body
+    assert out["task_id"] == "itsk_test"
+    rows = seen[0]["rows"]
+    assert rows[0]["tower_id"] == "CELL-042"
+    assert rows[0]["_pk"] == "cdr-stable-1"
+    assert rows[0]["source_file_id"] == 42
+    assert rows[1]["caller_msisdn"] == 911111111111
+    assert rows[1]["id"] == "cdr-stable-2"
+    assert rows[1]["source_file_id"] == 43
 
 
 def test_ingest_otlp_helpers_post_json_with_purpose() -> None:

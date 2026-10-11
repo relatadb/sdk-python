@@ -430,17 +430,21 @@ class McpClient:
         purpose: str,
         confidence: float = 1.0,
         memory_class: str = "semantic",
+        session_id: str | None = None,
+        fields: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """``remember`` MCP tool — store a memory (same shape as ``Memory.add``)."""
-        return self.call_tool(
-            "remember",
-            {
-                "content": content,
-                "purpose": purpose,
-                "confidence": confidence,
-                "memory_class": memory_class,
-            },
-        )
+        args: dict[str, Any] = {
+            "content": content,
+            "purpose": purpose,
+            "confidence": confidence,
+            "memory_class": memory_class,
+        }
+        if session_id is not None:
+            args["session_id"] = session_id
+        if fields is not None:
+            args["fields"] = fields
+        return self.call_tool("remember", args)
 
     def recall(
         self,
@@ -453,6 +457,7 @@ class McpClient:
         budget_tokens: int | None = None,
         stability_days: float | None = None,
         cancel_threshold: float | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         """``recall`` MCP tool.
 
@@ -476,6 +481,8 @@ class McpClient:
             args["stability_days"] = stability_days
         if cancel_threshold is not None:
             args["cancel_threshold"] = cancel_threshold
+        if session_id is not None:
+            args["session_id"] = session_id
         return self.call_tool("recall", args)
 
     def remember_batch(
@@ -612,30 +619,6 @@ class McpClient:
             args["purpose"] = purpose
         return self.call_tool("summarise", args)
 
-    def nl_query(
-        self,
-        query: str,
-        *,
-        purpose: str | None = None,
-        interpret: bool = False,
-        max_sub_questions: int | None = None,
-    ) -> dict[str, Any]:
-        """``nl_query`` — natural-language question translated to SQL and executed (#2322).
-
-        A dialect router (#3267) classifies each question as SQL, Cypher, or a governed
-        graph operator and prompts accordingly; the response carries a ``dialect`` field.
-        Pass ``max_sub_questions > 1`` to decompose a multi-part question (e.g. "find X,
-        and who X is linked to") into independently-routed sub-questions — the response
-        then carries ``decomposed: true`` and a ``sub_results`` array instead of a single
-        result. Capped at 5 server-side regardless of the value given.
-        """
-        args: dict[str, Any] = {"query": query, "interpret": interpret}
-        if purpose:
-            args["purpose"] = purpose
-        if max_sub_questions is not None:
-            args["max_sub_questions"] = max_sub_questions
-        return self.call_tool("nl_query", args)
-
     def erase_subject(self, subject: str, *, reason: str = "gdpr-art17-request") -> dict[str, Any]:
         """``erase_subject`` — GDPR Art. 17 crypto-shred erasure with a signed receipt (#2322)."""
         return self.call_tool("erase_subject", {"subject": subject, "reason": reason})
@@ -771,18 +754,6 @@ class McpClient:
     def schedule_job(self, name: str) -> dict[str, Any]:
         """``schedule_job`` — trigger an immediate run of a named detection job (#2322)."""
         return self.call_tool("schedule_job", {"name": name})
-
-    def list_workflows(self) -> dict[str, Any]:
-        """``list_workflows`` — list all registered workflow definitions (#2322)."""
-        return self.call_tool("list_workflows", {})
-
-    def run_workflow(self, name: str) -> dict[str, Any]:
-        """``run_workflow`` — start a workflow execution by name (#2322)."""
-        return self.call_tool("run_workflow", {"name": name})
-
-    def workflow_status(self, run_id: str) -> dict[str, Any]:
-        """``workflow_status`` — query step-level status of a workflow run (#2322)."""
-        return self.call_tool("workflow_status", {"run_id": run_id})
 
     def trace_crypto(
         self,
@@ -1355,17 +1326,21 @@ class AsyncMcpClient:
         purpose: str,
         confidence: float = 1.0,
         memory_class: str = "semantic",
+        session_id: str | None = None,
+        fields: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """``remember`` MCP tool — store a memory (same shape as ``Memory.add``)."""
-        return await self.call_tool(
-            "remember",
-            {
-                "content": content,
-                "purpose": purpose,
-                "confidence": confidence,
-                "memory_class": memory_class,
-            },
-        )
+        args: dict[str, Any] = {
+            "content": content,
+            "purpose": purpose,
+            "confidence": confidence,
+            "memory_class": memory_class,
+        }
+        if session_id is not None:
+            args["session_id"] = session_id
+        if fields is not None:
+            args["fields"] = fields
+        return await self.call_tool("remember", args)
 
     async def recall(
         self,
@@ -1378,6 +1353,7 @@ class AsyncMcpClient:
         budget_tokens: int | None = None,
         stability_days: float | None = None,
         cancel_threshold: float | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         """``recall`` MCP tool. See :meth:`McpClient.recall` for the five
         ADR-145 retrieval-quality keyword knobs."""
@@ -1392,6 +1368,8 @@ class AsyncMcpClient:
             args["stability_days"] = stability_days
         if cancel_threshold is not None:
             args["cancel_threshold"] = cancel_threshold
+        if session_id is not None:
+            args["session_id"] = session_id
         return await self.call_tool("recall", args)
 
     async def remember_batch(
@@ -1527,30 +1505,6 @@ class AsyncMcpClient:
         if purpose:
             args["purpose"] = purpose
         return await self.call_tool("summarise", args)
-
-    async def nl_query(
-        self,
-        query: str,
-        *,
-        purpose: str | None = None,
-        interpret: bool = False,
-        max_sub_questions: int | None = None,
-    ) -> dict[str, Any]:
-        """``nl_query`` — natural-language question translated to SQL and executed (#2322).
-
-        A dialect router (#3267) classifies each question as SQL, Cypher, or a governed
-        graph operator and prompts accordingly; the response carries a ``dialect`` field.
-        Pass ``max_sub_questions > 1`` to decompose a multi-part question (e.g. "find X,
-        and who X is linked to") into independently-routed sub-questions — the response
-        then carries ``decomposed: true`` and a ``sub_results`` array instead of a single
-        result. Capped at 5 server-side regardless of the value given.
-        """
-        args: dict[str, Any] = {"query": query, "interpret": interpret}
-        if purpose:
-            args["purpose"] = purpose
-        if max_sub_questions is not None:
-            args["max_sub_questions"] = max_sub_questions
-        return await self.call_tool("nl_query", args)
 
     async def erase_subject(
         self, subject: str, *, reason: str = "gdpr-art17-request"
@@ -1689,18 +1643,6 @@ class AsyncMcpClient:
     async def schedule_job(self, name: str) -> dict[str, Any]:
         """``schedule_job`` — trigger an immediate run of a named detection job (#2322)."""
         return await self.call_tool("schedule_job", {"name": name})
-
-    async def list_workflows(self) -> dict[str, Any]:
-        """``list_workflows`` — list all registered workflow definitions (#2322)."""
-        return await self.call_tool("list_workflows", {})
-
-    async def run_workflow(self, name: str) -> dict[str, Any]:
-        """``run_workflow`` — start a workflow execution by name (#2322)."""
-        return await self.call_tool("run_workflow", {"name": name})
-
-    async def workflow_status(self, run_id: str) -> dict[str, Any]:
-        """``workflow_status`` — query step-level status of a workflow run (#2322)."""
-        return await self.call_tool("workflow_status", {"run_id": run_id})
 
     async def trace_crypto(
         self,
