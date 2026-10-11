@@ -191,14 +191,20 @@ class IngestDocumentResponse(BaseModel):
 
     Attributes:
         report_id: Server-assigned manifest ID for the ingested document.
+        task_id: Server-assigned background task ID, when returned by the server.
         chunks_ingested: Number of chunks accepted into the ingest queue.
+        relations_ingested: Number of relation rows accepted, when reported.
+        structure_nodes_ingested: Number of structure nodes accepted, when reported.
         warnings: Non-fatal protocol warnings (e.g. newer-minor-version fields).
         schema_version: Protocol version the server parsed the document as.
         queue_depth: Current ingest queue depth after this submission.
     """
 
     report_id: str = Field(..., description="Manifest ID assigned by the server")
+    task_id: str | None = Field(None, description="Background ingest task ID")
     chunks_ingested: int = Field(..., description="Chunks accepted into the ingest queue", ge=0)
+    relations_ingested: int | None = Field(None, description="Relation rows accepted", ge=0)
+    structure_nodes_ingested: int | None = Field(None, description="Structure nodes accepted", ge=0)
     warnings: list[str] = Field(default_factory=list, description="Non-fatal server warnings")
     schema_version: str = Field(..., description="Protocol version used during parsing")
     queue_depth: int = Field(0, description="Ingest queue depth after submission", ge=0)
@@ -207,9 +213,31 @@ class IngestDocumentResponse(BaseModel):
         return (
             f"IngestDocumentResponse("
             f"report_id={self.report_id!r}, "
+            f"task_id={self.task_id!r}, "
             f"chunks_ingested={self.chunks_ingested}, "
             f"schema_version={self.schema_version!r})"
         )
+
+
+class IngestDocumentTaskStatus(BaseModel):
+    """Current status returned by ``GET /rag/ingest/{task_id}``.
+
+    Task state is process-local on the server. A successful submission receipt
+    therefore does not promise that this status remains queryable after a
+    server restart or on a different cluster node.
+    """
+
+    task_id: str = Field(..., description="Background ingest task ID")
+    status: str = Field(..., description="Current task status (pending or complete)")
+    report_id: str | None = Field(None, description="Document report ID once assigned")
+    chunks_total: int = Field(0, description="Chunks scheduled for persistence", ge=0)
+    chunks_written: int = Field(0, description="Chunks persisted so far", ge=0)
+    warnings: list[str] = Field(default_factory=list, description="Non-fatal server warnings")
+    write_token: dict[str, int] | None = Field(
+        None,
+        alias="_relata_write_token",
+        description="Optional cluster write watermark returned after completion",
+    )
 
 
 class DocumentUsageResponse(BaseModel):

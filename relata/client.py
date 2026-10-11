@@ -45,6 +45,7 @@ from relata.models import (
     DocumentUsageResponse,
     HealthResponse,
     IngestDocumentResponse,
+    IngestDocumentTaskStatus,
     QueryResult,
     ReadyReport,
     SearchResponse,
@@ -1857,7 +1858,9 @@ class RelataClient:
 
         Returns:
             :class:`~relata.models.IngestDocumentResponse` with ``report_id``,
-            ``chunks_ingested``, ``warnings``, and ``queue_depth``.
+            ``task_id``, the accepted record counts, ``warnings``, and
+            ``queue_depth``. Poll ``task_id`` with
+            :meth:`ingest_document_status` to observe persistence progress.
 
         Raises:
             :class:`~relata.exceptions.AuthError`: Invalid/missing token.
@@ -1899,6 +1902,20 @@ class RelataClient:
         payload = {"chunks_jsonl": chunks_jsonl, "manifest_json": manifest_json}
         data = await self._async.post("/rag/ingest", payload)
         return IngestDocumentResponse.model_validate(data)
+
+    def ingest_document_status(self, task_id: str) -> IngestDocumentTaskStatus:
+        """Read the current status of a document-ingest task.
+
+        ``GET /rag/ingest/{task_id}`` reports process-local background writer
+        progress. It returns 404 when the task is unknown to this server.
+        """
+        data = self._sync.get(f"/rag/ingest/{path_segment(task_id)}")
+        return IngestDocumentTaskStatus.model_validate(data)
+
+    async def aingest_document_status(self, task_id: str) -> IngestDocumentTaskStatus:
+        """Async counterpart to :meth:`ingest_document_status`."""
+        data = await self._async.get(f"/rag/ingest/{path_segment(task_id)}")
+        return IngestDocumentTaskStatus.model_validate(data)
 
     def document_usage(
         self,
