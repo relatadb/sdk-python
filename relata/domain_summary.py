@@ -53,9 +53,11 @@ def summarize_domain(domain: str, inventory: dict[str, Any]) -> dict[str, Any]:
     if domain != "all" and domain not in _PROFILES:
         valid = ", ".join((*_PROFILES, "all"))
         raise ValueError(f"unknown domain: {domain}. Valid: {valid}")
+    if not isinstance(inventory, dict):
+        raise TypeError("list_entity_types result must be an object with a types array")
 
     counts: dict[str, int] = {}
-    types = inventory.get("types", [])
+    types = inventory.get("types")
     if not isinstance(types, list):
         raise TypeError("list_entity_types result must contain a types array")
     for item in types:
