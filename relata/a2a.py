@@ -2,7 +2,7 @@
 
 Wraps ``/a2a/tasks`` (create), ``/a2a/tasks/:id`` (status),
 ``/a2a/tasks/:id/stream`` (SSE tail — pairs with the streaming ticket), and
-``/a2a/checkpoints/:thread_id`` (LangGraph checkpointer backing store).
+``/a2a/checkpoints/:thread_id`` (process-local LangGraph checkpoint endpoints).
 """
 
 from __future__ import annotations
@@ -18,7 +18,11 @@ if TYPE_CHECKING:
 
 
 class A2AClient:
-    """Synchronous A2A client — submit / poll / list tasks; manage checkpoints."""
+    """Synchronous HTTP client for A2A routes.
+
+    Task execution happens synchronously on the server; task status is kept in
+    bounded, process-local history. Checkpoint endpoint state is also volatile.
+    """
 
     def __init__(
         self,
@@ -43,9 +47,10 @@ class A2AClient:
         )
 
     def submit_task(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Submit a long-running A2A task. The ``payload`` matches the A2A
-        protocol — typically ``{"name": "...", "input": {...}, "skill": ...}``.
-        Returns the task record with its ``id`` and initial ``status``."""
+        """Submit an A2A task. The server executes it synchronously in this
+        request. The returned record is available only while retained in the
+        server's bounded, process-local task history; it is not a durable job
+        receipt. Payloads typically contain ``name``, ``input`` and ``skill``."""
         return self._t.post("/a2a/tasks", payload)
 
     def get_task(self, task_id: str) -> dict[str, Any]:

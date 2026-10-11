@@ -758,10 +758,6 @@ class McpClient:
             args["severity"] = severity
         return self.call_tool("create_rule", args)
 
-    def import_sigma(self, sigma_yaml: str, *, purpose: str = "security") -> dict[str, Any]:
-        """``import_sigma`` — import a Sigma detection rule (YAML) (#2322)."""
-        return self.call_tool("import_sigma", {"yaml": sigma_yaml, "purpose": purpose})
-
     def list_jobs(self) -> dict[str, Any]:
         """``list_jobs`` — list all registered detection jobs with live status (#2322)."""
         return self.call_tool("list_jobs", {})
@@ -1645,10 +1641,6 @@ class AsyncMcpClient:
         if severity:
             args["severity"] = severity
         return await self.call_tool("create_rule", args)
-
-    async def import_sigma(self, sigma_yaml: str, *, purpose: str = "security") -> dict[str, Any]:
-        """``import_sigma`` — import a Sigma detection rule (YAML) (#2322)."""
-        return await self.call_tool("import_sigma", {"yaml": sigma_yaml, "purpose": purpose})
 
     async def list_jobs(self) -> dict[str, Any]:
         """``list_jobs`` — list all registered detection jobs with live status (#2322)."""

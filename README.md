@@ -11,6 +11,12 @@ For the v3.0 platform boundary and SDK migration plan, see the
 Python is one of the three supported consumer SDKs (Python, TypeScript, Go).
 Other languages use the HTTP API and its OpenAPI reference at `GET /openapi.json`.
 
+The v3 SDK accepts prepared detection rules through `GovernanceClient.create_rule`
+or MCP `create_rule`. Raw Sigma YAML parsing/import is no longer an SDK or MCP
+server method. Use the optional `relata-connectors import-sigma` application
+workflow for YAML conversion, or convert externally and submit the prepared
+`name`, `condition_sql`, and `target_type` JSON fields through `/rules`.
+
 Relata DB is a Rust-native, ontology-driven engine built for bi-temporal, governed knowledge workloads: link analysis, identity resolution, full-text and vector search, access-scoped restricted data, and provenance-tracked analytics.
 
 ## Requirements

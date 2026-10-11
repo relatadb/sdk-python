@@ -44,11 +44,11 @@ def test_governance_create_rule_posts_to_rules() -> None:
         assert req.url.path == "/rules"
         assert dict(req.url.params) == {"purpose": "audit"}
         body = json.loads(req.content)
-        assert body == {"name": "r1", "object_type": "Person", "condition": "age > 18"}
+        assert body == {"name": "r1", "condition_sql": "age > 18", "target_type": "Person"}
         return httpx.Response(200, json={"id": "rule-1", "name": "r1"})
 
     g = GovernanceClient(BASE, purpose="audit", transport=_wrap(handler))
-    out = g.create_rule({"name": "r1", "object_type": "Person", "condition": "age > 18"})
+    out = g.create_rule({"name": "r1", "condition_sql": "age > 18", "target_type": "Person"})
     assert out["id"] == "rule-1"
 
 
@@ -117,23 +117,6 @@ def test_governance_submit_dsar_uses_query_params() -> None:
     g = GovernanceClient(BASE, transport=_wrap(handler))
     out = g.submit_dsar("alice", reason="gdpr-art-15")
     assert out["dsar_id"] == "dsar-1"
-
-
-def test_governance_import_sigma_sends_yaml() -> None:
-    from relata.governance import GovernanceClient
-
-    yaml_text = "title: Suspicious\nlogsource: ...\n"
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/rules/sigma"
-        assert dict(req.url.params) == {"purpose": "audit"}
-        assert req.headers["content-type"] == "application/x-yaml"
-        assert req.content.decode() == yaml_text
-        return httpx.Response(200, json={"rules_imported": 1, "rules_skipped": 0})
-
-    g = GovernanceClient(BASE, purpose="audit", transport=_wrap(handler))
-    out = g.import_sigma(yaml_text)
-    assert out["rules_imported"] == 1
 
 
 def test_governance_suppress_rule_sends_entity_id() -> None:

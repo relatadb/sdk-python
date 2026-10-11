@@ -3,7 +3,7 @@
 A thin governed wrapper over the server's HTTP surface so a Python operator
 can:
 
-- Define and manage detection rules (including Sigma rule ingestion).
+- Define and manage prepared detection rules.
 - Place and lift legal holds; configure WORM retention per object type.
 - Request and approve emergency HUMINT breakglass access (4h, two-person).
 - List and ack alerts; tail the alert SSE stream.
@@ -18,14 +18,23 @@ context manager to guarantee the underlying HTTP connection pool is closed::
     from relata.governance import GovernanceClient
 
     with GovernanceClient.from_client(client) as g:
-        rule_id = g.create_rule({...})
-        g.import_sigma(sigma_yaml)
+        rule = g.create_rule({
+            "name": "high-transfer",
+            "condition_sql": "amount > 1000000",
+            "target_type": "Transaction",
+            "severity": "high",
+        })
         hold_id = g.place_legal_hold("case-42", "Person")
 
 For async apps::
 
     async with AsyncGovernanceClient.from_client(client) as g:
-        rule_id = await g.create_rule({...})
+        rule = await g.create_rule({
+            "name": "high-transfer",
+            "condition_sql": "amount > 1000000",
+            "target_type": "Transaction",
+            "severity": "high",
+        })
 """
 
 from __future__ import annotations
@@ -155,8 +164,9 @@ class GovernanceClient(_BaseGovernance):
     def create_rule(
         self, rule: dict[str, Any], *, purpose: str | None = None
     ) -> dict[str, Any]:
-        """Create a detection rule. The dict shape matches the server's
-        ``RuleSpec`` (``name``, ``object_type``, ``condition``, ``action``, ...).
+        """Create a prepared detection rule. The server requires ``name``,
+        ``condition_sql``, and ``target_type``; it accepts optional
+        ``severity``, ``mitre_technique``, ``trigger``, and ``action`` fields.
         Returns the created rule record including its server-assigned ``id``.
 
         ``purpose`` is mandatory server-side (``POST /rules?purpose=<p>``) —
@@ -168,23 +178,6 @@ class GovernanceClient(_BaseGovernance):
     def disable_rule(self, rule_id: str) -> dict[str, Any]:
         """Disable (logically delete) a rule by id."""
         return self._t.delete(f"/rules/{path_segment(rule_id)}")
-
-    def import_sigma(
-        self, sigma_yaml: str, *, purpose: str | None = None
-    ) -> dict[str, Any]:
-        """Import a Sigma rule (YAML string). Returns the import summary
-        (``rules_imported``, ``rules_skipped``, ``errors``).
-
-        The server (``POST /rules/sigma?purpose=<p>``) requires ``purpose``
-        as a query param and the raw YAML text as the request body — not a
-        JSON envelope.
-        """
-        eff = self._effective_purpose(purpose)
-        return self._t.post_raw(
-            f"/rules/sigma?purpose={path_segment(eff)}",
-            sigma_yaml,
-            content_type="application/x-yaml",
-        )
 
     def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
         """Temporarily disable a rule for ``duration_secs`` (#967)."""
@@ -488,16 +481,6 @@ class AsyncGovernanceClient(_BaseGovernance):
 
     async def disable_rule(self, rule_id: str) -> dict[str, Any]:
         return await self._t.delete(f"/rules/{path_segment(rule_id)}")
-
-    async def import_sigma(
-        self, sigma_yaml: str, *, purpose: str | None = None
-    ) -> dict[str, Any]:
-        eff = self._effective_purpose(purpose)
-        return await self._t.post_raw(
-            f"/rules/sigma?purpose={path_segment(eff)}",
-            sigma_yaml,
-            content_type="application/x-yaml",
-        )
 
     async def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
         return await self._t.post(

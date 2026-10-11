@@ -1,15 +1,17 @@
-"""RelataCheckpointer — a real LangGraph `BaseCheckpointSaver` backed by RelataDB.
+"""RelataCheckpointer — a LangGraph `BaseCheckpointSaver` over Relata HTTP endpoints.
 
 `RelataCheckpointer` (sync) and `AsyncRelataCheckpointer` (async) both subclass
 ``langgraph.checkpoint.base.BaseCheckpointSaver`` and implement its full
 required surface (``get_tuple``/``list``/``put``/``put_writes`` + async
 mirrors), so either can be passed directly to ``workflow.compile(checkpointer=...)``
 (#2229, fixing #340 — the previous bespoke ``put``/``get``/``list``/``delete``
-client was not usable there). Checkpoints persist via the governed A2A
-checkpoint door (``PUT/GET /a2a/checkpoints/{thread_id}/{checkpoint_id}``,
-``GET /a2a/checkpoints/{thread_id}``) — the server keeps an exact, lossless
-read-back store and mirrors each write as a governed ``MemoryItem`` (audit +
-provenance). Retained checkpoints FIFO-evict server-side.
+client was not usable there). Checkpoint state is held in a bounded,
+process-local map behind the A2A checkpoint endpoints
+(``PUT/GET /a2a/checkpoints/{thread_id}/{checkpoint_id}``,
+``GET /a2a/checkpoints/{thread_id}``): it round-trips exactly while retained,
+but is lost on server restart and FIFO-evicted after 4096 entries. Each save
+also attempts a governed ``MemoryItem`` mirror for audit and provenance; that
+mirror is not an exact checkpoint recovery source.
 
 Unlike the framework-agnostic adapters in ``relata_adapters`` (which
 deliberately duck-type their target framework's interface so the package
@@ -476,7 +478,8 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         metadata: CheckpointMetadata,
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
-        """Persist a checkpoint. `PUT /a2a/checkpoints/{thread_id}/{checkpoint_id}`
+        """Save a checkpoint in the server's process-local map.
+        `PUT /a2a/checkpoints/{thread_id}/{checkpoint_id}`
         stores the checkpoint + metadata verbatim; overwrites any existing
         checkpoint for the same id (re-saves don't accumulate duplicates)."""
         thread_id = config["configurable"]["thread_id"]
