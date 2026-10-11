@@ -77,7 +77,7 @@ class TenantAdminClient:
         self, tenant_id: str, *, tier: str = "standard", **fields: Any  # noqa: ANN401
     ) -> dict[str, Any]:
         """Provision a new tenant. Wraps ``POST /platform/tenants``."""
-        payload: dict[str, Any] = {"tenant_id": tenant_id, "tier": tier, **fields}
+        payload: dict[str, Any] = {"id": tenant_id, "tier": tier, **fields}
         return self._t.post("/platform/tenants", payload)
 
     def get(self, tenant_id: str) -> dict[str, Any]:
@@ -206,7 +206,7 @@ class AsyncTenantAdminClient:
     async def create(
         self, tenant_id: str, *, tier: str = "standard", **fields: Any  # noqa: ANN401
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"tenant_id": tenant_id, "tier": tier, **fields}
+        payload: dict[str, Any] = {"id": tenant_id, "tier": tier, **fields}
         return await self._t.post("/platform/tenants", payload)
 
     async def get(self, tenant_id: str) -> dict[str, Any]:
@@ -216,7 +216,9 @@ class AsyncTenantAdminClient:
         return await self._t.delete(f"/platform/tenants/{path_segment(tenant_id)}")
 
     async def set_tier(self, tenant_id: str, tier: str) -> dict[str, Any]:
-        return await self._t.patch(f"/platform/tenants/{path_segment(tenant_id)}/tier", {"tier": tier})
+        return await self._t.patch(
+            f"/platform/tenants/{path_segment(tenant_id)}/tier", {"tier": tier}
+        )
 
     async def suspend(self, tenant_id: str) -> dict[str, Any]:
         return await self._t.post(f"/platform/tenants/{path_segment(tenant_id)}/suspend", {})

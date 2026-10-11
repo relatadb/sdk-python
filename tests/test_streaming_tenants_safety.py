@@ -140,7 +140,7 @@ def test_tenant_admin_create_posts_to_platform() -> None:
         seen.append({"method": req.method, "path": req.url.path})
         if req.method == "POST" and req.url.path == "/platform/tenants":
             body = json.loads(req.content)
-            assert body == {"tenant_id": "acme", "tier": "enterprise"}
+            assert body == {"id": "acme", "tier": "enterprise"}
             return httpx.Response(200, json={"tenant_id": "acme", "status": "active"})
         return httpx.Response(404)
 
