@@ -2,8 +2,8 @@
 
 These are distinct from schema-ALTER (#2476, ``PATCH /types/:name/schema``) —
 this is the schema-BRANCH surface (``POST/DELETE /schema/branches/:name``)
-plus the typed-edge door (``GET/POST /types/edges``), mirrored from the Rust
-flat client at ``crates/relata-sdk-rust/src/http.rs:2535-2570``.
+plus the typed-edge door (``GET/POST /types/edges``), checked against the
+shared server route contract.
 
 Uses httpx.MockTransport — no live server required.
 """

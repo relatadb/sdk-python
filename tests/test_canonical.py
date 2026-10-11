@@ -1,7 +1,7 @@
 """Tests for the canonical validation module (#2248 Tier-1).
 
 Consumes a vendored copy of the SHARED test-vectors file (``tests/fixtures/canonical-vectors.json``,
-mirrored from ``sdks/shared/canonical-vectors.json``) so all four SDKs
+mirrored from ``sdks/shared/canonical-vectors.json``) so all three supported SDKs
 (Rust/Python/TypeScript/Go) exercise identical valid + reject cases. Vendored
 rather than read from ``sdks/shared`` directly because this package is mirrored
 to a standalone repo (relatadb/sdk-python) via `git subtree split`, which drops

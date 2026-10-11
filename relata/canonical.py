@@ -14,7 +14,7 @@ Two functions per kind:
 * ``validate_<kind>(value) -> bool``
 * ``normalize_<kind>(value) -> str``  (raises :class:`CanonicalError` on reject)
 
-Test vectors are shared across all four SDKs from
+Test vectors are shared across the three supported SDKs from
 ``sdks/shared/canonical-vectors.json``.
 
 Scope: Tier-1 only (8 of ~76 canonical kinds). The remaining 65 kinds stay

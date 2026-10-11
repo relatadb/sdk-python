@@ -867,8 +867,8 @@ class RelataClient:
 
     # ------------------------------------------------------------------
     # Schema-BRANCH CRUD + typed edge definitions (#2497, #2476 ALTER stays
-    # distinct — these are the schema-BRANCH surface mirrored from the Rust
-    # flat client at crates/relata-sdk-rust/src/http.rs:2535-2570).
+    # distinct — these are the schema-BRANCH surface implemented by this
+    # supported client.
     # ------------------------------------------------------------------
 
     def list_edge_types(self) -> dict[str, object]:

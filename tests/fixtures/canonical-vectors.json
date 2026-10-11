@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared canonical test vectors for all 4 SDKs (Rust/Python/TypeScript/Go). Sourced from crates/relata-canonical/src/{email,phone,iban,imei,vin,msisdn,ipv4,ipv6}.rs. Each kind has `valid` (input + expected canonical output) and `reject` (inputs that MUST be rejected). #2248 Tier-1.",
+  "_comment": "Shared canonical test vectors for the three supported SDKs (Python/TypeScript/Go). Sourced from crates/relata-canonical/src/{email,phone,iban,imei,vin,msisdn,ipv4,ipv6}.rs. Each kind has `valid` (input + expected canonical output) and `reject` (inputs that MUST be rejected). #2248 Tier-1.",
   "_note": "For numeric canonical forms (phone/msisdn/ipv4) the expected is the canonical textual form each SDK emits. ipv6 expected values are RFC 5952 lowercase-compressed.",
   "email": {
     "valid": [

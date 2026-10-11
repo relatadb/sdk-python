@@ -47,8 +47,8 @@ def path_segment(value: str) -> str:
     Every helper that interpolates an id into ``f"/x/{id}"`` must route it
     through this so ``../``, ``?``, ``#``, ``&``, ``/`` can neither traverse the
     path nor smuggle query params. ``safe=""`` encodes even ``/`` — the encoded
-    value can never span multiple segments. Mirrors the Rust SDK's
-    ``path_segment`` and the Go/TS ``pathSegment`` helpers (parity with #3200).
+    value can never span multiple segments. Mirrors the Go/TS ``pathSegment``
+    helpers (parity with #3200).
     """
     return quote(str(value), safe="")
 
@@ -70,8 +70,8 @@ _DEFAULT_MAX_RETRIES = 0  # off by default — caller must opt in
 _DEFAULT_RETRY_BACKOFF = 0.5
 
 # HTTP verbs that are safe to retry without risk of double-execution (#2490).
-# Parity with the Rust SDK (crates/relata-sdk-rust/src/http.rs:432) and the Go
-# SDK (sdks/go/relata/client.go:1259 isIdempotent): POST/DELETE/PATCH/PUT are
+# Parity with the Go SDK (sdks/go/relata/client.go:1259 isIdempotent):
+# POST/DELETE/PATCH/PUT are
 # NEVER retried — a gateway timeout after commit would double-execute
 # irreversible ops (erase_subject, fuse_identities, session_commit).
 _IDEMPOTENT_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
