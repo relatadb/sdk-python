@@ -428,6 +428,29 @@ def test_ingest_cdr_normalizes_rows_through_generic_contract() -> None:
     assert rows[1]["source_file_id"] == 43
 
 
+def test_cdr_case_alias_precedence_preserves_identity_and_input() -> None:
+    from relata.ingest import _normalize_cdr_rows
+
+    row = {
+        "caller": "111", "CALLER": "222", "a_number": "333",
+        "CALLEE": "444", "CALL_START_NS": 1700000000000000001,
+        "DURATION_SECS": 5, "TOWER_ID": " CELL-1 ", "CALL_TYPE": "SMS",
+        "_PK": "stable-key", "ID": "source-id", "SOURCE_FILE_ID": 42,
+    }
+    original = dict(row)
+    rows, errors = _normalize_cdr_rows([row, {"CALLER": "invalid", "CALLEE": "444"}])
+    assert row == original
+    assert rows == [{
+        "caller_msisdn": 222, "callee_msisdn": 444,
+        "call_start_ns": 1700000000000000001, "duration_secs": 5,
+        "tower_id": "CELL-1", "call_type": "sms", "source_file_id": 42,
+        "_pk": "stable-key", "id": "source-id",
+    }]
+    assert len(errors) == 1
+    assert errors[0]["row"] == 2
+    assert "caller_msisdn" in errors[0]["error"]
+
+
 def test_ingest_otlp_helpers_post_json_with_purpose() -> None:
     from relata.ingest import IngestClient
 

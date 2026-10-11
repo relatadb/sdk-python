@@ -34,9 +34,8 @@ _CDR_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 def _cdr_value(row: dict[str, Any], aliases: tuple[str, ...]) -> Any:
-    """Get the first supplied alias, matching header names case-insensitively."""
-    lower = {str(key).lower(): value for key, value in row.items()}
-    return next((lower[key] for key in aliases if key in lower), None)
+    """Get the first supplied alias from an already-normalized header map."""
+    return next((row[key] for key in aliases if key in row), None)
 
 
 def _cdr_metadata(row: dict[str, Any], normalized: dict[str, Any]) -> None:
@@ -67,6 +66,10 @@ def _normalize_cdr_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, 
     now_ns = time.time_ns()
     for row_number, row in enumerate(rows, 1):
         try:
+            # Reuse one case-insensitive view for all fields and metadata.
+            # Dict insertion order preserves the previous last-header-wins
+            # behavior when input keys differ only by case.
+            row = {str(key).lower(): value for key, value in row.items()}
             caller_raw = _cdr_value(row, _CDR_ALIASES["caller"])
             callee_raw = _cdr_value(row, _CDR_ALIASES["callee"])
             caller_digits = "".join(c for c in str("" if caller_raw is None else caller_raw) if c.isascii() and c.isdigit())
