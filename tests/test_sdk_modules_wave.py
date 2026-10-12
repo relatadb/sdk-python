@@ -500,7 +500,6 @@ def test_ingest_otlp_helpers_post_json_with_purpose() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #2249 — FinINT trace ops (wire_reconstruction, hawala_trace)
 # ---------------------------------------------------------------------------
 
 
@@ -550,41 +549,6 @@ def test_resolve_identity_rejects_invalid_mode() -> None:
     client = _client_with_mock(lambda req: httpx.Response(200, json={}))
     with pytest.raises(ValueError, match="mode must be one of"):
         client.resolve_identity("alice@example.com", mode="bogus")
-
-
-def test_wire_reconstruction_builds_sql() -> None:
-    seen: list[dict[str, Any]] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
-        seen.append(json.loads(req.content))
-        return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
-
-    client = _client_with_mock(handler)
-    out = client.wire_reconstruction("ACC-007", tolerance_pct=2.5, purpose="finint")
-    assert out["query_id"] == "q1"
-    assert seen[0]["sql"] == "WIRE_RECONSTRUCTION('ACC-007', TOLERANCE_PCT => 2.5)"
-    assert seen[0]["purpose"] == "finint"
-
-
-def test_hawala_trace_clamps_and_defaults_purpose() -> None:
-    seen: list[dict[str, Any]] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(req.content))
-        return httpx.Response(200, json={"rows": [], "query_id": "q2", "elapsed_ms": 1})
-
-    client = _client_with_mock(handler)
-    # max_hops above the server clamp of 10 is clamped client-side to 10.
-    client.hawala_trace("SEED-1", max_hops=99)
-    assert seen[0]["sql"] == "HAWALA_TRACE('SEED-1', MAX_HOPS => 10)"
-    # No explicit purpose → client default ("analytics").
-    assert seen[0]["purpose"] == "analytics"
-
-
-# ---------------------------------------------------------------------------
-# #88 — Vector client (SQL-backed)
-# ---------------------------------------------------------------------------
 
 
 def test_vector_knn_search_builds_pgvector_sql() -> None:

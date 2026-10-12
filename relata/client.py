@@ -487,7 +487,13 @@ class RelataClient:
         dialect: str | None = None,
         matcher: Literal["auto", "vf3", "bfs"] | None = None,
     ) -> QueryResult:
-        """Execute a SQL query against the Relata engine (synchronous).
+        """Execute a governed SQL query against the Relata engine (synchronous).
+
+        This generic client method sends ``POST /query``; the language-neutral
+        HTTP contract is published at ``GET /openapi.json``. The TypeScript
+        ``RelataClient.query`` and Go ``Client.Query`` methods expose the same
+        generic query path. Use ordinary SELECT statements to retrieve source
+        rows for application-owned analysis.
 
         Args:
             sql: SQL statement to execute.  Relata extends standard SQL with:
@@ -1297,22 +1303,6 @@ class RelataClient:
     # Intelligence operators (#967)
     # ------------------------------------------------------------------
 
-    def beneficial_ownership_chain(self, party: str, *, max_depth: int | None = None, purpose: str | None = None) -> dict[str, object]:
-        """Trace ownership to ultimate beneficial owner."""
-        p = purpose or self._default_purpose or "compliance"
-        parts = [f"BENEFICIAL_OWNERSHIP_CHAIN({_sql_literal(party)}"]
-        if max_depth is not None: parts.append(f", MAX_DEPTH => {max_depth}")
-        parts.append(")")
-        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
-
-    def sanctions_screen(self, party: str, *, threshold: float | None = None, purpose: str | None = None) -> dict[str, object]:
-        """Sanctions screening with fuzzy threshold."""
-        p = purpose or self._default_purpose or "compliance"
-        parts = [f"SANCTIONS_SCREEN({_sql_literal(party)}"]
-        if threshold is not None: parts.append(f", THRESHOLD => {threshold}")
-        parts.append(")")
-        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
-
     def convoy_detect(self, *, radius_m: float | None = None, time_tol_secs: int | None = None, min_points: int | None = None, purpose: str | None = None) -> dict[str, object]:
         """Convoy detection — find entities traveling together."""
         p = purpose or self._default_purpose or "analytics"
@@ -1322,32 +1312,6 @@ class RelataClient:
         if min_points is not None: parts.append(f"MIN_POINTS => {min_points}")
         sql = f"CONVOY({', '.join(parts)})" if parts else "CONVOY()"
         return self._sync.post("/query", {"purpose": p, "sql": sql})
-
-    def crypto_trace(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
-        """Follow cryptocurrency fund flow."""
-        p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"CRYPTO_TRACE({_sql_literal(entity)})"})
-
-    def wire_reconstruction(
-        self, account: str, *, tolerance_pct: float | None = None, purpose: str | None = None
-    ) -> dict[str, object]:
-        """Reconstruct a wire-transfer chain (FinINT, #2249)."""
-        p = purpose or self._default_purpose or "analytics"
-        parts = [f"WIRE_RECONSTRUCTION({_sql_literal(account)}"]
-        if tolerance_pct is not None:
-            parts.append(f", TOLERANCE_PCT => {tolerance_pct}")
-        parts.append(")")
-        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
-
-    def hawala_trace(
-        self, seed: str, *, max_hops: int | None = None, purpose: str | None = None
-    ) -> dict[str, object]:
-        """Trace an informal hawala value-transfer network (FinINT, #2249)."""
-        p = purpose or self._default_purpose or "analytics"
-        hops = 5 if max_hops is None else max(1, min(10, max_hops))
-        return self._sync.post(
-            "/query", {"purpose": p, "sql": f"HAWALA_TRACE({_sql_literal(seed)}, MAX_HOPS => {hops})"}
-        )
 
     def dns_tunnel_detect(
         self,

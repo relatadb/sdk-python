@@ -1,16 +1,11 @@
 """Typed decoders for AML / financial-intelligence result shapes (#2255).
 
-The server's AML operators (``SANCTIONS_SCREEN``,
-``BENEFICIAL_OWNERSHIP_CHAIN``, ``CRYPTO_TRACE``, ``WIRE_RECONSTRUCTION``,
-``HAWALA_TRACE``, ``RESOLVE_IDENTITY``, and the shortest-path / Dijkstra path
-operators) return generic query-result rows (dicts of column → JSON value).
-This module declares typed :mod:`dataclasses` for each result shape and
-provides a decoder that maps the generic rows into those dataclasses, so
-callers can work with strongly-typed objects instead of untyped dicts.
+These decoders map caller-selected generic query-result rows (dicts of column
+to JSON values) into typed :mod:`dataclasses`. They do not invoke or imply a
+built-in sanctions-screening operation.
 
-Field names mirror the exact column names emitted by the server operators
-(see ``crates/relata-query/src/finint_operators.rs`` and
-``investigation_ops.rs``).
+Field names mirror corresponding row shapes; callers choose and alias their
+own generic query projections.
 
 Scope
 -----
@@ -68,7 +63,7 @@ def _get_int(row: dict[str, Any], key: str) -> int | None:
 
 @dataclass(frozen=True)
 class SanctionsHit:
-    """A single sanctions-list match from ``SANCTIONS_SCREEN``.
+    """A sanctions-list row decoded from a caller's governed generic query.
 
     Columns: ``list_name``, ``entry_id``, ``matched_field``, ``match_score``.
     """
@@ -147,7 +142,7 @@ def decode_beneficial_owners(rows: list[dict[str, Any]]) -> list[BeneficialOwner
 
 @dataclass(frozen=True)
 class CryptoTraceHop:
-    """One hop in a cryptocurrency fund-flow trace from ``CRYPTO_TRACE``.
+    """Legacy crypto-trace row shape for caller-fetched generic query rows.
 
     Columns: ``hop``, ``from_wallet``, ``to_wallet``, ``amount``, ``asset``,
     ``chain``.
@@ -225,7 +220,7 @@ def decode_wire_hops(rows: list[dict[str, Any]]) -> list[WireHop]:
 
 @dataclass(frozen=True)
 class HawalaPair:
-    """A matched informal-value-transfer pair from ``HAWALA_TRACE``.
+    """Legacy hawala-trace row shape for caller-fetched generic query rows.
 
     Columns: ``sender``, ``receiver``, ``amount``, ``sender_country``,
     ``receiver_country``, ``ts``.

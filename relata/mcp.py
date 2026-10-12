@@ -8,38 +8,9 @@ responds with the MCP envelope ``{"content": [{"type":"text","text":"..."}],
 from __future__ import annotations
 
 import json
-import math
 from typing import TYPE_CHECKING, Any
 
 from relata._http import AsyncHttpTransport, HttpTransport
-
-
-def _financial_purpose(value: str) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or len(value) > 64
-        or any(not (char.isascii() and (char.isalnum() or char in "_-")) for char in value)
-    ):
-        raise ValueError("purpose must be 1-64 ASCII letters, digits, '_' or '-'")
-    return value
-
-
-def _financial_literal(value: str, name: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{name} is required")
-    if "'" in value or "\\" in value:
-        raise ValueError(f"{name} cannot contain SQL quote or backslash characters")
-    return value
-
-
-def _financial_unsigned(value: int, fallback: int, minimum: int, maximum: int) -> int:
-    # bool is an int subclass in Python, but serde_json does not deserialize a
-    # JSON boolean through Value::as_u64().
-    parsed = (
-        value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else fallback
-    )
-    return max(minimum, min(maximum, parsed))
 
 
 if TYPE_CHECKING:
@@ -766,60 +737,6 @@ class McpClient:
         """``schedule_job`` — trigger an immediate run of a named detection job (#2322)."""
         return self.call_tool("schedule_job", {"name": name})
 
-    def trace_crypto(
-        self,
-        address: str,
-        *,
-        max_hops: int = 5,
-        min_amount: float = 0,
-        purpose: str = "analytics",
-    ) -> dict[str, Any]:
-        """Run the former financial tool expression through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        address = _financial_literal(address, "address")
-        max_hops = _financial_unsigned(max_hops, 5, 1, 10)
-        if not math.isfinite(min_amount):
-            min_amount = 0.0
-        sql = (
-            f"PURPOSE '{purpose}' CRYPTO_TRACE('{address}', "
-            f"MAX_HOPS => {max_hops}, MIN_AMOUNT => {min_amount:g})"
-        )
-        return self.call_tool("query", {"sql": sql, "purpose": purpose})
-
-    def beneficial_ownership(
-        self, party: str, *, max_depth: int = 6, purpose: str = "analytics"
-    ) -> dict[str, Any]:
-        """Build the ownership expression and execute it through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        party = _financial_literal(party, "party")
-        max_depth = _financial_unsigned(max_depth, 6, 1, 8)
-        sql = f"PURPOSE '{purpose}' BENEFICIAL_OWNERSHIP_CHAIN('{party}', MAX_DEPTH => {max_depth})"
-        return self.call_tool("query", {"sql": sql, "purpose": purpose})
-
-    def reconstruct_wire(
-        self, account: str, *, tolerance_pct: float = 5.0, purpose: str = "analytics"
-    ) -> dict[str, Any]:
-        """Build the wire expression and execute it through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        account = _financial_literal(account, "account")
-        if not math.isfinite(tolerance_pct):
-            tolerance_pct = 5.0
-        sql = (
-            f"PURPOSE '{purpose}' WIRE_RECONSTRUCTION('{account}', "
-            f"TOLERANCE_PCT => {tolerance_pct:g})"
-        )
-        return self.call_tool("query", {"sql": sql, "purpose": purpose})
-
-    def trace_hawala(
-        self, seed: str, *, max_hops: int = 5, purpose: str = "analytics"
-    ) -> dict[str, Any]:
-        """Build the hawala expression and execute it through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        seed = _financial_literal(seed, "seed")
-        max_hops = _financial_unsigned(max_hops, 5, 1, 10)
-        sql = f"PURPOSE '{purpose}' HAWALA_TRACE('{seed}', MAX_HOPS => {max_hops})"
-        return self.call_tool("query", {"sql": sql, "purpose": purpose})
-
     def geofence(
         self,
         lat: float,
@@ -906,24 +823,6 @@ class McpClient:
     def find_scc(self, entity_type: str, *, purpose: str = "analytics") -> dict[str, Any]:
         """``find_scc`` — find strongly connected components in an entity type's graph (#2322)."""
         return self.call_tool("find_scc", {"entity_type": entity_type, "purpose": purpose})
-
-    def screen_sanctions(
-        self,
-        name: str,
-        *,
-        threshold: float | None = None,
-        purpose: str = "compliance_review",
-    ) -> dict[str, Any]:
-        """Build the sanctions expression and execute it through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        name = _financial_literal(name, "name")
-        threshold_sql = (
-            f", THRESHOLD => {threshold:g}"
-            if threshold is not None and math.isfinite(threshold)
-            else ""
-        )
-        sql = f"PURPOSE '{purpose}' SANCTIONS_SCREEN('{name}'{threshold_sql})"
-        return self.call_tool("query", {"sql": sql, "purpose": purpose})
 
     def aggregate_stats(
         self,
@@ -1650,60 +1549,6 @@ class AsyncMcpClient:
         """``schedule_job`` — trigger an immediate run of a named detection job (#2322)."""
         return await self.call_tool("schedule_job", {"name": name})
 
-    async def trace_crypto(
-        self,
-        address: str,
-        *,
-        max_hops: int = 5,
-        min_amount: float = 0,
-        purpose: str = "analytics",
-    ) -> dict[str, Any]:
-        """Run the former financial tool expression through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        address = _financial_literal(address, "address")
-        max_hops = _financial_unsigned(max_hops, 5, 1, 10)
-        if not math.isfinite(min_amount):
-            min_amount = 0.0
-        sql = (
-            f"PURPOSE '{purpose}' CRYPTO_TRACE('{address}', "
-            f"MAX_HOPS => {max_hops}, MIN_AMOUNT => {min_amount:g})"
-        )
-        return await self.call_tool("query", {"sql": sql, "purpose": purpose})
-
-    async def beneficial_ownership(
-        self, party: str, *, max_depth: int = 6, purpose: str = "analytics"
-    ) -> dict[str, Any]:
-        """Build the ownership expression and execute it through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        party = _financial_literal(party, "party")
-        max_depth = _financial_unsigned(max_depth, 6, 1, 8)
-        sql = f"PURPOSE '{purpose}' BENEFICIAL_OWNERSHIP_CHAIN('{party}', MAX_DEPTH => {max_depth})"
-        return await self.call_tool("query", {"sql": sql, "purpose": purpose})
-
-    async def reconstruct_wire(
-        self, account: str, *, tolerance_pct: float = 5.0, purpose: str = "analytics"
-    ) -> dict[str, Any]:
-        """Build the wire expression and execute it through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        account = _financial_literal(account, "account")
-        if not math.isfinite(tolerance_pct):
-            tolerance_pct = 5.0
-        sql = (
-            f"PURPOSE '{purpose}' WIRE_RECONSTRUCTION('{account}', "
-            f"TOLERANCE_PCT => {tolerance_pct:g})"
-        )
-        return await self.call_tool("query", {"sql": sql, "purpose": purpose})
-
-    async def trace_hawala(
-        self, seed: str, *, max_hops: int = 5, purpose: str = "analytics"
-    ) -> dict[str, Any]:
-        """Build the hawala expression and execute it through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        seed = _financial_literal(seed, "seed")
-        max_hops = _financial_unsigned(max_hops, 5, 1, 10)
-        sql = f"PURPOSE '{purpose}' HAWALA_TRACE('{seed}', MAX_HOPS => {max_hops})"
-        return await self.call_tool("query", {"sql": sql, "purpose": purpose})
-
     async def geofence(
         self,
         lat: float,
@@ -1792,24 +1637,6 @@ class AsyncMcpClient:
     async def find_scc(self, entity_type: str, *, purpose: str = "analytics") -> dict[str, Any]:
         """``find_scc`` — find strongly connected components in an entity type's graph (#2322)."""
         return await self.call_tool("find_scc", {"entity_type": entity_type, "purpose": purpose})
-
-    async def screen_sanctions(
-        self,
-        name: str,
-        *,
-        threshold: float | None = None,
-        purpose: str = "compliance_review",
-    ) -> dict[str, Any]:
-        """Build the sanctions expression and execute it through governed ``query``."""
-        purpose = _financial_purpose(purpose)
-        name = _financial_literal(name, "name")
-        threshold_sql = (
-            f", THRESHOLD => {threshold:g}"
-            if threshold is not None and math.isfinite(threshold)
-            else ""
-        )
-        sql = f"PURPOSE '{purpose}' SANCTIONS_SCREEN('{name}'{threshold_sql})"
-        return await self.call_tool("query", {"sql": sql, "purpose": purpose})
 
     async def aggregate_stats(
         self,
