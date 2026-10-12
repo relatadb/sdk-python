@@ -50,6 +50,7 @@ class QueryResult(BaseModel):
         None, description="Opaque keyset cursor returned when another query page exists"
     )
     truncated: bool = Field(False, description="Whether the server truncated returned rows")
+    graph_version: str | None = Field(None, description="Opaque process-local graph equality token; not a cursor")
     partial: bool = Field(False, description="Whether the server returned a partial shard result")
 
     @property
