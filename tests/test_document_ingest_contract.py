@@ -151,8 +151,27 @@ def test_document_task_status_preserves_complete_and_failed_outcomes() -> None:
         "drop_reasons": ["WAL acknowledgement outcome unknown"],
         "outcome_uncertain": True, "retryable": False,
     })
+    incomplete = IngestDocumentTaskStatus.model_validate({
+        "task_id": "task-incomplete", "status": "incomplete", "rows_total": 3,
+        "rows_written": 2, "rows_dropped": 1, "drop_reasons": ["confirmed writer drop"],
+        "code": "derived-write-incomplete", "derived_error": "vector projection failed",
+        "retryable": False,
+    })
+    pending_derived = IngestDocumentTaskStatus.model_validate({
+        "task_id": "task-pending-derived", "status": "pending", "rows_total": 3,
+        "rows_written": 1, "rows_dropped": 0,
+        "code": "derived-write-incomplete", "derived_error": "vector projection failed",
+        "retryable": False,
+    })
     assert complete.status == "complete" and complete.rows_written == 2
     assert failed.status == "failed" and failed.rows_dropped == 2
     assert uncertain.status == "uncertain" and uncertain.rows_written == 1
     assert uncertain.rows_dropped == 0 and uncertain.outcome_uncertain is True
     assert uncertain.retryable is False
+    assert incomplete.status == "incomplete" and incomplete.rows_written == 2
+    assert incomplete.rows_dropped == 1 and incomplete.code == "derived-write-incomplete"
+    assert incomplete.derived_error == "vector projection failed" and incomplete.retryable is False
+    assert pending_derived.status == "pending"
+    assert pending_derived.code == "derived-write-incomplete"
+    assert pending_derived.derived_error == "vector projection failed"
+    assert pending_derived.retryable is False

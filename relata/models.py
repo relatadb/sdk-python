@@ -235,13 +235,15 @@ class IngestDocumentTaskStatus(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     task_id: str = Field(..., description="Background ingest task ID")
-    status: str = Field(..., description="pending is nonterminal; complete, partial, failed, and uncertain are terminal outcomes; uncertain does not mean complete")
+    status: str = Field(..., description="pending is nonterminal; complete, partial, failed, uncertain, and incomplete are terminal outcomes; uncertain does not mean complete")
     rows_total: int = Field(0, description="Rows scheduled for persistence", ge=0)
     rows_written: int = Field(0, description="Rows persisted so far", ge=0)
     rows_dropped: int = Field(0, description="Rows dropped by the background writer", ge=0)
     drop_reasons: list[str] = Field(default_factory=list, description="Confirmed writer drop reasons, or an uncertainty diagnostic for uncertain status")
     outcome_uncertain: bool | None = Field(None, description="True when the final write outcome could not be confirmed")
-    retryable: bool | None = Field(None, description="False for an uncertain outcome; blind retry is unsafe")
+    code: str | None = Field(None, description="Machine-readable task error code, when present")
+    derived_error: str | None = Field(None, description="Diagnostic for a recorded derived-write failure; it can appear while status is pending")
+    retryable: bool | None = Field(None, description="False when a derived-write failure is recorded or the primary outcome is uncertain; blind retry is unsafe")
     write_token: dict[str, int] | None = Field(
         None,
         alias="_relata_write_token",
