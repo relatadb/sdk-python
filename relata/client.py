@@ -1297,15 +1297,6 @@ class RelataClient:
         sql = f"CONVOY({', '.join(parts)})" if parts else "CONVOY()"
         return self._sync.post("/query", {"purpose": p, "sql": sql})
 
-    def burner_detect(self, *, max_age_days: int | None = None, max_calls: int | None = None, purpose: str | None = None) -> dict[str, object]:
-        """Burner phone detection."""
-        p = purpose or self._default_purpose or "analytics"
-        parts = []
-        if max_age_days is not None: parts.append(f"MAX_AGE => {max_age_days * 86_400_000_000_000}")
-        if max_calls is not None: parts.append(f"MAX_CALLS => {max_calls}")
-        sql = f"BURNER_DETECT({', '.join(parts)})" if parts else "BURNER_DETECT()"
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
-
     def crypto_trace(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
         """Follow cryptocurrency fund flow."""
         p = purpose or self._default_purpose or "analytics"
