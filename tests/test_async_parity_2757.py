@@ -183,6 +183,45 @@ async def test_async_ingest_iter_batches_sync_and_async_iterables() -> None:
     assert seen == [2, 1]
 
 
+async def test_async_ingest_cdr_uses_json_array_and_preserves_receipt() -> None:
+    from relata.ingest import AsyncIngestClient
+
+    seen: list[list[dict[str, Any]]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/ingest"
+        assert req.url.params["object_type"] == "CdrRecord"
+        assert req.url.params["purpose"] == "finint"
+        assert req.headers["content-type"] == "application/json"
+        assert req.headers["x-relata-tenant-id"] == "tenant-cdr"
+        rows = json.loads(req.content)
+        seen.append(rows)
+        return httpx.Response(
+            200,
+            json={"rows_queued": 1, "rows_rejected": 0, "errors": [], "task_id": "itsk_async_cdr"},
+        )
+
+    async with AsyncIngestClient(BASE, purpose="finint", tenant="tenant-cdr", transport=_wrap(handler)) as c:
+        out = await c.ingest_cdr(
+            [
+                {
+                    "caller": "14155552671",
+                    "callee": "919876500000",
+                    "call_start_ns": 1700000000000000001,
+                    "_pk": "cdr-async-stable",
+                },
+                {"caller": "bad", "callee": "919876500000"},
+            ]
+        )
+
+    assert out["task_id"] == "itsk_async_cdr"
+    assert out["rows_queued"] == 1
+    assert out["rows_rejected"] == 1
+    assert len(out["errors"]) == 1
+    assert seen[0][0]["_pk"] == "cdr-async-stable"
+    assert seen[0][0]["call_start_ns"] == 1700000000000000001
+
+
 async def test_async_object_client_typed_upsert() -> None:
     from relata.objects import AsyncObjectClient
 

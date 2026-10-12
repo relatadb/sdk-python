@@ -393,8 +393,8 @@ def test_ingest_cdr_normalizes_rows_through_generic_contract() -> None:
         assert req.url.path == "/ingest"
         assert "purpose=finint" in str(req.url)
         assert req.url.params["object_type"] == "CdrRecord"
-        assert req.headers["content-type"] == "application/x-ndjson"
-        rows = [json.loads(line) for line in req.content.decode().splitlines()]
+        assert req.headers["content-type"] == "application/json"
+        rows = json.loads(req.content)
         assert rows[0]["caller_msisdn"] == 911234567890
         assert rows[0]["call_type"] == "voice"
         assert rows[1]["call_type"] == "sms"
@@ -406,6 +406,7 @@ def test_ingest_cdr_normalizes_rows_through_generic_contract() -> None:
         [
             {
                 "caller": "+911234567890", "callee": "919876543210",
+                "call_start_ns": 1700000000000000001,
                 "duration": 120, "tower": "CELL-042", "type": "voice",
                 "_pk": "cdr-stable-1", "source_file_id": 42,
             },
@@ -414,14 +415,18 @@ def test_ingest_cdr_normalizes_rows_through_generic_contract() -> None:
                 "tower_id": "CELL-001", "call_type": "sms",
                 "id": "cdr-stable-2", "source_file_id": 43,
             },
+            {"caller": "not a number", "callee": "922222222222"},
         ],
         purpose="finint",
     )
     assert out["rows_queued"] == 2
+    assert out["rows_rejected"] == 1
+    assert len(out["errors"]) == 1
     assert out["task_id"] == "itsk_test"
     rows = seen[0]["rows"]
     assert rows[0]["tower_id"] == "CELL-042"
     assert rows[0]["_pk"] == "cdr-stable-1"
+    assert rows[0]["call_start_ns"] == 1700000000000000001
     assert rows[0]["source_file_id"] == 42
     assert rows[1]["caller_msisdn"] == 911111111111
     assert rows[1]["id"] == "cdr-stable-2"

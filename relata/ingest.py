@@ -322,12 +322,12 @@ class IngestClient:
         writer completion; acceptance is not durability.
         """
         normalized, errors = _normalize_cdr_rows(rows)
-        receipt = (
-            self.bulk("CdrRecord", normalized, purpose=purpose)
-            if normalized
-            else self._t.post_raw(
-                f"/ingest?{self._params('CdrRecord', purpose)}", "[]", content_type="application/json"
-            )
+        import json
+
+        receipt = self._t.post_raw(
+            f"/ingest?{self._params('CdrRecord', purpose)}",
+            json.dumps(normalized, separators=(",", ":")),
+            content_type="application/json",
         )
         return _cdr_receipt(receipt, errors)
 
@@ -498,12 +498,12 @@ class AsyncIngestClient:
     ) -> dict[str, Any]:
         """Async normalize CDR rows and queue them through generic ``/ingest``."""
         normalized, errors = _normalize_cdr_rows(rows)
-        receipt = (
-            await self.bulk("CdrRecord", normalized, purpose=purpose)
-            if normalized
-            else await self._t.post_raw(
-                f"/ingest?{self._params('CdrRecord', purpose)}", "[]", content_type="application/json"
-            )
+        import json
+
+        receipt = await self._t.post_raw(
+            f"/ingest?{self._params('CdrRecord', purpose)}",
+            json.dumps(normalized, separators=(",", ":")),
+            content_type="application/json",
         )
         return _cdr_receipt(receipt, errors)
 
