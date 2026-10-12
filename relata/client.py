@@ -1516,11 +1516,6 @@ class RelataClient:
             incomplete_reason=incomplete_reason,
         )
 
-    def crime_pattern_cluster(self, area: str, *, purpose: str | None = None) -> dict[str, object]:
-        """Spatial crime pattern analysis."""
-        p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"CRIME_PATTERN_CLUSTER({_sql_literal(area)})"})
-
     def geofence(self, fence: str, *, target_type: str | None = None, purpose: str | None = None) -> dict[str, object]:
         """Geo-fence query — find entities within a geographic fence."""
         p = purpose or self._default_purpose or "analytics"
