@@ -428,27 +428,54 @@ def test_ingest_cdr_normalizes_rows_through_generic_contract() -> None:
     assert rows[1]["source_file_id"] == 43
 
 
-def test_cdr_case_alias_precedence_preserves_identity_and_input() -> None:
+def test_cdr_rejects_case_collisions_and_preserves_alias_precedence() -> None:
     from relata.ingest import _normalize_cdr_rows
 
-    row = {
-        "caller": "111", "CALLER": "222", "a_number": "333",
-        "CALLEE": "444", "CALL_START_NS": 1700000000000000001,
-        "DURATION_SECS": 5, "TOWER_ID": " CELL-1 ", "CALL_TYPE": "SMS",
-        "_PK": "stable-key", "ID": "source-id", "SOURCE_FILE_ID": 42,
-    }
-    original = dict(row)
-    rows, errors = _normalize_cdr_rows([row, {"CALLER": "invalid", "CALLEE": "444"}])
-    assert row == original
+    ambiguous = {"CALLER": "111", "caller": "222", "callee": "444"}
+    rows, errors = _normalize_cdr_rows([
+        ambiguous,
+        {"caller": "111", "caller_msisdn": "333", "callee": "444",
+         "call_start_ns": 1700000000000000001, "duration_secs": 5,
+         "tower_id": " CELL-1 ", "call_type": "SMS", "_pk": "stable-key"},
+    ])
     assert rows == [{
-        "caller_msisdn": 222, "callee_msisdn": 444,
+        "caller_msisdn": 111, "callee_msisdn": 444,
         "call_start_ns": 1700000000000000001, "duration_secs": 5,
-        "tower_id": "CELL-1", "call_type": "sms", "source_file_id": 42,
-        "_pk": "stable-key", "id": "source-id",
+        "tower_id": "CELL-1", "call_type": "sms", "source_file_id": 0,
+        "_pk": "stable-key",
     }]
-    assert len(errors) == 1
-    assert errors[0]["row"] == 2
-    assert "caller_msisdn" in errors[0]["error"]
+    assert len(errors) == 1 and errors[0]["row"] == 1
+    assert "ambiguous case-insensitive field 'caller'" in errors[0]["error"]
+
+
+def test_cdr_field_folding_is_ascii_only() -> None:
+    from relata.ingest import _normalize_cdr_rows
+
+    rows, errors = _normalize_cdr_rows([{"caller": "111", "callee": "222", "İD": "unicode-alias"}])
+    assert not errors and len(rows) == 1
+    assert "id" not in rows[0]
+
+
+def test_cdr_rfc3339_offset_is_normalized_to_exact_utc_nanoseconds() -> None:
+    from relata.ingest import _normalize_cdr_rows
+
+    rows, errors = _normalize_cdr_rows([
+        {"caller": "111", "callee": "222", "timestamp": "2024-01-01T01:02:03.123456789+01:30"},
+        {"caller": "111", "callee": "222", "timestamp": "2023-02-29T00:00:00Z"},
+        {"caller": "111", "callee": "222", "timestamp": "2024-01-01T00:00:00.1234567891Z"},
+        {"caller": "111", "callee": "222", "timestamp": "2500-01-01T00:00:00Z"},
+        {"caller": "111", "callee": "222", "timestamp": "2024-01-01T00:00:00+24:00"},
+        {"caller": "111", "callee": "222", "timestamp": "2024-01-01T00:00:00+01:60"},
+    ])
+    assert rows[0]["call_start_ns"] == 1704065523123456789
+    assert len(rows) == 1
+    assert len(errors) == 5
+    assert [error["row"] for error in errors] == [2, 3, 4, 5, 6]
+    assert "invalid RFC3339 date" in errors[0]["error"]
+    assert "exceeds nanosecond precision" in errors[1]["error"]
+    assert "outside i64 nanosecond range" in errors[2]["error"]
+    assert "invalid RFC3339 offset" in errors[3]["error"]
+    assert "invalid RFC3339 offset" in errors[4]["error"]
 
 
 def test_ingest_otlp_helpers_post_json_with_purpose() -> None:

@@ -9,6 +9,8 @@ application adapter.
 from __future__ import annotations
 
 import time
+import re
+from datetime import date
 from typing import TYPE_CHECKING, Any, AsyncIterable, Iterable
 from urllib.parse import urlencode
 
@@ -59,6 +61,58 @@ def _cdr_int(value: Any, name: str, *, default: int | None = None) -> int:
         raise ValueError(f"{name} '{text}': invalid integer") from exc
 
 
+_RFC3339_CDR = re.compile(
+    r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})"
+    r"(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$"
+)
+_I64_MIN = -(1 << 63)
+_I64_MAX = (1 << 63) - 1
+
+
+def _cdr_timestamp(value: Any, now_ns: int) -> int:
+    """Normalize legacy epoch values or exact RFC3339-with-offset timestamps."""
+    if value is None:
+        return now_ns
+    try:
+        raw = _cdr_int(value, "call_start")
+    except ValueError:
+        if not isinstance(value, str):
+            raise
+        match = _RFC3339_CDR.fullmatch(value.strip())
+        if match is None:
+            raise ValueError(f"call_start '{value}': expected integer epoch or RFC3339 timestamp")
+        year, month, day, hour, minute, second = map(int, match.groups()[:6])
+        fraction, zone = match.group(7), match.group(8)
+        if fraction is not None and len(fraction) > 9:
+            raise ValueError("call_start RFC3339 fraction exceeds nanosecond precision")
+        if second > 59 or hour > 23 or minute > 59:
+            raise ValueError(f"call_start '{value}': invalid RFC3339 time")
+        try:
+            days = (date(year, month, day) - date(1970, 1, 1)).days
+        except ValueError as exc:
+            raise ValueError(f"call_start '{value}': invalid RFC3339 date") from exc
+        offset_seconds = 0
+        if zone != "Z":
+            if zone == "-00:00":
+                raise ValueError("call_start RFC3339 -00:00 offset is unknown, not UTC")
+            offset_hour, offset_minute = int(zone[1:3]), int(zone[4:6])
+            if offset_hour > 23 or offset_minute > 59:
+                raise ValueError(f"call_start '{value}': invalid RFC3339 offset")
+            offset_seconds = (offset_hour * 60 + offset_minute) * 60
+            if zone[0] == "-":
+                offset_seconds = -offset_seconds
+        epoch_seconds = days * 86_400 + hour * 3_600 + minute * 60 + second - offset_seconds
+        nanos = epoch_seconds * 1_000_000_000 + int((fraction or "").ljust(9, "0") or "0")
+        if not _I64_MIN <= nanos <= _I64_MAX:
+            raise ValueError("call_start RFC3339 value is outside i64 nanosecond range")
+        return nanos
+    if not _I64_MIN <= raw <= _I64_MAX:
+        raise ValueError(f"call_start '{raw}': value out of range for i64")
+    if raw < 10_000_000_000_000:
+        return max(_I64_MIN, min(_I64_MAX, raw * 1_000_000_000))
+    return raw
+
+
 def _normalize_cdr_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Map telecom aliases to the persisted CdrRecord fields for generic ingest."""
     normalized: list[dict[str, Any]] = []
@@ -67,9 +121,17 @@ def _normalize_cdr_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, 
     for row_number, row in enumerate(rows, 1):
         try:
             # Reuse one case-insensitive view for all fields and metadata.
-            # Dict insertion order preserves the previous last-header-wins
-            # behavior when input keys differ only by case.
-            row = {str(key).lower(): value for key, value in row.items()}
+            # Reject case-only collisions rather than choosing a value based
+            # on source-language map iteration order.
+            normalized_keys: dict[str, Any] = {}
+            for key, value in row.items():
+                # CDR aliases are ASCII identifiers; match the other SDKs by
+                # folding only ASCII A-Z rather than Unicode case equivalents.
+                folded = str(key).translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
+                if folded in normalized_keys:
+                    raise ValueError(f"ambiguous case-insensitive field '{folded}'")
+                normalized_keys[folded] = value
+            row = normalized_keys
             caller_raw = _cdr_value(row, _CDR_ALIASES["caller"])
             callee_raw = _cdr_value(row, _CDR_ALIASES["callee"])
             caller_digits = "".join(c for c in str("" if caller_raw is None else caller_raw) if c.isascii() and c.isdigit())
@@ -81,11 +143,7 @@ def _normalize_cdr_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, 
             caller = _cdr_int(caller_digits, "caller_msisdn")
             callee = _cdr_int(callee_digits, "callee_msisdn")
             start_raw = _cdr_value(row, _CDR_ALIASES["start"])
-            start = _cdr_int(start_raw, "call_start", default=now_ns)
-            if not -(1 << 63) <= start <= (1 << 63) - 1:
-                raise ValueError(f"call_start '{start}': value out of range for i64")
-            if start < 10_000_000_000_000:
-                start = max(-(1 << 63), min((1 << 63) - 1, start * 1_000_000_000))
+            start = _cdr_timestamp(start_raw, now_ns)
             duration = _cdr_int(_cdr_value(row, _CDR_ALIASES["duration"]), "duration", default=0)
             if not 0 <= duration <= 0xFFFFFFFF:
                 raise ValueError(f"duration '{duration}': value out of range for u32")
