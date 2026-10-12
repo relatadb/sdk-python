@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 # ── CDR / OTLP ingest helpers (#2252) ──────────────────────────────────────────
 
 # Canonical CDR field → accepted input aliases for the SDK domain adapter.
+_CDR_HEADER_TRANSLATION = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 _CDR_ALIASES: dict[str, tuple[str, ...]] = {
     "caller": ("caller", "caller_msisdn", "a_number", "a_msisdn"),
     "callee": ("callee", "callee_msisdn", "b_number", "b_msisdn", "called"),
@@ -127,7 +128,7 @@ def _normalize_cdr_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, 
             for key, value in row.items():
                 # CDR aliases are ASCII identifiers; match the other SDKs by
                 # folding only ASCII A-Z rather than Unicode case equivalents.
-                folded = str(key).translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
+                folded = str(key).translate(_CDR_HEADER_TRANSLATION)
                 if folded in normalized_keys:
                     raise ValueError(f"ambiguous case-insensitive field '{folded}'")
                 normalized_keys[folded] = value
@@ -354,8 +355,16 @@ class IngestClient:
     ) -> int:
         """Stream rows from an iterator into batched ``POST /ingest`` calls.
 
-        Memory is O(batch_size), not O(total_rows). Returns the total number
-        of rows successfully ingested. Stops on the first error.
+        Memory is O(batch_size), not O(total_rows). Returns the number of
+        input rows in batches whose ``bulk`` call returned without an SDK
+        exception. ``/ingest`` is queued: this is not a count of rows accepted
+        by the writer or confirmed written, and this helper discards batch
+        receipts/task IDs. Call :meth:`bulk` per batch and poll each task when
+        completion or per-row error accounting is required. Stops when a
+        ``bulk`` call raises; a successful HTTP response may still report
+        row-level errors that this helper does not inspect. TypeScript throws
+        on a failed request; Go returns the count from earlier completed calls
+        with the error, excluding the failing batch.
 
         >>> rows = [{"name": "Alice"}, {"name": "Bob"}]
         >>> total = client.ingest_iter("Person", rows, purpose="onboarding", batch_size=500)
@@ -529,8 +538,12 @@ class AsyncIngestClient:
         Accepts either a synchronous or an asynchronous iterable/iterator of
         rows, so callers can stream from an async source (e.g. an async DB
         cursor or an async generator) as well as a plain list. Memory is
-        O(batch_size), not O(total_rows). Returns the total number of rows
-        successfully ingested.
+        O(batch_size), not O(total_rows). Returns the number of input rows in
+        batches whose ``bulk`` call returned without an SDK exception. The
+        queued ``/ingest`` request is not a writer-confirmed count; this helper
+        discards batch receipts/task IDs and does not inspect row-level errors
+        in a successful response. Call ``bulk`` per batch and poll each task
+        when completion or error accounting is required.
         """
         batch: list[dict[str, Any]] = []
         total = 0
