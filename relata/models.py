@@ -255,6 +255,7 @@ class IngestDocumentTaskStatus(BaseModel):
 class AlertSubmitRequest(BaseModel):
     """Application alert. The server assigns tenant and stable identity."""
 
+    matched_key: str | None = None
     idempotency_key: str = Field(..., min_length=1, max_length=256)
     purpose: str
     alert_type: str

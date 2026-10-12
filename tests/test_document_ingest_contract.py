@@ -181,7 +181,7 @@ def test_submit_alert_sync_and_async_preserve_contract() -> None:
     import asyncio
     from relata import AlertSubmitRequest
 
-    payload = {"idempotency_key": "run-1", "purpose": "detection",
+    payload = {"matched_key": "_pk", "idempotency_key": "run-1", "purpose": "detection",
                "alert_type": "app-signal", "severity": "high",
                "matched_type": "Event", "matched_row_id": "row-1", "context": {"count": 2}}
     def handler(request: httpx.Request) -> httpx.Response:
