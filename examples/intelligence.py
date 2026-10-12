@@ -6,7 +6,7 @@ Demonstrates the typed intelligence operators on `RelataClient`:
 - BENEFICIAL_OWNERSHIP_CHAIN   — trace to ultimate beneficial owner (UBO)
 - CRYPTO_TRACE                 — follow cryptocurrency fund flow
 - CONVOY_DETECT                — find entities travelling together
-- DNS_TUNNEL_DETECT            — exfiltration over DNS
+- DNS tunnel triage            — application recipe over governed query pages
 
 Each maps to an intelligence TVF documented in
 `docs/src/end-users/sql-grammar.md` (ADRs 109–115). Each call goes through the
@@ -98,18 +98,19 @@ def main() -> None:
             )
 
         # ── 5. DNS tunnel detection ───────────────────────────────────────
-        print(f"\n=== 5. DNS_TUNNEL_DETECT: {target} ===")
+        print("\n=== 5. DNS tunnel triage ===")
         try:
-            dns = relata.dns_tunnel_detect(target, purpose="investigation")
+            dns = relata.dns_tunnel_detect(purpose="investigation")
         except RelataError as exc:
             print(f"  Error: {exc}")
             dns = {"rows": []}
         d_rows = dns.get("rows", []) if isinstance(dns, dict) else []
-        print(f"  {len(d_rows)} anomalous DNS pattern(s)")
+        print(f"  {len(d_rows)} anomalous DNS pattern(s); complete={dns.get('complete')} rows_scanned={dns.get('rows_scanned')}")
         for row in d_rows[:5]:
             print(
-                f"    domain={row.get('domain', '?'):<30}  entropy={row.get('entropy')}  "
-                f"bytes={row.get('bytes_exchanged')}"
+                f"    domain={row.get('domain', '?'):<30}  entropy={row.get('avg_entropy')}  "
+                f"queries={row.get('query_count')} max_label_len={row.get('max_label_len')} "
+                f"confidence={row.get('confidence')}"
             )
 
 

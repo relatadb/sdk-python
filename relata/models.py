@@ -46,6 +46,16 @@ class QueryResult(BaseModel):
     )
     row_count: int = Field(0, description="Number of rows returned")
     columns: list[str] = Field(default_factory=list, description="Column names in order")
+    next_cursor: str | None = Field(
+        None, description="Opaque keyset cursor returned when another query page exists"
+    )
+    truncated: bool = Field(False, description="Whether the server truncated returned rows")
+    partial: bool = Field(False, description="Whether the server returned a partial shard result")
+
+    @property
+    def has_next_cursor_metadata(self) -> bool:
+        """Whether the server sent the v3 `next_cursor` response field."""
+        return "next_cursor" in self.model_fields_set
 
     @model_validator(mode="before")
     @classmethod

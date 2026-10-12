@@ -54,6 +54,12 @@ from relata.models import (
     StatusResponse,
     VersionInfo,
 )
+from relata.dns_tunnel import (
+    DNS_TUNNEL_MAX_ROWS,
+    DNS_TUNNEL_PAGE_SIZE,
+    DNS_TUNNEL_TYPES,
+    dns_tunnel_result,
+)
 
 if TYPE_CHECKING:
     from relata.query import QueryBuilder
@@ -1326,10 +1332,198 @@ class RelataClient:
             "/query", {"purpose": p, "sql": f"HAWALA_TRACE({_sql_literal(seed)}, MAX_HOPS => {hops})"}
         )
 
-    def dns_tunnel_detect(self, entity: str, *, purpose: str | None = None) -> dict[str, object]:
-        """DNS tunnel detection."""
+    def dns_tunnel_detect(
+        self,
+        *,
+        min_entropy: float = 3.0,
+        min_queries: int = 5,
+        purpose: str | None = None,
+        page_size: int = DNS_TUNNEL_PAGE_SIZE,
+        max_rows: int = DNS_TUNNEL_MAX_ROWS,
+    ) -> dict[str, object]:
+        """Triage DNS tunnel candidates over governed, paginated DNS rows.
+
+        Uses the authenticated names-only schema endpoint, then normal `/query`
+        requests for registered `DnsLog`, `DnsQuery`, and `DnsEvent` types. A
+        bounded scan returns `complete=False` and a per-type continuation cursor
+        when its row budget is reached. The server continues to enforce tenant,
+        purpose, and row authorization on every page.
+        """
         p = purpose or self._default_purpose or "security"
-        return self._sync.post("/query", {"purpose": p, "sql": f"DNS_TUNNEL_DETECT({_sql_literal(entity)})"})
+        if (
+            isinstance(page_size, bool)
+            or not isinstance(page_size, int)
+            or isinstance(max_rows, bool)
+            or not isinstance(max_rows, int)
+            or page_size < 1
+            or max_rows < 1
+        ):
+            raise ValueError("page_size and max_rows must be positive")
+        page_size = min(page_size, 10_000)
+        schema = self.query_schema(purpose=p)
+        visible_types = schema.get("object_types")
+        if not isinstance(visible_types, list) or not all(
+            isinstance(name, str) for name in visible_types
+        ):
+            raise TypeError("query_schema result must contain an object_types array")
+        types = [name for name in DNS_TUNNEL_TYPES if name in visible_types]
+        rows: list[dict[str, Any]] = []
+        continuation: dict[str, str] = {}
+        rows_scanned = 0
+        complete = True
+        incomplete_reason: str | None = None
+
+        for type_index, object_type in enumerate(types):
+            cursor: str | None = None
+            seen_cursors: set[str] = set()
+            while True:
+                remaining = max_rows - rows_scanned
+                if remaining <= 0:
+                    complete = False
+                    incomplete_reason = "max_rows_reached"
+                    break
+                limit = min(page_size, remaining)
+                after = "" if cursor is None else f" AFTER {_sql_literal(cursor)}"
+                sql = (
+                    f"SELECT * FROM {object_type} LIMIT {limit}{after} WITH CACHE BYPASS"
+                )
+                result = self.query(sql, purpose=p)
+                page_rows = result.rows
+                rows.extend(page_rows)
+                rows_scanned += len(page_rows)
+                if result.partial:
+                    complete = False
+                    incomplete_reason = "server_returned_partial_shard_result"
+                    break
+                if result.truncated:
+                    complete = False
+                    incomplete_reason = "server_truncated_page_without_safe_resume_cursor"
+                    break
+                next_cursor = result.next_cursor
+                if next_cursor is not None:
+                    if next_cursor in seen_cursors or next_cursor == cursor:
+                        complete = False
+                        incomplete_reason = "pagination_cursor_did_not_advance"
+                        continuation[object_type] = next_cursor
+                        break
+                    seen_cursors.add(next_cursor)
+                elif len(page_rows) == limit and not result.has_next_cursor_metadata:
+                    complete = False
+                    incomplete_reason = "server_did_not_return_pagination_metadata"
+                    break
+                if next_cursor is None:
+                    break
+                if rows_scanned >= max_rows:
+                    complete = False
+                    incomplete_reason = "max_rows_reached"
+                    continuation[object_type] = next_cursor
+                    break
+                cursor = next_cursor
+            if not complete:
+                continuation.update({"remaining_types": ",".join(types[type_index:])})
+                break
+
+        return dns_tunnel_result(
+            rows,
+            min_entropy=min_entropy,
+            min_queries=min_queries,
+            rows_scanned=rows_scanned,
+            types_scanned=types,
+            complete=complete,
+            continuation=continuation,
+            incomplete_reason=incomplete_reason,
+        )
+
+    async def adns_tunnel_detect(
+        self,
+        *,
+        min_entropy: float = 3.0,
+        min_queries: int = 5,
+        purpose: str | None = None,
+        page_size: int = DNS_TUNNEL_PAGE_SIZE,
+        max_rows: int = DNS_TUNNEL_MAX_ROWS,
+    ) -> dict[str, object]:
+        """Async variant of :meth:`dns_tunnel_detect`."""
+        p = purpose or self._default_purpose or "security"
+        if (
+            isinstance(page_size, bool)
+            or not isinstance(page_size, int)
+            or isinstance(max_rows, bool)
+            or not isinstance(max_rows, int)
+            or page_size < 1
+            or max_rows < 1
+        ):
+            raise ValueError("page_size and max_rows must be positive")
+        page_size = min(page_size, 10_000)
+        schema = await self.aquery_schema(purpose=p)
+        visible_types = schema.get("object_types")
+        if not isinstance(visible_types, list) or not all(
+            isinstance(name, str) for name in visible_types
+        ):
+            raise TypeError("query_schema result must contain an object_types array")
+        types = [name for name in DNS_TUNNEL_TYPES if name in visible_types]
+        rows: list[dict[str, Any]] = []
+        continuation: dict[str, str] = {}
+        rows_scanned = 0
+        complete = True
+        incomplete_reason: str | None = None
+        for type_index, object_type in enumerate(types):
+            cursor: str | None = None
+            seen_cursors: set[str] = set()
+            while True:
+                remaining = max_rows - rows_scanned
+                if remaining <= 0:
+                    complete = False
+                    incomplete_reason = "max_rows_reached"
+                    break
+                limit = min(page_size, remaining)
+                after = "" if cursor is None else f" AFTER {_sql_literal(cursor)}"
+                sql = f"SELECT * FROM {object_type} LIMIT {limit}{after} WITH CACHE BYPASS"
+                result = await self.aquery(sql, purpose=p)
+                page_rows = result.rows
+                rows.extend(page_rows)
+                rows_scanned += len(page_rows)
+                if result.partial:
+                    complete = False
+                    incomplete_reason = "server_returned_partial_shard_result"
+                    break
+                if result.truncated:
+                    complete = False
+                    incomplete_reason = "server_truncated_page_without_safe_resume_cursor"
+                    break
+                next_cursor = result.next_cursor
+                if next_cursor is not None:
+                    if next_cursor in seen_cursors or next_cursor == cursor:
+                        complete = False
+                        incomplete_reason = "pagination_cursor_did_not_advance"
+                        continuation[object_type] = next_cursor
+                        break
+                    seen_cursors.add(next_cursor)
+                elif len(page_rows) == limit and not result.has_next_cursor_metadata:
+                    complete = False
+                    incomplete_reason = "server_did_not_return_pagination_metadata"
+                    break
+                if next_cursor is None:
+                    break
+                if rows_scanned >= max_rows:
+                    complete = False
+                    incomplete_reason = "max_rows_reached"
+                    continuation[object_type] = next_cursor
+                    break
+                cursor = next_cursor
+            if not complete:
+                continuation.update({"remaining_types": ",".join(types[type_index:])})
+                break
+        return dns_tunnel_result(
+            rows,
+            min_entropy=min_entropy,
+            min_queries=min_queries,
+            rows_scanned=rows_scanned,
+            types_scanned=types,
+            complete=complete,
+            continuation=continuation,
+            incomplete_reason=incomplete_reason,
+        )
 
     def crime_pattern_cluster(self, area: str, *, purpose: str | None = None) -> dict[str, object]:
         """Spatial crime pattern analysis."""
