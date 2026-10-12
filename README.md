@@ -384,7 +384,7 @@ RelataClient(
 | `audit_count()` | `AuditCountResponse` | Audit log entry count + chain validity |
 | `cluster_nodes()` | `list[ClusterNode]` | List cluster nodes |
 | `ingest_document(objects, *, purpose=None)` / `aingest_document(...)` | `IngestDocumentResponse` | Queue prepared mixed-type rows with `POST /ingest/bulk` (`queued: true`) and return one process-local receipt |
-| `ingest_document_status(task_id)` / `aingest_document_status(...)` | `IngestDocumentTaskStatus` | Poll `GET /ingest/tasks/:task_id` for written/dropped row counts |
+| `ingest_document_status(task_id)` / `aingest_document_status(...)` | `IngestDocumentTaskStatus` | Poll `GET /ingest/tasks/:task_id` for terminal complete/partial/failed state and written/dropped row counts |
 | `select(*cols)` | `QueryBuilder` | Start a fluent query |
 | `close()` | — | Close sync connections |
 | `aquery(...)` | `QueryResult` | Async query |

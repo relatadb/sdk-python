@@ -61,11 +61,11 @@ def test_document_ingest_uses_generic_queued_bulk_and_task_status() -> None:
             200,
             json={
                 "task_id": "task-1",
-                "status": "complete",
+                "status": "partial",
                 "rows_total": 2,
-                "rows_written": 2,
-                "rows_dropped": 0,
-                "drop_reasons": [],
+                "rows_written": 1,
+                "rows_dropped": 1,
+                "drop_reasons": ["write rejected: invalid row"],
                 "error": {"code": "partial_write", "retryable": False},
                 "partial_result": {"accepted_ids": ["chunk-1"]},
             },
@@ -76,8 +76,10 @@ def test_document_ingest_uses_generic_queued_bulk_and_task_status() -> None:
     status = client.ingest_document_status(receipt.task_id)
     assert receipt.task_id == "task-1"
     assert receipt.rows_queued == 2
-    assert status.status == "complete"
-    assert status.rows_written == 2
+    assert status.status == "partial"
+    assert status.rows_written == 1
+    assert status.rows_dropped == 1
+    assert status.drop_reasons == ["write rejected: invalid row"]
     assert status.model_extra["error"] == {"code": "partial_write", "retryable": False}
     assert status.model_extra["partial_result"] == {"accepted_ids": ["chunk-1"]}
     assert [request.url.path for request in requests] == [
@@ -129,3 +131,19 @@ def test_append_event_uses_generic_contract_and_returns_receipt() -> None:
     assert receipt.durability == "local_wal_sync"
     assert [request.url.path for request in requests] == ["/events/append"]
     client.close()
+
+
+def test_document_task_status_preserves_complete_and_failed_outcomes() -> None:
+    from relata.models import IngestDocumentTaskStatus
+
+    complete = IngestDocumentTaskStatus.model_validate({
+        "task_id": "task-complete", "status": "complete", "rows_total": 2,
+        "rows_written": 2, "rows_dropped": 0, "drop_reasons": [],
+    })
+    failed = IngestDocumentTaskStatus.model_validate({
+        "task_id": "task-failed", "status": "failed", "rows_total": 2,
+        "rows_written": 0, "rows_dropped": 2,
+        "drop_reasons": ["writer refused queued rows after WAL durability failure"],
+    })
+    assert complete.status == "complete" and complete.rows_written == 2
+    assert failed.status == "failed" and failed.rows_dropped == 2
