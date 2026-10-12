@@ -145,5 +145,14 @@ def test_document_task_status_preserves_complete_and_failed_outcomes() -> None:
         "rows_written": 0, "rows_dropped": 2,
         "drop_reasons": ["writer refused queued rows after WAL durability failure"],
     })
+    uncertain = IngestDocumentTaskStatus.model_validate({
+        "task_id": "task-uncertain", "status": "uncertain", "rows_total": 3,
+        "rows_written": 1, "rows_dropped": 0,
+        "drop_reasons": ["WAL acknowledgement outcome unknown"],
+        "outcome_uncertain": True, "retryable": False,
+    })
     assert complete.status == "complete" and complete.rows_written == 2
     assert failed.status == "failed" and failed.rows_dropped == 2
+    assert uncertain.status == "uncertain" and uncertain.rows_written == 1
+    assert uncertain.rows_dropped == 0 and uncertain.outcome_uncertain is True
+    assert uncertain.retryable is False
