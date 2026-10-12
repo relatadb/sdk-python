@@ -853,7 +853,7 @@ class RelataClient:
         return self._sync.post("/types", payload)
 
     def deregister_type(self, name: str) -> dict[str, object]:
-        """Deregister a custom type. Admin token required."""
+        """Deregister an empty custom type. Admin token required; types with history or protected data are rejected."""
         return self._sync.delete(f"/types/{path_segment(name)}")
 
     def type_detail(self, name: str) -> dict[str, object]:
