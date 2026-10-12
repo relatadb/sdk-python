@@ -4,7 +4,8 @@ The server ships streaming surfaces at:
 
 - ``POST /query/arrow`` → Arrow IPC stream (columnar).
 - ``POST /query`` with ``Accept: text/event-stream`` → NDJSON row stream.
-- ``GET /watch/stream`` → SSE — pushes ``RowsAppended`` events on commits.
+- ``GET /watch/stream`` → finite SSE polls — emits governed query-result
+  notifications from the server's bounded background evaluator.
 - ``GET /alerts/stream`` → SSE — pushes alerts to subscribed principals.
 - ``GET /a2a/tasks/:id/stream`` → SSE — A2A task lifecycle events.
 
@@ -222,8 +223,14 @@ class StreamingClient:
         purpose: str,
         reconnect: bool = True,
     ) -> Iterator[dict[str, Any]]:
-        """SSE consumer for ``GET /watch/stream``. Yields ``RowsAppended``
-        events as commit-committing changes match the watch SQL."""
+        """SSE poll consumer for ``GET /watch/stream``.
+
+        The server emits ``result_changed`` hashes, ``gap``, and
+        ``evaluation_failed`` notifications; it does not stream changed row
+        contents. Reconnects poll the same consumptive queue for this
+        authenticated principal, so concurrent polls with the same principal
+        share delivery. Registrations are in-memory and must be re-established
+        after a server restart."""
         from urllib.parse import urlencode
 
         params = urlencode({"sql": sql, "purpose": purpose})
@@ -236,10 +243,12 @@ class StreamingClient:
         since: str | None = None,
         reconnect: bool = True,
     ) -> Iterator[dict[str, Any]]:
-        """SSE consumer for ``GET /watch/stream`` filtered to an object type (#1747).
+        """Convenience wrapper building a SELECT for ``watch(sql, purpose)``.
 
-        Yields ``RowsAppended`` events whenever rows of *type* are committed.
-        Use *since* (decimal ``system_from`` ns) for incremental consumption.
+        The current server emits query-result notifications, not row-level
+        ``RowsAppended`` changes. ``since`` adds a ``system_from`` predicate
+        to the generated SELECT; it is not a durable resume cursor and cannot
+        resume a watch after a gap or server restart.
 
         Args:
             type: Object type to watch (e.g. ``"HmDispute"``).
@@ -345,7 +354,13 @@ class AsyncStreamingClient:
         purpose: str,
         reconnect: bool = True,
     ) -> Any:  # noqa: ANN401
-        """Async SSE consumer for ``GET /watch/stream``."""
+        """Async SSE poll consumer for ``GET /watch/stream``.
+
+        The server emits ``result_changed`` hashes, ``gap``, and
+        ``evaluation_failed`` notifications; it does not stream changed row
+        contents. Reconnects/polls for the same authenticated principal share
+        one consumptive queue. Registrations are in-memory and must be
+        re-established after a server restart."""
         from urllib.parse import urlencode
 
         params = urlencode({"sql": sql, "purpose": purpose})
@@ -387,9 +402,12 @@ class AsyncStreamingClient:
         *,
         since: str | None = None,
     ) -> Any:  # noqa: ANN401
-        """Async SSE consumer for ``GET /watch/stream`` filtered to an object type (#1747).
+        """Convenience wrapper building a SELECT for ``watch(sql, purpose)``.
 
-        Yields ``RowsAppended`` events for *type*. Use *since* for incremental reads.
+        The current server emits query-result notifications, not row-level
+        ``RowsAppended`` changes. ``since`` adds a ``system_from`` predicate
+        to the generated SELECT; it is not a durable resume cursor and cannot
+        resume a watch after a gap or server restart.
         """
         from urllib.parse import urlencode
 

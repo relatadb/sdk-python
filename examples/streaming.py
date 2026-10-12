@@ -2,9 +2,10 @@
 Streaming example — SSE watch + transparency log (#967 Tier 2b).
 
 Two related real-time surfaces:
-  1. `StreamingClient.watch(sql)` — `/watch/stream` pushes `RowsAppended`
-     events as commits matching the SQL land. Reconnects with exponential
-     backoff. This is what agent frameworks subscribe to for live updates.
+  1. `StreamingClient.watch(sql)` — `/watch/stream` polls for governed
+     query-result notifications. The server emits hashes and explicit
+     gap/failure events, not changed row contents. Reconnects use the same
+     in-memory per-principal queue; clients must re-register after restart.
   2. `LogClient` — `/log/append|leaves|head` is the tamper-evident audit
      append-log. Every governed write lands here as a leaf.
 

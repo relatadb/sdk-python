@@ -1007,6 +1007,32 @@ class RelataClient:
     # Identity resolution & entity lifecycle (#967)
     # ------------------------------------------------------------------
 
+    def delete_link(self, link_name: str, source_id: str, target_id: str) -> dict[str, object]:
+        """Close matching current native edges in this tenant, retaining history.
+
+        Sends ``DELETE /links`` with the exact link name and endpoint IDs.
+        All matching parallel edges owned by the authenticated tenant close;
+        the response contains ``deleted``, which is zero on a repeated request
+        when no current matches remain. Row-backed edge objects are unaffected.
+
+        Use the client's ``X-Relata-Durability: sync`` header to require a
+        durable journal acknowledgment (enabled persistent WAL or selected
+        recovery generation required). A request exceeding 4,096 matching
+        edges or an 8 MiB journal record returns HTTP 413 before mutation.
+        Nodes with configured replication peers return HTTP 501 until native
+        deletion replication is implemented. HTTP 503 with ``retryable: false``
+        means the outcome needs reconciliation; mutations are not retried.
+        """
+        return self._sync.delete("/links", {
+            "link_name": link_name, "source_id": source_id, "target_id": target_id,
+        })
+
+    async def adelete_link(self, link_name: str, source_id: str, target_id: str) -> dict[str, object]:
+        """Async counterpart of delete_link; mutations are not automatically retried."""
+        return await self._async.delete("/links", {
+            "link_name": link_name, "source_id": source_id, "target_id": target_id,
+        })
+
     def resolve_identity(
         self,
         value: str,

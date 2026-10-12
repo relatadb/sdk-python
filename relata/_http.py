@@ -476,9 +476,9 @@ class HttpTransport:
             headers.update(extra_headers)
         return self._send_with_retry("POST", path, content=content, headers=headers)
 
-    def delete(self, path: str) -> dict[str, Any]:
+    def delete(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Perform a DELETE request and return the decoded JSON body."""
-        return self._send_with_retry("DELETE", path)
+        return self._send_with_retry("DELETE", path, json_payload=payload)
 
     def patch(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Perform a PATCH request with an optional JSON body."""
@@ -712,9 +712,9 @@ class AsyncHttpTransport:
             headers.update(extra_headers)
         return await self._send_with_retry("POST", path, content=content, headers=headers)
 
-    async def delete(self, path: str) -> dict[str, Any]:
+    async def delete(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Perform an async DELETE request."""
-        return await self._send_with_retry("DELETE", path)
+        return await self._send_with_retry("DELETE", path, json_payload=payload)
 
     async def patch(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Perform an async PATCH request with an optional JSON body."""
