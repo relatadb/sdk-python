@@ -252,6 +252,26 @@ class IngestDocumentTaskStatus(BaseModel):
     )
 
 
+class AlertSubmitRequest(BaseModel):
+    """Application alert. The server assigns tenant and stable identity."""
+
+    idempotency_key: str = Field(..., min_length=1, max_length=256)
+    purpose: str
+    alert_type: str
+    severity: str
+    matched_type: str
+    matched_row_id: str
+    context: dict[str, Any]
+
+
+class AlertSubmitReceipt(BaseModel):
+    """Local durable acceptance; notifications are best-effort."""
+
+    alert_id: str
+    status: str
+    durability: str
+
+
 class EventTarget(BaseModel):
     """Tenant-scoped target reference for ``POST /events/append``."""
 

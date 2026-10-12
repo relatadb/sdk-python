@@ -175,3 +175,28 @@ def test_document_task_status_preserves_complete_and_failed_outcomes() -> None:
     assert pending_derived.code == "derived-write-incomplete"
     assert pending_derived.derived_error == "vector projection failed"
     assert pending_derived.retryable is False
+
+
+def test_submit_alert_sync_and_async_preserve_contract() -> None:
+    import asyncio
+    from relata import AlertSubmitRequest
+
+    payload = {"idempotency_key": "run-1", "purpose": "detection",
+               "alert_type": "app-signal", "severity": "high",
+               "matched_type": "Event", "matched_row_id": "row-1", "context": {"count": 2}}
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/alerts/submit"
+        assert json.loads(request.content) == payload
+        return httpx.Response(200, json={"alert_id": "alert-stable", "status": "duplicate",
+                                         "durability": "local_wal_sync"})
+    client, requests = _client(handler)
+    request = AlertSubmitRequest(**payload)
+    assert client.submit_alert(request).alert_id == "alert-stable"
+    async def run() -> None:
+        receipt = await client.asubmit_alert(request)
+        assert receipt.status == "duplicate"
+        assert receipt.durability == "local_wal_sync"
+        await client.aclose()
+    asyncio.run(run())
+    client.close()
+    assert len(requests) == 2

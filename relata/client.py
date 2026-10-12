@@ -44,6 +44,8 @@ from relata.models import (
     ClusterNode,
     EventAppendReceipt,
     EventAppendRequest,
+    AlertSubmitRequest,
+    AlertSubmitReceipt,
     HealthResponse,
     IngestDocumentResponse,
     IngestDocumentTaskStatus,
@@ -2060,6 +2062,20 @@ class RelataClient:
         """Async counterpart to :meth:`ingest_document_status`."""
         data = await self._async.get(f"/ingest/tasks/{path_segment(task_id)}")
         return IngestDocumentTaskStatus.model_validate(data)
+
+    def submit_alert(self, request: AlertSubmitRequest) -> AlertSubmitReceipt:
+        """Submit an alert with restart-safe identity on a single persistent node.
+
+        Exact retries return the original identity without replaying notifications.
+        Webhook and SSE delivery is best-effort, not a durable delivery receipt.
+        """
+        data = self._sync.post("/alerts/submit", request.model_dump(exclude_none=True))
+        return AlertSubmitReceipt.model_validate(data)
+
+    async def asubmit_alert(self, request: AlertSubmitRequest) -> AlertSubmitReceipt:
+        """Async counterpart to :meth:`submit_alert`."""
+        data = await self._async.post("/alerts/submit", request.model_dump(exclude_none=True))
+        return AlertSubmitReceipt.model_validate(data)
 
     def append_event(self, request: EventAppendRequest) -> EventAppendReceipt:
         """Append a schema-governed event using its required idempotency key.
