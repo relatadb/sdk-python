@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # Query
@@ -207,6 +207,8 @@ class IngestDocumentResponse(BaseModel):
         queue_depth: Current ingest queue depth after this submission.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     task_id: str = Field(..., description="Process-local background ingest task ID")
     rows_queued: int = Field(..., description="Rows accepted into the in-memory queue", ge=0)
     rows_rejected: int = Field(0, description="Rows rejected before queue admission", ge=0)
@@ -229,6 +231,8 @@ class IngestDocumentTaskStatus(BaseModel):
     therefore does not promise that this status remains queryable after a
     server restart or on a different cluster node.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     task_id: str = Field(..., description="Background ingest task ID")
     status: str = Field(..., description="Current task status (pending or complete)")

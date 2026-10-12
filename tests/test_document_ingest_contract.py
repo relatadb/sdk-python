@@ -66,6 +66,8 @@ def test_document_ingest_uses_generic_queued_bulk_and_task_status() -> None:
                 "rows_written": 2,
                 "rows_dropped": 0,
                 "drop_reasons": [],
+                "error": {"code": "partial_write", "retryable": False},
+                "partial_result": {"accepted_ids": ["chunk-1"]},
             },
         )
 
@@ -76,6 +78,8 @@ def test_document_ingest_uses_generic_queued_bulk_and_task_status() -> None:
     assert receipt.rows_queued == 2
     assert status.status == "complete"
     assert status.rows_written == 2
+    assert status.model_extra["error"] == {"code": "partial_write", "retryable": False}
+    assert status.model_extra["partial_result"] == {"accepted_ids": ["chunk-1"]}
     assert [request.url.path for request in requests] == [
         "/ingest/bulk", "/ingest/tasks/task-1"
     ]
