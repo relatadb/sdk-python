@@ -255,8 +255,9 @@ class RelataClient:
             ``"analytics"``, ``"audit"``, ``"analysis"``.
         timeout: HTTP request timeout in seconds (default ``30.0``).
         tenant: Optional tenant / organisation id sent as ``X-Relata-Tenant-Id``
-            on every request.  Required for multi-tenant deployments; overrides
-            per-call via the ``tenant=`` argument on individual methods.
+            on every request.  Required for multi-tenant deployments.  Set once
+            on the client; there is no per-method ``tenant=`` override (#5821).
+            ``bulk(tenant_id=)`` is the only per-call tenant argument.
         acting_as: Optional delegation principal sent as ``X-Acting-As`` — the
             caller asserts membership and the server's ``wire_acting_as()``
             parses it (#55).  Pairs with ``delegated_by``.
@@ -349,8 +350,9 @@ class RelataClient:
         self._max_response_bytes = max_response_bytes
 
         # Compose the static extra-headers bag: tenant/delegation first, then
-        # caller-supplied headers win. Per-call overrides (tenant=, acting_as=,
-        # request_id=) are merged in transport-property accessors below.
+        # caller-supplied headers win. Per-call overrides (acting_as=, request_id=)
+        # are merged in transport-property accessors below; tenant is client-level
+        # only (#5821).
         extra: dict[str, str] = {}
         if tenant is not None:
             extra["X-Relata-Tenant-Id"] = tenant
