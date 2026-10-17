@@ -228,9 +228,11 @@ class IngestDocumentResponse(BaseModel):
 class IngestDocumentTaskStatus(BaseModel):
     """Current status returned by ``GET /ingest/tasks/{task_id}``.
 
-    Task state is process-local on the server. A successful submission receipt
-    therefore does not promise that this status remains queryable after a
-    server restart or on a different cluster node.
+    Persistent local receipts survive restart; unresolved work becomes
+    uncertain without reingestion. Volatile profiles remain process-local.
+    Additional receipt_durability/recovered fields are preserved as metadata.
+    Poll the originating node with the authenticated tenant; queue acceptance
+    does not certify global index or replica completion.
     """
 
     model_config = ConfigDict(extra="allow")

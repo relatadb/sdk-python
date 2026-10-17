@@ -9,9 +9,13 @@ instead.
 from __future__ import annotations
 
 import json
+import math
 import time
 import uuid
-from typing import Any
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from typing import Any, Literal, overload
 from urllib.parse import quote
 
 import httpx
@@ -38,6 +42,33 @@ _CONTENT_TYPE = "application/json"
 #: longer OOM the client by streaming an unbounded body (#3214, parity with
 #: Rust #3198). Override via ``RelataClient(max_response_bytes=...)``.
 DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _RawHttpResponse:
+    """Capped buffered bytes and copied headers; the HTTP body is already closed."""
+    status_code: int
+    headers: dict[str, str]
+    content: bytes
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse delta seconds or an HTTP date without replacing the HTTP error."""
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+        if seconds < 0:
+            return None
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(value)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            seconds = (when - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return max(0.0, seconds) if math.isfinite(seconds) and seconds <= 9_007_199_254_740_991 else None
 
 
 def path_segment(value: str) -> str:
@@ -177,15 +208,17 @@ def _classify_error(
     ``type``, ``detail``, ``retryable``, ``request_id``) and the legacy
     ``{"error": "..."}`` shape.
     """
-    # RFC 7807 fields — present when the server emits problem+json.
-    code: str | None = body.get("code")
-    type_url: str | None = body.get("type")
-    retryable: bool = bool(body.get("retryable", False))
-    rid = request_id or body.get("request_id")
-    detail: str = (
-        body.get("detail") or body.get("error")
-        or body.get("message") or "unknown server error"
-    )
+    # A JSON error body may legally decode to null/list/scalar. Preserve its
+    # HTTP status rather than raising AttributeError while classifying it.
+    if not isinstance(body, dict):
+        body = {"error": raw_text or "non-object HTTP error response"}
+    code = body.get("code") if isinstance(body.get("code"), str) else None
+    type_url = body.get("type") if isinstance(body.get("type"), str) else None
+    query_id = body.get("query_id") if isinstance(body.get("query_id"), str) else None
+    retryable = body.get("retryable") is True
+    rid = request_id or (body.get("request_id") if isinstance(body.get("request_id"), str) else None)
+    detail = next((body[key] for key in ("detail", "error", "message")
+                   if isinstance(body.get(key), str) and body[key]), "unknown server error")
     # #2321 (ADR-0261): a bare 404 with no detail text against an
     # admin/platform-only path almost always means this client is pointed at
     # the data-plane listener rather than the loopbound admin listener those
@@ -200,12 +233,24 @@ def _classify_error(
         detail = _admin_listener_hint(path)
     lower_detail = detail.lower()
 
+    # Preserve finite delay guidance on every HTTP error, not only429. A valid
+    # header wins (including zero); malformed headers permit a finite body fallback.
+    def finite_delay(value: object) -> float | None:
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 9_007_199_254_740_991 and math.isfinite(value):
+            return float(value)
+        return None
+    delay = finite_delay(retry_after)
+    if delay is None:
+        delay = finite_delay(body.get("retry_after", body.get("retry_after_seconds")))
+
     # Shared kwargs for every subclass.
     base_kwargs: dict[str, Any] = {
         "code": code,
         "type_url": type_url,
         "retryable": retryable,
         "request_id": rid,
+        "query_id": query_id,
+        "retry_after": delay,
     }
 
     # Purpose-specific detection — works for both legacy and problem+json.
@@ -218,6 +263,7 @@ def _classify_error(
             f"Purpose rejected: {detail}. "
             "Pass purpose= to RelataClient.query() or set a default on the client.",
             status_code=status_code,
+            **base_kwargs,
         )
 
     if status_code == 401:
@@ -254,7 +300,6 @@ def _classify_error(
         return RateLimitedError(
             f"Rate limited: {detail}",
             status_code=status_code,
-            retry_after=retry_after,
             rate_limit_limit=rate_limit_limit,
             rate_limit_remaining=rate_limit_remaining,
             rate_limit_reset=rate_limit_reset,
@@ -356,6 +401,20 @@ class HttpTransport:
             return self._admin_client
         return self._client
 
+    @overload
+    def _send_with_retry(
+        self, method: str, path: str, *, json_payload: dict[str, Any] | None = None,
+        content: str | bytes | None = None, headers: dict[str, str] | None = None,
+        raw_response: Literal[False] = False,
+    ) -> dict[str, Any]: ...
+
+    @overload
+    def _send_with_retry(
+        self, method: str, path: str, *, json_payload: dict[str, Any] | None = None,
+        content: str | bytes | None = None, headers: dict[str, str] | None = None,
+        raw_response: Literal[True],
+    ) -> _RawHttpResponse: ...
+
     def _send_with_retry(
         self,
         method: str,
@@ -364,7 +423,8 @@ class HttpTransport:
         json_payload: dict[str, Any] | None = None,
         content: str | bytes | None = None,
         headers: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
+        raw_response: bool = False,
+    ) -> dict[str, Any] | _RawHttpResponse:
         """Send an HTTP request with retry + request_id propagation.
 
         Retry policy (#2490): only idempotent verbs (GET/HEAD/OPTIONS) are
@@ -425,6 +485,8 @@ class HttpTransport:
                     continue
 
                 # Success or non-retryable error — return / raise via _handle.
+                if raw_response and resp.is_success:
+                    return _RawHttpResponse(resp.status_code, dict(resp.headers), self._read_capped(resp))
                 return self._handle(resp)
             finally:
                 resp.close()
@@ -435,6 +497,17 @@ class HttpTransport:
         # raises — so this is a defensive unreachable fallback).
         assert last_exc is not None
         raise last_exc
+
+    def request_bytes(
+        self, method: str, path: str, *, content: bytes | None = None,
+        content_type: str | None = None, accept: str = "application/octet-stream",
+    ) -> _RawHttpResponse:
+        """Use the normal auth/error/retry pipeline with capped byte success bodies."""
+        headers = {"Accept": accept}
+        if content_type is not None:
+            headers["Content-Type"] = content_type
+        return self._send_with_retry(method, path, content=content,
+            headers=headers, raw_response=True)
 
     def get(self, path: str) -> dict[str, Any]:
         """Perform a GET request and return the decoded JSON body."""
@@ -533,8 +606,7 @@ class HttpTransport:
         except Exception:
             body = {"error": raw_text or "empty response"}
         request_id = resp.headers.get("x-request-id")
-        retry_after_hdr = resp.headers.get("retry-after")
-        retry_after = float(retry_after_hdr) if retry_after_hdr else None
+        retry_after = _parse_retry_after(resp.headers.get("retry-after"))
         rl_limit = _opt_float_header(resp.headers, "x-ratelimit-limit")
         rl_remaining = _opt_float_header(resp.headers, "x-ratelimit-remaining")
         rl_reset = _opt_float_header(resp.headers, "x-ratelimit-reset")
@@ -607,6 +679,20 @@ class AsyncHttpTransport:
             return self._admin_client
         return self._client
 
+    @overload
+    async def _send_with_retry(
+        self, method: str, path: str, *, json_payload: dict[str, Any] | None = None,
+        content: str | bytes | None = None, headers: dict[str, str] | None = None,
+        raw_response: Literal[False] = False,
+    ) -> dict[str, Any]: ...
+
+    @overload
+    async def _send_with_retry(
+        self, method: str, path: str, *, json_payload: dict[str, Any] | None = None,
+        content: str | bytes | None = None, headers: dict[str, str] | None = None,
+        raw_response: Literal[True],
+    ) -> _RawHttpResponse: ...
+
     async def _send_with_retry(
         self,
         method: str,
@@ -615,7 +701,8 @@ class AsyncHttpTransport:
         json_payload: dict[str, Any] | None = None,
         content: bytes | str | None = None,
         headers: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
+        raw_response: bool = False,
+    ) -> dict[str, Any] | _RawHttpResponse:
         """Send an async HTTP request with retry + request_id propagation.
 
         Retry policy mirrors the sync transport (#2490): idempotent verbs
@@ -668,11 +755,24 @@ class AsyncHttpTransport:
                 ):
                     await asyncio.sleep(self._retry_backoff * (2**attempt))
                     continue
+                if raw_response and resp.is_success:
+                    return _RawHttpResponse(resp.status_code, dict(resp.headers), await self._read_capped(resp))
                 return await self._handle(resp)
             finally:
                 await resp.aclose()
         assert last_exc is not None
         raise last_exc
+
+    async def request_bytes(
+        self, method: str, path: str, *, content: bytes | None = None,
+        content_type: str | None = None, accept: str = "application/octet-stream",
+    ) -> _RawHttpResponse:
+        """Use the normal auth/error/retry pipeline with capped byte success bodies."""
+        headers = {"Accept": accept}
+        if content_type is not None:
+            headers["Content-Type"] = content_type
+        return await self._send_with_retry(method, path, content=content,
+            headers=headers, raw_response=True)
 
     async def get(self, path: str) -> dict[str, Any]:
         """Perform an async GET request and return the decoded JSON body."""
@@ -768,8 +868,7 @@ class AsyncHttpTransport:
         except Exception:
             body = {"error": raw_text or "empty response"}
         request_id = resp.headers.get("x-request-id")
-        retry_after_hdr = resp.headers.get("retry-after")
-        retry_after = float(retry_after_hdr) if retry_after_hdr else None
+        retry_after = _parse_retry_after(resp.headers.get("retry-after"))
         rl_limit = _opt_float_header(resp.headers, "x-ratelimit-limit")
         rl_remaining = _opt_float_header(resp.headers, "x-ratelimit-remaining")
         rl_reset = _opt_float_header(resp.headers, "x-ratelimit-reset")

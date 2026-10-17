@@ -136,13 +136,13 @@ class IdentityClient:
         CERTIFY keyword, and the server refuses the erasure with
         "CERTIFY keyword required to confirm irreversible erasure" — matching
         the engine's own safety rail. Only an explicit ``certify=True``
-        confirms the irreversible crypto-shred. (Historically the omitted
+        opts into the request, not provider key-destruction certification. (Historically the omitted
         default was ``True``, which silently confirmed destruction for
         callers that never considered the flag.)
 
         Pairs with #61 — today the server does governed-tombstone only (the
         DEK survives). Once #61 ships the per-subject DEK destroy, this same
-        SDK call will produce crypto-shred semantics.
+        SDK call must be inspected for actual local acknowledgments; provider/all-copy completion remains unverified.
         """
         # This helper is provided on IdentityClient for ergonomics but needs
         # the parent query path; the caller must supply a purpose. We do not

@@ -1,6 +1,6 @@
 """Audit + provenance SDK (#78).
 
-Wraps ``/audit/count``, ``/audit/entries``, ``/report/sign``, ``/report/pdf``.
+Wraps ``/audit/count``, ``/audit/entries``.
 The ``prov_export`` helper is a thin wrapper over the server's ``prov export``
 CLI shape; until ADR-117 lands (#59) the server-side ``prov export`` is a stub
 and the SDK call returns a clear error.
@@ -8,12 +8,10 @@ and the SDK call returns a clear error.
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport
-from relata.exceptions import RelataError
 
 if TYPE_CHECKING:
     import httpx
@@ -98,42 +96,6 @@ class AuditClient:
     # Reports (#78)
     # ------------------------------------------------------------------
 
-    def sign_receipt(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Sign an Art. 17 / evidence receipt. Returns the signed receipt
-        with the server's HMAC signature. Pairs with #61 — until #61 ships
-        receipt-key rotation safety, callers should treat the signature as
-        transient."""
-        return self._t.post("/report/sign", payload)
-
-    def export_pdf(self, case_id: str, *, template: str = "default") -> bytes:
-        """Export a court-grade PDF report for ``case_id``. Returns the raw
-        PDF bytes; write to disk with ``Path("case.pdf").write_bytes(pdf)``.
-
-        Note: the server returns styled HTML by default (printable); the PDF
-        rendering is via the host browser's print-to-pdf. The SDK surfaces
-        whatever bytes the server returns.
-        """
-        # #3214: stream the POST and read through the transport's cap so a
-        # malicious/buggy PDF-sized response can't OOM the SDK — the previous
-        # `self._t._client.post(...).content` buffered the whole body unbounded.
-        with self._t._client.stream(  # noqa: SLF001 — intentional private access
-            "POST", "/report/pdf", json={"case_id": case_id, "template": template}
-        ) as resp:
-            if not resp.is_success:
-                raw = self._t._read_capped(resp)  # noqa: SLF001
-                try:
-                    body = json.loads(raw)
-                    raise RelataError(
-                        body.get("error") or body.get("message") or "report/pdf failed",
-                        status_code=resp.status_code,
-                    )
-                except ValueError as exc:
-                    raise RelataError(
-                        f"report/pdf failed (HTTP {resp.status_code})",
-                        status_code=resp.status_code,
-                    ) from exc
-            return self._t._read_capped(resp)  # noqa: SLF001
-
     def close(self) -> None:
         self._t.close()
 
@@ -207,29 +169,6 @@ class AsyncAuditClient:
         if entries and isinstance(entries, list) and entries:
             return dict(entries[0])
         return None
-
-    async def sign_receipt(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self._t.post("/report/sign", payload)
-
-    async def export_pdf(self, case_id: str, *, template: str = "default") -> bytes:
-        # #3214: stream + cap (async twin of the sync export_pdf).
-        async with self._t._client.stream(  # noqa: SLF001
-            "POST", "/report/pdf", json={"case_id": case_id, "template": template}
-        ) as resp:
-            if not resp.is_success:
-                raw = await self._t._read_capped(resp)  # noqa: SLF001
-                try:
-                    body = json.loads(raw)
-                    raise RelataError(
-                        body.get("error") or body.get("message") or "report/pdf failed",
-                        status_code=resp.status_code,
-                    )
-                except ValueError as exc:
-                    raise RelataError(
-                        f"report/pdf failed (HTTP {resp.status_code})",
-                        status_code=resp.status_code,
-                    ) from exc
-            return await self._t._read_capped(resp)  # noqa: SLF001
 
     async def close(self) -> None:
         await self._t.aclose()

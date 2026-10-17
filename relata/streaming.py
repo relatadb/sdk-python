@@ -3,7 +3,7 @@
 The server ships streaming surfaces at:
 
 - ``POST /query/arrow`` → Arrow IPC stream (columnar).
-- ``POST /query`` with ``Accept: text/event-stream`` → NDJSON row stream.
+- ``POST /query/stream`` with ``Accept: application/x-ndjson`` → row stream.
 - ``GET /watch/stream`` → finite SSE polls — emits governed query-result
   notifications from the server's bounded background evaluator.
 - ``GET /alerts/stream`` → SSE — pushes alerts to subscribed principals.
@@ -22,6 +22,8 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from relata.query import _validate_sql_identifier
+from relata._query_stream import QueryRowDecoder
+from relata.exceptions import IncompleteQueryStreamError, ResponseTooLargeError
 
 if TYPE_CHECKING:
     from relata.client import RelataClient
@@ -56,26 +58,31 @@ def _classify_capped_error(transport: Any, resp: Any) -> None:
     ``transport._read_capped`` means a malicious server can't OOM the SDK with
     a huge "error" body on a streaming query — the read aborts past
     ``max_response_bytes`` instead of the old unbounded ``resp.read()``."""
-    from relata._http import _classify_error
-
     raw = transport._read_capped(resp)
+    _raise_stream_http_error(resp, raw)
+
+
+def _raise_stream_http_error(resp: Any, raw: bytes) -> None:  # noqa: ANN401
+    from relata._http import _classify_error, _parse_retry_after
+
+    text = raw.decode("utf-8", errors="replace")
     try:
         body: dict[str, Any] = json.loads(raw)
-    except Exception:
-        body = {"error": raw.decode("utf-8", errors="replace")}
-    raise _classify_error(resp.status_code, body)
+        if not isinstance(body, dict):
+            raise ValueError("error response is not an object")
+    except (ValueError, UnicodeError):
+        body = {"error": text}
+    raise _classify_error(
+        resp.status_code, body, request_id=resp.headers.get("x-request-id"),
+        retry_after=_parse_retry_after(resp.headers.get("retry-after")),
+        content_type=resp.headers.get("content-type", ""), raw_text=text,
+    )
 
 
 async def _aclassify_capped_error(transport: Any, resp: Any) -> None:
     """Async twin of :func:`_classify_capped_error`."""
-    from relata._http import _classify_error
-
     raw = await transport._read_capped(resp)
-    try:
-        body: dict[str, Any] = json.loads(raw)
-    except Exception:
-        body = {"error": raw.decode("utf-8", errors="replace")}
-    raise _classify_error(resp.status_code, body)
+    _raise_stream_http_error(resp, raw)
 
 
 class StreamingClient:
@@ -108,25 +115,32 @@ class StreamingClient:
     ) -> Iterator[dict[str, Any]]:
         """Stream query results as NDJSON rows. Yields one ``dict`` per row.
 
-        Uses ``httpx.Client.stream()`` so the response body is consumed
-        lazily — the server does not buffer the entire result.
+        Metadata is not yielded as rows. Exhaust the iterator to verify the
+        terminal count; an incomplete answer raises ``IncompleteQueryStreamError``
+        after any partial rows, without automatic retry. ``max_response_bytes``
+        bounds each NDJSON frame, rather than the whole result stream.
         """
         eff_purpose = self._purpose(purpose)
         # Use the sync transport's underlying httpx client for streaming.
         sync = self._client._sync  # noqa: SLF001
         with sync._client.stream(  # noqa: SLF001
             "POST",
-            "/query",
+            "/query/stream",
+            headers={"Accept": "application/x-ndjson"},
             json={"purpose": eff_purpose, "sql": sql},
         ) as resp:
             if not resp.is_success:
                 # Materialise the error body for classification.
                 _classify_capped_error(sync, resp)
-            for line in resp.iter_lines():
-                line = line.strip()
-                if not line:
-                    continue
-                yield json.loads(line)
+            decoder = QueryRowDecoder(sync._max_response_bytes)  # noqa: SLF001
+            try:
+                for chunk in resp.iter_bytes():
+                    yield from decoder.feed(chunk)
+                yield from decoder.finish()
+            except (IncompleteQueryStreamError, ResponseTooLargeError):
+                raise
+            except Exception as error:
+                raise decoder.failure("Query stream transport failed before verified completion") from error
 
     # ------------------------------------------------------------------
     # Arrow IPC stream
@@ -293,7 +307,8 @@ class AsyncStreamingClient:
     ) -> Any:  # noqa: ANN401
         """Async iterator over NDJSON query rows. Usage::
 
-            async for row in client.streaming.aquery_rows(sql, purpose="x"):
+            stream = AsyncStreamingClient.from_client(client)
+            async for row in await stream.query_rows(sql, purpose="x"):
                 ...
         """
 
@@ -303,16 +318,23 @@ class AsyncStreamingClient:
         async def _gen() -> Any:  # noqa: ANN401
             async with async_transport._client.stream(  # noqa: SLF001
                 "POST",
-                "/query",
+                "/query/stream",
+                headers={"Accept": "application/x-ndjson"},
                 json={"purpose": eff_purpose, "sql": sql},
             ) as resp:
                 if not resp.is_success:
                     await _aclassify_capped_error(async_transport, resp)
-                async for line in resp.aiter_lines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    yield json.loads(line)
+                decoder = QueryRowDecoder(async_transport._max_response_bytes)  # noqa: SLF001
+                try:
+                    async for chunk in resp.aiter_bytes():
+                        for row in decoder.feed(chunk):
+                            yield row
+                    for row in decoder.finish():
+                        yield row
+                except (IncompleteQueryStreamError, ResponseTooLargeError):
+                    raise
+                except Exception as error:
+                    raise decoder.failure("Query stream transport failed before verified completion") from error
 
         return _gen()
 

@@ -39,6 +39,9 @@ class RelataError(Exception):
         type_url: RFC 7807 ``type`` URL linking to the error docs.
         retryable: ``True`` when the server says the request can be retried.
         request_id: The ``X-Request-ID`` from the response, when available.
+        query_id: Server query identifier, when supplied.
+        retry_after: Server retry guidance in seconds, when supplied; not permission
+            to replay a non-idempotent request.
     """
 
     def __init__(
@@ -50,6 +53,8 @@ class RelataError(Exception):
         type_url: str | None = None,
         retryable: bool = False,
         request_id: str | None = None,
+        query_id: str | None = None,
+        retry_after: float | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -58,6 +63,8 @@ class RelataError(Exception):
         self.type_url = type_url
         self.retryable = retryable
         self.request_id = request_id
+        self.query_id = query_id
+        self.retry_after = retry_after
 
     def __repr__(self) -> str:
         parts = [f"message={self.message!r}"]
@@ -80,6 +87,20 @@ class RelataError(Exception):
 # ---------------------------------------------------------------------------
 
 
+class IncompleteQueryStreamError(RelataError):
+    """A query returned HTTP 200 but did not finish its verified row stream.
+
+    Previously yielded rows are partial. Exhaust the iterator before using the
+    answer as complete; this error never triggers an automatic replay.
+    """
+
+    def __init__(
+        self, message: str, *, query_id: str | None = None, rows_received: int = 0,
+    ) -> None:
+        super().__init__(message, status_code=200, retryable=False, query_id=query_id)
+        self.rows_received = rows_received
+
+
 class PurposeError(RelataError):
     """Raised when a query is rejected due to a missing or invalid purpose."""
 
@@ -91,10 +112,12 @@ class PurposeError(RelataError):
         type_url: str | None = None,
         retryable: bool = False,
         request_id: str | None = None,
+        query_id: str | None = None,
+        retry_after: float | None = None,
     ) -> None:
         super().__init__(
             message, status_code=status_code, code=code,
-            type_url=type_url, retryable=retryable, request_id=request_id,
+            type_url=type_url, retryable=retryable, request_id=request_id, query_id=query_id, retry_after=retry_after,
         )
 
 
@@ -112,10 +135,12 @@ class QuotaError(RelataError):
         type_url: str | None = None,
         retryable: bool = False,
         request_id: str | None = None,
+        query_id: str | None = None,
+        retry_after: float | None = None,
     ) -> None:
         super().__init__(
             message, status_code=status_code, code=code,
-            type_url=type_url, retryable=retryable, request_id=request_id,
+            type_url=type_url, retryable=retryable, request_id=request_id, query_id=query_id, retry_after=retry_after,
         )
 
 
@@ -130,10 +155,12 @@ class AuthError(RelataError):
         type_url: str | None = None,
         retryable: bool = False,
         request_id: str | None = None,
+        query_id: str | None = None,
+        retry_after: float | None = None,
     ) -> None:
         super().__init__(
             message, status_code=status_code, code=code,
-            type_url=type_url, retryable=retryable, request_id=request_id,
+            type_url=type_url, retryable=retryable, request_id=request_id, query_id=query_id, retry_after=retry_after,
         )
 
 
@@ -174,10 +201,12 @@ class ServerError(RelataError):
         type_url: str | None = None,
         retryable: bool = False,
         request_id: str | None = None,
+        query_id: str | None = None,
+        retry_after: float | None = None,
     ) -> None:
         super().__init__(
             message, status_code=status_code, code=code,
-            type_url=type_url, retryable=retryable, request_id=request_id,
+            type_url=type_url, retryable=retryable, request_id=request_id, query_id=query_id, retry_after=retry_after,
         )
 
 
@@ -223,6 +252,7 @@ class RateLimitedError(RelataError):
         type_url: str | None = None,
         retryable: bool = False,
         request_id: str | None = None,
+        query_id: str | None = None,
     ) -> None:
         super().__init__(
             message,
@@ -231,6 +261,8 @@ class RateLimitedError(RelataError):
             type_url=type_url,
             retryable=retryable,
             request_id=request_id,
+            query_id=query_id,
+            retry_after=retry_after,
         )
         self.retry_after = retry_after
         # #1321: X-RateLimit-* quota headers (None when the server omitted them).

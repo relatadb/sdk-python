@@ -104,18 +104,24 @@ class ObjectClient:
         minCount 1 not met"]}``). "No exception" does not mean "stored" —
         always check ``rows_rejected`` / ``errors`` on the returned ack.
 
-        Durability contract (#4628): ``POST /ingest`` is **asynchronous** —
-        this does NOT return the server's upsert receipt (``object_id``,
-        ``write_seq``, ``valid_from``); that description was wrong. It
-        returns an async task-queue-ack shaped like
+        ``POST /ingest`` is **asynchronous**: this method returns a queue
+        acknowledgement, not a confirmed-write receipt. A successful HTTP
+        response confirms admission only; it returns an async task-queue-ack shaped like
         ``{"rows_queued": 1, "rows_rejected": 0, "task_id": "itsk_...",
         "connector": "...", "errors": [...], "queue_depth": N,
-        "embed_queue_depth": N}``. The row is queued, not yet durable or
-        SQL-visible — poll ``GET /ingest/tasks/{task_id}`` (not yet wrapped
-        by this SDK) to confirm ``rows_written``. Use :meth:`batch_upsert`
-        instead when the caller needs a read-your-writes guarantee: it
-        applies synchronously and its rows are visible as soon as the call
-        returns.
+        "embed_queue_depth": N}``. Poll ``GET /ingest/tasks/{task_id}`` and
+        inspect its terminal status and aggregate ``rows_written``,
+        ``rows_dropped``, and error/drop-reason accounting. For a particular
+        row needed by a dependent operation, read that row after task completion
+        to confirm it is visible. Do not submit a dependent write until its
+        predecessor's task has completed.
+
+        Valid unconditional upserts of current assertions for the same identity
+        are ordered by successful publication under the identity claim, not by
+        queue acknowledgement; concurrent writers are last-published-wins.
+        Schema, authorization, WORM, conflict, and other failures can still
+        occur after admission. An uncertain outcome is not a safe basis for an
+        automatic retry.
         """
         row = dict(fields)
         row["id"] = object_id
@@ -314,12 +320,12 @@ class AsyncObjectClient:
         source: str | None = None,
         on_conflict: str = "upsert",
     ) -> dict[str, Any]:
-        """Async equivalent of :meth:`ObjectClient.upsert` — see that
-        docstring for the full durability contract (#4628). In short:
-        ``POST /ingest`` is asynchronous and returns a task-queue-ack
-        (``rows_queued``/``task_id``/...), not a confirmed-write receipt;
-        use :meth:`batch_upsert` for a synchronous, immediately-visible
-        write.
+        """Async equivalent of :meth:`ObjectClient.upsert`; see that
+        docstring for its queue-admission, task-status, and publication-order
+        contract. ``POST /ingest`` returns an acknowledgement, not a
+        confirmed-write receipt. Poll task status and inspect aggregate outcome
+        before depending on the write; verify a particular row with a read when
+        necessary. Uncertain outcomes are not a safe basis for automatic retry.
         """
         row = dict(fields)
         row["id"] = object_id

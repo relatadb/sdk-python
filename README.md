@@ -75,6 +75,21 @@ equality-dict shorthand. Async: `AsyncNamespace` / `await docs.query(...)`. HTTP
 compression is off by default (pass `compress=True` to re-enable for slow
 links); one connection pool is reused across every namespace.
 
+## Streaming query completion
+
+`StreamingClient.from_client(client).query_rows(sql)` uses `POST /query/stream`
+and yields data rows without the protocol metadata. Exhaust the iterator before
+treating the result as complete: a missing completion frame, truncation,
+transport failure, or mismatched row count raises `IncompleteQueryStreamError`.
+Its `query_id` and `rows_received` identify the partial answer; rows already
+yielded are not replayed automatically. Closing an iterator intentionally stops
+consumption without claiming completion. The existing `max_response_bytes`
+option bounds each NDJSON frame, rather than the total stream size.
+
+Async callers await `AsyncStreamingClient.from_client(client).query_rows(sql)`
+to obtain an async iterator with the same completion contract. Both streaming
+client classes are imported from `relata.streaming`.
+
 ## Cypher
 
 RelataDB auto-detects Cypher: any query starting with `MATCH` is translated to SQL
@@ -417,6 +432,7 @@ Each module inherits the parent client's auth, tenant, and purpose context:
 | `relata.identity` | `IdentityClient` | Identity label/uncertainty + lookup tables + ERASE SUBJECT |
 | `relata.objects` | `ObjectClient` | Typed upsert + batch + point-lookup (`get`) + delete via `/ingest?object_type=` |
 | `relata.ingest` | `IngestClient` | Bulk NDJSON + CSV + media task status; it does not upload raw media bytes |
+| `relata.files` | `FilesClient` / `AsyncFilesClient` | Buffered governed Files `put`/`get`/`delete` for opaque bytes and representation metadata |
 | `relata.vectors` | `VectorClient` | KNN + hybrid search + similar-to (SQL-backed) |
 | `relata.system` | `SystemClient` | Generic jobs and operator surfaces; no feed broker routing |
 | `relata.feed_broker` | `FeedBrokerClient` / `AsyncFeedBrokerClient` | Optional RIFN broker health, channels, signed-entry publishing at an explicit broker URL |
@@ -451,7 +467,46 @@ broker client.
 `IngestClient.media_status()` polls an existing task but does not upload raw
 media bytes. `McpClient.ingest_media()` is the available MCP tool wrapper and
 uses that tool's base64/payload shape; it is separate from a raw
-`POST /ingest/media` upload.
+`POST /ingest/media` upload. The separate new `FilesClient` and
+`AsyncFilesClient` wrap `/files/content` for opaque file bytes; they do not
+start media processing or document extraction.
+
+### Governed Files clients — v3.0 candidate, SDK 2.7.1
+
+For the v3.0 candidate (engine source `57e11676c`), version-aligned SDK source
+`8924d6ce8` (TypeScript test-only fixture correction `5212045`) builds cleanly;
+TypeScript passes 515/515, Python 882/882, and Go tests pass in two packages.
+The five-lane Files fixture passes in 10.020s. A separate prepared-document
+matrix passes in 37.110s across raw HTTP and official TypeScript, Python sync
+and async, and Go queries. It checks synthetic DataGrep and Unstructured JSON
+citations against an independent HTTP anchor, plus bounded ingestion receipts,
+auth/tenant behavior and a persistent single-node restart. Citation comparison
+waits for stable index visibility: TypeScript and Python required two
+before/after stabilization attempts for DataGrep; this does not promise
+immediate parity. See the [Files result](../../scripts/qualification/followup_pr5786_sdk_files_common_live.json)
+and [prepared result](../../scripts/qualification/followup_pr5786_sdk_files_prepared_live.json).
+These source-bound results do not claim package publication, PDF/OCR/provider
+extraction, replica or throughput qualification, interrupted-task resumption,
+or server-side cancellation. Prepared receipts describe historical local task
+outcomes; volatile profiles remain process-local.
+
+`FilesClient.from_client(client)` and `AsyncFilesClient.from_client(client)`
+borrow the parent transport and tenant/auth context. `put(key, data,
+bucket=None, content_type="application/octet-stream")` returns current-file
+metadata; `get(key, bucket=None)` returns buffered `data`, `etag`,
+`content_type`, and byte `size`; `delete(key, bucket=None)` acknowledges an
+exact-key deletion. An omitted bucket uses the
+authenticated tenant's default. The server accepts uploads up to 128 MiB;
+downloads use the configured response cap (64 MiB by default). PUT and DELETE
+are not automatically retried, so callers must reconcile uncertain results.
+These clients do not expose immutable versions, conditional writes, range
+requests, or physical/global-copy deletion guarantees.
+Cancelling an async call or expiring the HTTP timeout closes/cancels the client
+request where supported; it does not promise that server work already accepted
+by the engine is aborted or rolled back. See
+the [HTTP Files contract](../../docs/src/specs/files-api.md) for server
+behavior. These clients wrap only `/files/content`, not the Files list or
+folder operations.
 
 **Admin-listener reachability (`admin_base_url`, #2321):** on a hardened
 `server`/`cluster` deployment, `/admin/*` and `/platform/*` are mounted only

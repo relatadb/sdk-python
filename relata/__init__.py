@@ -57,6 +57,7 @@ from relata.exceptions import (
     ConflictError,
     ConnectionError,
     ForbiddenError,
+    IncompleteQueryStreamError,
     NotFoundError,
     PurposeError,
     QuotaError,
@@ -66,6 +67,7 @@ from relata.exceptions import (
     ServerError,
     ValidationError,
 )
+from relata.files import AsyncFilesClient, FileContent, FileMetadata, FilesClient
 from relata.feed_broker import AsyncFeedBrokerClient, FeedBrokerClient
 from relata.governance import AsyncGovernanceClient, GovernanceClient
 from relata.identity import AsyncIdentityClient, IdentityClient
@@ -214,6 +216,10 @@ __all__ = [
     "AsyncAuditClient",
     "IdentityClient",
     "AsyncIdentityClient",
+    "FilesClient",
+    "AsyncFilesClient",
+    "FileMetadata",
+    "FileContent",
     "ObjectClient",
     "AsyncObjectClient",
     "IngestClient",
@@ -362,6 +368,7 @@ __all__ = [
     "ConnectionError",
     "ServerError",
     "ForbiddenError",
+    "IncompleteQueryStreamError",
     "NotFoundError",
     "ConflictError",
     "ValidationError",

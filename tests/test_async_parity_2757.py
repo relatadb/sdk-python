@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import inspect
 import json
+from pathlib import Path
+import tomllib
 from collections.abc import Callable
 from typing import Any
 
@@ -39,7 +41,8 @@ def _mcp(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_package_version_is_canonical() -> None:
-    assert relata.__version__ == "2.0.0"
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    assert relata.__version__ == project["project"]["version"]
 
 
 def test_user_agent_header_matches_canonical_version() -> None:

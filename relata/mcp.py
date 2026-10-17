@@ -606,7 +606,7 @@ class McpClient:
         return self.call_tool("summarise", args)
 
     def erase_subject(self, subject: str, *, reason: str = "gdpr-art17-request") -> dict[str, Any]:
-        """``erase_subject`` — GDPR Art. 17 crypto-shred erasure with a signed receipt (#2322)."""
+        """``erase_subject`` — governed erasure with scoped local receipts, without global physical or cryptographic completion (#2322)."""
         return self.call_tool("erase_subject", {"subject": subject, "reason": reason})
 
     def ingest_media(
@@ -1418,7 +1418,7 @@ class AsyncMcpClient:
     async def erase_subject(
         self, subject: str, *, reason: str = "gdpr-art17-request"
     ) -> dict[str, Any]:
-        """``erase_subject`` — GDPR Art. 17 crypto-shred erasure with a signed receipt (#2322)."""
+        """``erase_subject`` — governed erasure with scoped local receipts, without global physical or cryptographic completion (#2322)."""
         return await self.call_tool("erase_subject", {"subject": subject, "reason": reason})
 
     async def ingest_media(

@@ -1,11 +1,10 @@
-"""Governance SDK — rules, retention, breakglass, alerts, DSAR (#74).
+"""Governance SDK — rules, retention, alerts, DSAR (#74).
 
 A thin governed wrapper over the server's HTTP surface so a Python operator
 can:
 
 - Define and manage prepared detection rules.
 - Place and lift legal holds; configure WORM retention per object type.
-- Request and approve emergency HUMINT breakglass access (4h, two-person).
 - List and ack alerts; tail the alert SSE stream.
 - File a GDPR Data Subject Access Request.
 
@@ -117,7 +116,7 @@ class _BaseGovernance:
 
 
 class GovernanceClient(_BaseGovernance):
-    """Synchronous governance surface — rules / retention / breakglass / alerts / DSAR."""
+    """Synchronous governance surface — rules / retention / alerts / DSAR."""
 
     def __init__(
         self,
@@ -275,79 +274,7 @@ class GovernanceClient(_BaseGovernance):
         )
 
     # ------------------------------------------------------------------
-    # Breakglass (#74)
-    # ------------------------------------------------------------------
-
-    def request_breakglass(
-        self,
-        source_id: str,
-        *,
-        purpose: str | None = None,
-        justification: str | None = None,
-        officer: str | None = None,
-    ) -> dict[str, Any]:
-        """Request emergency HUMINT breakglass access (fixed 4 h window).
-
-        Args:
-            source_id: The masked source ID being unmasked (e.g. ``"SRC-0042"``).
-            purpose: Declared query purpose. Server defaults to
-                ``"humint_unmask"`` when omitted.
-            justification: Free-text justification for the emergency access,
-                captured for audit.
-            officer: Delegated/on-behalf-of human officer identity (#5276).
-                Set this when a service principal (e.g. a BFF holding one
-                shared bearer token) is mediating for a human officer, so the
-                two-officer rule can tell two officers behind the same token
-                apart — otherwise every request/approve pair through a
-                shared token collapses to one identity and approval is
-                structurally impossible.
-
-        Returns the request record including ``request_id`` and ``status``.
-        Approval requires two distinct officers (``approve_breakglass``).
-        """
-        payload: dict[str, Any] = {"source_id": source_id}
-        if purpose is not None:
-            payload["purpose"] = purpose
-        if justification is not None:
-            payload["justification"] = justification
-        if officer is not None:
-            payload["officer"] = officer
-        return self._t.post("/humint/breakglass/request", payload)
-
-    def approve_breakglass(
-        self,
-        request_id: str,
-        *,
-        approver_note: str | None = None,
-        officer: str | None = None,
-    ) -> dict[str, Any]:
-        """Approve a breakglass request (second-officer sign-off).
-
-        The server enforces: requester cannot approve their own request, the
-        approver must belong to the same tenant, and two distinct approvals
-        are required before access is granted.
-
-        Args:
-            request_id: The ``request_id`` returned by ``request_breakglass``.
-            approver_note: Optional free-text approval note.
-            officer: Delegated/on-behalf-of human officer identity (#5276)
-                — see ``request_breakglass``'s ``officer`` doc for the full
-                rationale. Pass the approving officer here when this call is
-                made through a shared service-principal bearer token.
-        """
-        payload: dict[str, Any] = {"request_id": request_id}
-        if approver_note is not None:
-            payload["note"] = approver_note
-        if officer is not None:
-            payload["officer"] = officer
-        return self._t.post("/humint/breakglass/approve", payload)
-
-    def breakglass_status(self, request_id: str) -> dict[str, Any]:
-        """Look up the status of a breakglass request."""
-        return self._t.get(f"/humint/breakglass/status/{path_segment(request_id)}")
-
-    # ------------------------------------------------------------------
-    # Alerts (#74)
+    # Named HUMINT workflow retired; generic admin break-glass remains.
     # ------------------------------------------------------------------
 
     def list_alerts(
@@ -539,40 +466,6 @@ class AsyncGovernanceClient(_BaseGovernance):
             f"/retention/worm/{path_segment(object_type)}",
             {"retention_secs": retention_secs},
         )
-
-    async def request_breakglass(
-        self,
-        source_id: str,
-        *,
-        purpose: str | None = None,
-        justification: str | None = None,
-        officer: str | None = None,
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"source_id": source_id}
-        if purpose is not None:
-            payload["purpose"] = purpose
-        if justification is not None:
-            payload["justification"] = justification
-        if officer is not None:
-            payload["officer"] = officer
-        return await self._t.post("/humint/breakglass/request", payload)
-
-    async def approve_breakglass(
-        self,
-        request_id: str,
-        *,
-        approver_note: str | None = None,
-        officer: str | None = None,
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"request_id": request_id}
-        if approver_note is not None:
-            payload["note"] = approver_note
-        if officer is not None:
-            payload["officer"] = officer
-        return await self._t.post("/humint/breakglass/approve", payload)
-
-    async def breakglass_status(self, request_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/humint/breakglass/status/{path_segment(request_id)}")
 
     async def list_alerts(
         self,

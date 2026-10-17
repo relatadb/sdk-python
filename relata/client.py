@@ -1081,8 +1081,10 @@ class RelataClient:
     def erase_subject(
         self, subject: str, *, reason: str = "gdpr-art17-request", purpose: str | None = None,
     ) -> dict[str, object]:
-        """GDPR Art. 17 erasure: crypto-shred every row, vector, and blob
-        linked to a subject. **Irreversible.**
+        """Request GDPR Art. 17 erasure for a subject. Destructive steps are
+        irreversible; controller-local access revocation is not certified
+        cryptographic erasure. Inspect receipt_scope and incomplete copy states.
+        An operation_id identifies the authorized deletion inspection route.
 
         ``subject``/``reason`` are bound as ``$1``/``$2`` via the server-side
         parameterized path (#3211).
@@ -2007,16 +2009,21 @@ class RelataClient:
 
         Document extraction and mapping belong in application adapters. Pass
         ``DocumentSource``/``DocumentChunk`` rows with ``_type`` and stable
-        ``_pk`` fields. All types share one process-local task receipt;
-        acceptance is not crash-durable. Poll status for confirmed outcomes.
+        ``_pk`` fields. All types share one task identifier. Queued source
+        payloads remain volatile; configured local authority records durable
+        intent and confirmed progress, while explicit volatile profiles retain
+        RAM-only status. Poll the originating node with the authenticated
+        tenant. Recovered unfinished work is uncertain and never automatically
+        reingested; local receipts do not certify indexing or replication.
 
         Args:
             objects: Prepared object rows, each carrying ``_type`` and ``_pk``.
             purpose: Optional purpose override for the request.
 
         Returns:
-            A process-local task receipt. Poll ``task_id`` with
-            :meth:`ingest_document_status` to observe writes and drops.
+            A queue response with ``task_id``. Poll it with
+            :meth:`ingest_document_status` to observe local evidence, uncertainty,
+            writes and drops.
 
         Raises:
             :class:`~relata.exceptions.AuthError`: Invalid/missing token.
@@ -2052,8 +2059,11 @@ class RelataClient:
     def ingest_document_status(self, task_id: str) -> IngestDocumentTaskStatus:
         """Read the current status of a document-ingest task.
 
-        ``GET /ingest/tasks/{task_id}`` reports process-local background writer
-        progress. It returns 404 when the task is unknown to this server.
+        Persistent local receipts survive restart; interrupted work is uncertain
+        and is never automatically reingested. Volatile profiles remain
+        process-local. Inspect receipt_durability/recovered in retained metadata.
+        A task belongs to its originating node and authenticated tenant.
+        Confirmed counters do not certify global index or replica completion.
         """
         data = self._sync.get(f"/ingest/tasks/{path_segment(task_id)}")
         return IngestDocumentTaskStatus.model_validate(data)

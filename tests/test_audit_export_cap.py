@@ -1,65 +1,38 @@
-"""#3214 follow-up: AuditClient.export_pdf caps the response body.
-
-The audit PDF export used to read the raw httpx response via ``.content``
-(unbounded) — a malicious/buggy server returning a multi-GB "PDF" would OOM
-the Python SDK. It now streams the POST and reads through the transport's
-``_read_capped``, so an oversized body raises ResponseTooLargeError instead of
-being buffered. Parity with the TS ObjectClient fix and the Rust/Go caps.
-"""
-
-from __future__ import annotations
-
+"""Generic capped raw transport remains after retiring vertical PDF export."""
 import httpx
 import pytest
-
-from relata.audit import AuditClient
+from relata._http import AsyncHttpTransport, HttpTransport
 from relata.exceptions import ResponseTooLargeError
 
 BASE = "http://localhost:9090"
 
+def test_raw_response_cap_refuses_oversize() -> None:
+    transport = HttpTransport(BASE, "tok", 1.0, max_response_bytes=1024,
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b"x" * 2048)))
+    try:
+        with transport._client.stream("GET", "/objects/Blob/1") as response:
+            with pytest.raises(ResponseTooLargeError):
+                transport._read_capped(response)
+    finally:
+        transport.close()
 
-def test_export_pdf_caps_oversized_body() -> None:
-    big = b"x" * (1 << 20)  # 1 MiB
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, content=big, headers={"content-type": "application/pdf"}
-        )
-
-    client = AuditClient(BASE, bearer_token="tok", transport=httpx.MockTransport(handler))
-    # Force a tiny cap so the 1 MiB body trips it without allocating a 64 MiB fixture.
-    client._t._max_response_bytes = 1024  # type: ignore[attr-defined]
-    with pytest.raises(ResponseTooLargeError):
-        client.export_pdf("case-1")
-
-
-def test_export_pdf_within_cap_returns_bytes() -> None:
-    payload = b"%PDF-1.4 short"
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, content=payload, headers={"content-type": "application/pdf"}
-        )
-
-    client = AuditClient(BASE, bearer_token="tok", transport=httpx.MockTransport(handler))
-    client._t._max_response_bytes = 4096  # type: ignore[attr-defined]
-    assert client.export_pdf("case-1") == payload
-
+def test_raw_response_within_cap_retains_exact_bytes() -> None:
+    payload=b"binary\x00content"
+    transport=HttpTransport(BASE,"tok",1.0,max_response_bytes=1024,
+        transport=httpx.MockTransport(lambda _: httpx.Response(200,content=payload)))
+    try:
+        with transport._client.stream("GET", "/objects/Blob/1") as response:
+            assert transport._read_capped(response)==payload
+    finally:
+        transport.close()
 
 @pytest.mark.asyncio
-async def test_export_pdf_caps_oversized_body_async() -> None:
-    big = b"y" * (1 << 20)
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, content=big, headers={"content-type": "application/pdf"}
-        )
-
-    from relata.audit import AsyncAuditClient
-
-    client = AsyncAuditClient(
-        BASE, bearer_token="tok", transport=httpx.MockTransport(handler)
-    )
-    client._t._max_response_bytes = 1024  # type: ignore[attr-defined]
-    with pytest.raises(ResponseTooLargeError):
-        await client.export_pdf("case-1")
+async def test_async_raw_cap_refuses_oversize() -> None:
+    transport=AsyncHttpTransport(BASE,"tok",1.0,max_response_bytes=1024,
+        transport=httpx.MockTransport(lambda _: httpx.Response(200,content=b"x"*2048)))
+    try:
+        async with transport._client.stream("GET", "/objects/Blob/1") as response:
+            with pytest.raises(ResponseTooLargeError):
+                await transport._read_capped(response)
+    finally:
+        await transport.aclose()

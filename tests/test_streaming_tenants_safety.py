@@ -82,9 +82,13 @@ def test_query_rows_streams_ndjson() -> None:
     """The row streamer consumes NDJSON line by line without buffering."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
-        # Return 3 NDJSON rows.
-        body = '{"id": 1}\n{"id": 2}\n{"id": 3}\n'
+        assert req.url.path == "/query/stream"
+        assert req.headers["accept"] == "application/x-ndjson"
+        body = (
+            '{"_meta":{"query_id":"q1","started_at":1,"columns":["id"]}}\n'
+            '{"id": 1}\n{"id": 2}\n{"id": 3}\n'
+            '{"_meta":{"processing_time_ms":1,"row_count":3,"truncated":false}}\n'
+        )
         return httpx.Response(
             200,
             content=body.encode(),

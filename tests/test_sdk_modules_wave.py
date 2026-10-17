@@ -80,28 +80,6 @@ def test_governance_place_legal_hold_posts_payload() -> None:
     assert out["status"] == "active"
 
 
-def test_governance_request_and_approve_breakglass() -> None:
-    from relata.governance import GovernanceClient
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/humint/breakglass/request":
-            body = json.loads(req.content)
-            assert body["source_id"] == "SRC-0042"
-            assert body["justification"] == "urgent triage"
-            return httpx.Response(200, json={"request_id": "bg-1", "status": "pending"})
-        if req.url.path == "/humint/breakglass/approve":
-            body = json.loads(req.content)
-            assert body["request_id"] == "bg-1"
-            return httpx.Response(200, json={"request_id": "bg-1", "approvals": 1})
-        return httpx.Response(404)
-
-    g = GovernanceClient(BASE, transport=_wrap(handler))
-    req = g.request_breakglass("SRC-0042", justification="urgent triage")
-    assert req["request_id"] == "bg-1"
-    app = g.approve_breakglass("bg-1")
-    assert app["approvals"] == 1
-
-
 def test_governance_submit_dsar_uses_query_params() -> None:
     from relata.governance import GovernanceClient
 
@@ -241,25 +219,6 @@ def test_audit_find_by_request_id_returns_first_match() -> None:
     entry = c.find_by_request_id("req-7")
     assert entry is not None
     assert entry["principal"] == "alice"
-
-
-def test_audit_sign_receipt_posts_payload() -> None:
-    from relata.audit import AuditClient
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/report/sign"
-        body = json.loads(req.content)
-        assert body == {"case_id": "c-1"}
-        return httpx.Response(200, json={"signature": "abc", "signed_at_ns": 1760})
-
-    c = AuditClient(BASE, transport=_wrap(handler))
-    out = c.sign_receipt({"case_id": "c-1"})
-    assert out["signature"] == "abc"
-
-
-# ---------------------------------------------------------------------------
-# #79 — Identity / lookup / ERASE
-# ---------------------------------------------------------------------------
 
 
 def test_identity_label_posts_payload() -> None:
