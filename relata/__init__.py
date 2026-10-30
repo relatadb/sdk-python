@@ -40,6 +40,7 @@ from relata.a2a import A2AClient, AsyncA2AClient
 from relata.audit import AsyncAuditClient, AuditClient
 from relata.backup import AsyncBackupClient, BackupClient
 from relata.evidence import AsyncEvidenceClient, EvidenceClient, evidence_headers
+from relata.ontology_definitions import AsyncOntologyDefinitionsClient, OntologyDefinitionsClient
 from relata.freshness import AsyncFreshnessClient, FreshnessClient, freshness_headers
 from relata.client import RelataClient
 from relata import aml
@@ -243,6 +244,8 @@ __all__ = [
     "BackupClient",
     "AsyncBackupClient",
     "EvidenceClient",
+    "OntologyDefinitionsClient",
+    "AsyncOntologyDefinitionsClient",
     "AsyncEvidenceClient",
     "evidence_headers",
     "FreshnessClient",
