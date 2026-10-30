@@ -197,6 +197,44 @@ def _detect_headers(detect_packs: str | None) -> dict[str, str]:
     return {}
 
 
+def _envelope_headers(
+    detect_packs: str | None,
+    idempotency_key: str | None,
+    durability: str | None,
+) -> dict[str, str]:
+    """Headers for the ``/ingest/bulk`` envelope: SmartIngest override,
+    ``Idempotency-Key`` (#5689) and ``X-Relata-Durability`` (``"sync"``)."""
+    headers = _detect_headers(detect_packs)
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+    if durability:
+        headers["X-Relata-Durability"] = durability
+    return headers
+
+
+def _envelope_payload(
+    object_type: str,
+    rows: list[dict[str, Any]],
+    on_conflict: str | None,
+    purpose: str | None,
+    tenant_id: str | None,
+    source_checkpoint: dict[str, Any] | None,
+    contract: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"objects": [{**r, "_type": object_type} for r in rows]}
+    if on_conflict is not None:
+        payload["on_conflict"] = on_conflict
+    if purpose:
+        payload["purpose"] = purpose
+    if tenant_id is not None:
+        payload["tenant_id"] = tenant_id
+    if source_checkpoint is not None:
+        payload["source_checkpoint"] = source_checkpoint
+    if contract is not None:
+        payload["contract"] = contract
+    return payload
+
+
 class IngestClient:
     """Synchronous bulk-ingest client."""
 
@@ -249,6 +287,10 @@ class IngestClient:
         detect_packs: str | None = None,
         on_conflict: str | None = None,
         tenant_id: str | None = None,
+        idempotency_key: str | None = None,
+        durability: str | None = None,
+        source_checkpoint: dict[str, Any] | None = None,
+        contract: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Bulk-ingest ``rows``. Returns the server receipt.
 
@@ -261,25 +303,41 @@ class IngestClient:
           routes to ``POST /ingest/bulk`` so conflict resolution + ``tenant_id``
           take effect.
         - ``tenant_id`` — tenant scope (only honoured on the ``/ingest/bulk`` door).
+        - ``idempotency_key`` — ``Idempotency-Key`` header (#5689): a retry with
+          the same key and rows replays the recorded response without a second
+          write; a different body is ``409 idempotency-conflict``.
+        - ``durability`` — ``"sync"`` sends ``X-Relata-Durability: sync`` (WAL
+          fsynced before the response).
+        - ``source_checkpoint`` — ``{"source", "position", "expected_position"?}``;
+          the server advances the durable checkpoint only after a successful
+          synchronous write (requires ``durability="sync"``).
+        - ``contract`` — ``{"dataset", "version"?}``: validate against a data
+          contract (#5714); invalid rows are quarantined server-side.
+        Any of ``on_conflict``, ``idempotency_key``, ``source_checkpoint`` or
+        ``contract`` routes the call to ``POST /ingest/bulk``.
         """
         import json
 
-        if on_conflict is not None:
-            objects = [{**r, "_type": object_type} for r in rows]
-            payload: dict[str, Any] = {
-                "objects": objects,
-                "on_conflict": on_conflict,
-            }
-            eff_purpose = purpose or self._purpose
-            if eff_purpose:
-                payload["purpose"] = eff_purpose
-            if tenant_id is not None:
-                payload["tenant_id"] = tenant_id
+        if (
+            on_conflict is not None
+            or idempotency_key is not None
+            or source_checkpoint is not None
+            or contract is not None
+        ):
+            payload = _envelope_payload(
+                object_type,
+                rows,
+                on_conflict,
+                purpose or self._purpose,
+                tenant_id,
+                source_checkpoint,
+                contract,
+            )
             return self._t.post_raw(
                 "/ingest/bulk",
                 json.dumps(payload),
                 content_type="application/json",
-                extra_headers=_detect_headers(detect_packs),
+                extra_headers=_envelope_headers(detect_packs, idempotency_key, durability),
             )
         body = "\n".join(json.dumps(r) for r in rows)
         return self._t.post_raw(
@@ -448,23 +506,35 @@ class AsyncIngestClient:
         detect_packs: str | None = None,
         on_conflict: str | None = None,
         tenant_id: str | None = None,
+        idempotency_key: str | None = None,
+        durability: str | None = None,
+        source_checkpoint: dict[str, Any] | None = None,
+        contract: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Async variant of :meth:`bulk` (per-call SmartIngest + conflict controls)."""
+        """Async variant of :meth:`bulk` (per-call SmartIngest, conflict,
+        idempotency, checkpoint and contract controls)."""
         import json
 
-        if on_conflict is not None:
-            objects = [{**r, "_type": object_type} for r in rows]
-            payload: dict[str, Any] = {"objects": objects, "on_conflict": on_conflict}
-            eff_purpose = purpose or self._purpose
-            if eff_purpose:
-                payload["purpose"] = eff_purpose
-            if tenant_id is not None:
-                payload["tenant_id"] = tenant_id
+        if (
+            on_conflict is not None
+            or idempotency_key is not None
+            or source_checkpoint is not None
+            or contract is not None
+        ):
+            payload = _envelope_payload(
+                object_type,
+                rows,
+                on_conflict,
+                purpose or self._purpose,
+                tenant_id,
+                source_checkpoint,
+                contract,
+            )
             return await self._t.post_raw(
                 "/ingest/bulk",
                 json.dumps(payload),
                 content_type="application/json",
-                extra_headers=_detect_headers(detect_packs),
+                extra_headers=_envelope_headers(detect_packs, idempotency_key, durability),
             )
         body = "\n".join(json.dumps(r) for r in rows)
         return await self._t.post_raw(
