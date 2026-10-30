@@ -635,17 +635,14 @@ See the `examples/` directory:
 | `graph_traversal.py` | PATHS_BETWEEN, temporal network shift, hub detection |
 | `audit.py` | Chain verification, audit summary, anomaly detection |
 
-## Deployment profiles
+## Deployment
 
-> `lite` was a silent legacy alias for `free` (ADR-204); it is now rejected outright — startup fails (FATAL) if `RELATA_PROFILE=lite` is set. Use `free` instead.
+`RELATA_PROFILE` accepts only `free` (the default); `server`, `cluster` and `lite` are rejected at startup (#5809). Posture follows configuration, and the SDK works identically in each:
 
-Relata ships three deployment profiles.  The SDK works identically across all three:
-
-| Profile | Use case | Binary |
-|---|---|---|
-| `free` | Embedded / single-process | `RELATA_PROFILE=free relata serve` |
-| `server` | Single-node production | `RELATA_PROFILE=server relata serve` |
-| `cluster` | Multi-node distributed | `RELATA_PROFILE=cluster relata serve` |
+| Use case | Start command |
+|---|---|
+| Local / single process | `relata serve` (loopback) |
+| Single-node production | `RELATA_HTTP_BIND=0.0.0.0:9090 RELATA_BEARER_TOKEN=<secret> RELATA_ADMIN_TOKEN=<secret> relata serve` |
 
 ## Testing with an ephemeral server
 
