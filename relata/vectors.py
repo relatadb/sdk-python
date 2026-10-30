@@ -223,7 +223,7 @@ class VectorClient:
         """Embed a single text string via ``POST /embed`` (#1172).
 
         Uses the server's built-in CPU lexical embedder when no sidecar is
-        configured, or the GPU sidecar (``RELATA_ACCEL_ENDPOINT``) when set.
+        configured, or the external embedding sidecar (``RELATA_EMBED_URL``) when set.
         Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
         """
         payload: dict[str, Any] = {"text": text}

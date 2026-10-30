@@ -1098,7 +1098,7 @@ class RelataClient:
         )
 
     # ------------------------------------------------------------------
-    # SPARQL, sessions & cluster (#967 Tier 2d)
+    # Sessions & cluster (#967 Tier 2d)
     # ------------------------------------------------------------------
 
     def export_data(self, object_type: str, *, format: str = "json") -> dict[str, object]:
