@@ -143,19 +143,6 @@ async def test_async_mcp_recall_forwards_adr145_params() -> None:
     assert args["budget_tokens"] == 100
 
 
-async def test_async_mcp_face_match_sends_probe_id() -> None:
-    seen: list[dict[str, Any]] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(req.content))
-        return httpx.Response(200, json=_mcp({"matches": []}))
-
-    async with AsyncMcpClient(BASE, transport=_wrap(handler)) as c:
-        await c.face_match("probe-1", threshold=0.9)
-    assert seen[0]["name"] == "face_match"
-    assert seen[0]["arguments"]["probe_id"] == "probe-1"
-
-
 # ---------------------------------------------------------------------------
 # Delta #3 — the six async-method gaps
 # ---------------------------------------------------------------------------

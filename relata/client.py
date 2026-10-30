@@ -1539,8 +1539,8 @@ class RelataClient:
     #   (#2840, PR #2859 — near-duplicate/similar-image search scoped to an
     #   optional named index/corpus; THRESHOLD defaults to 0.9 server-side).
     #
-    # The MCP ``face_match`` tool is gated behind ADR-155 (#409) and returns
-    # 403 — these SQL-reachable operators are the unblocked path the SDK uses.
+    # The MCP ``face_match`` tool was removed (#5935); these SQL-reachable
+    # operators are the path the SDK uses.
 
     def face_search(
         self,

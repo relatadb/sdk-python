@@ -838,54 +838,6 @@ class McpClient:
             {"entity_type": entity_type, "agg": agg, "column": column, "purpose": purpose},
         )
 
-    def investigate_entity(
-        self, entity_type: str, entity_id: str, *, purpose: str = "security_incident"
-    ) -> dict[str, Any]:
-        """``investigate_entity`` — composite profile + timeline + connections + risk (#2322)."""
-        return self.call_tool(
-            "investigate_entity",
-            {"entity_type": entity_type, "id": entity_id, "purpose": purpose},
-        )
-
-    def find_threats(
-        self, entity_type: str, *, purpose: str = "security_incident"
-    ) -> dict[str, Any]:
-        """``find_threats`` — composite threat hunt over an entity type (#2322)."""
-        return self.call_tool("find_threats", {"entity_type": entity_type, "purpose": purpose})
-
-    def search_video_frames(
-        self,
-        query_id: str,
-        *,
-        media_type: str = "VideoFrame",
-        top_k: int = 20,
-        purpose: str = "security_incident",
-    ) -> dict[str, Any]:
-        """``search_video_frames`` — similarity search over video frames/segments (#2322)."""
-        return self.call_tool(
-            "search_video_frames",
-            {
-                "query_id": query_id,
-                "media_type": media_type,
-                "top_k": top_k,
-                "purpose": purpose,
-            },
-        )
-
-    def face_match(
-        self,
-        probe_id: str,
-        *,
-        threshold: float = 0.8,
-        top_k: int = 10,
-        purpose: str = "security_incident",
-    ) -> dict[str, Any]:
-        """``face_match`` — GATED: match a probe face against indexed media (#2322)."""
-        return self.call_tool(
-            "face_match",
-            {"probe_id": probe_id, "threshold": threshold, "top_k": top_k, "purpose": purpose},
-        )
-
     def close(self) -> None:
         self._t.close()
 
@@ -1650,56 +1602,6 @@ class AsyncMcpClient:
         return await self.call_tool(
             "aggregate_stats",
             {"entity_type": entity_type, "agg": agg, "column": column, "purpose": purpose},
-        )
-
-    async def investigate_entity(
-        self, entity_type: str, entity_id: str, *, purpose: str = "security_incident"
-    ) -> dict[str, Any]:
-        """``investigate_entity`` — composite profile + timeline + connections + risk (#2322)."""
-        return await self.call_tool(
-            "investigate_entity",
-            {"entity_type": entity_type, "id": entity_id, "purpose": purpose},
-        )
-
-    async def find_threats(
-        self, entity_type: str, *, purpose: str = "security_incident"
-    ) -> dict[str, Any]:
-        """``find_threats`` — composite threat hunt over an entity type (#2322)."""
-        return await self.call_tool(
-            "find_threats", {"entity_type": entity_type, "purpose": purpose}
-        )
-
-    async def search_video_frames(
-        self,
-        query_id: str,
-        *,
-        media_type: str = "VideoFrame",
-        top_k: int = 20,
-        purpose: str = "security_incident",
-    ) -> dict[str, Any]:
-        """``search_video_frames`` — similarity search over video frames/segments (#2322)."""
-        return await self.call_tool(
-            "search_video_frames",
-            {
-                "query_id": query_id,
-                "media_type": media_type,
-                "top_k": top_k,
-                "purpose": purpose,
-            },
-        )
-
-    async def face_match(
-        self,
-        probe_id: str,
-        *,
-        threshold: float = 0.8,
-        top_k: int = 10,
-        purpose: str = "security_incident",
-    ) -> dict[str, Any]:
-        """``face_match`` — GATED: match a probe face against indexed media (#2322)."""
-        return await self.call_tool(
-            "face_match",
-            {"probe_id": probe_id, "threshold": threshold, "top_k": top_k, "purpose": purpose},
         )
 
     async def close(self) -> None:
