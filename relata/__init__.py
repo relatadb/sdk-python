@@ -193,6 +193,7 @@ from relata.synthesis import (
 from relata.system import AsyncSystemClient, SystemClient
 from relata.tenants import AsyncTenantAdminClient, TenantAdminClient
 from relata.tokens import AsyncTokenClient, TokenClient
+from relata.app_primitives import AppPrimitivesClient
 from relata.vectors import AsyncVectorClient, VectorClient
 from relata._version import __version__
 
@@ -240,6 +241,7 @@ __all__ = [
     "BackupClient",
     "AsyncBackupClient",
     "TokenClient",
+    "AppPrimitivesClient",
     "AsyncTokenClient",
     "LogClient",
     "AsyncLogClient",
