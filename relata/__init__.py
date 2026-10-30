@@ -39,6 +39,7 @@ Public API
 from relata.a2a import A2AClient, AsyncA2AClient
 from relata.audit import AsyncAuditClient, AuditClient
 from relata.backup import AsyncBackupClient, BackupClient
+from relata.evidence import AsyncEvidenceClient, EvidenceClient, evidence_headers
 from relata.freshness import AsyncFreshnessClient, FreshnessClient, freshness_headers
 from relata.client import RelataClient
 from relata import aml
@@ -241,6 +242,9 @@ __all__ = [
     # #2757: previously import-only (required an explicit submodule import)
     "BackupClient",
     "AsyncBackupClient",
+    "EvidenceClient",
+    "AsyncEvidenceClient",
+    "evidence_headers",
     "FreshnessClient",
     "AsyncFreshnessClient",
     "freshness_headers",
