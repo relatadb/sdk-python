@@ -27,6 +27,7 @@ from relata.exceptions import (
     ConnectionError,
     ForbiddenError,
     NotFoundError,
+    PreconditionFailedError,
     PurposeError,
     RateLimitedError,
     RelataError,
@@ -290,6 +291,16 @@ def _classify_error(
             status_code=status_code,
             **base_kwargs,
         )
+    if status_code == 412:
+        current = body.get("current_version")
+        failed = body.get("failed_operation")
+        return PreconditionFailedError(
+            f"Precondition failed: {detail}",
+            current_version=current if isinstance(current, int) and not isinstance(current, bool) else None,
+            failed_operation=failed if isinstance(failed, int) and not isinstance(failed, bool) else None,
+            status_code=status_code,
+            **base_kwargs,
+        )
     if status_code == 422:
         return ValidationError(
             f"Validation error: {detail}",
@@ -549,17 +560,31 @@ class HttpTransport:
             headers.update(extra_headers)
         return self._send_with_retry("POST", path, content=content, headers=headers)
 
-    def delete(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def delete(
+        self,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Perform a DELETE request and return the decoded JSON body."""
-        return self._send_with_retry("DELETE", path, json_payload=payload)
+        return self._send_with_retry("DELETE", path, json_payload=payload, headers=extra_headers)
 
     def patch(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Perform a PATCH request with an optional JSON body."""
         return self._send_with_retry("PATCH", path, json_payload=payload or {})
 
-    def put(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def put(
+        self,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Perform a PUT request with an optional JSON body."""
-        return self._send_with_retry("PUT", path, json_payload=payload or {})
+        return self._send_with_retry(
+            "PUT", path, json_payload=payload or {}, headers=extra_headers
+        )
 
     def close(self) -> None:
         self._client.close()
@@ -812,17 +837,33 @@ class AsyncHttpTransport:
             headers.update(extra_headers)
         return await self._send_with_retry("POST", path, content=content, headers=headers)
 
-    async def delete(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def delete(
+        self,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Perform an async DELETE request."""
-        return await self._send_with_retry("DELETE", path, json_payload=payload)
+        return await self._send_with_retry(
+            "DELETE", path, json_payload=payload, headers=extra_headers
+        )
 
     async def patch(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """Perform an async PATCH request with an optional JSON body."""
         return await self._send_with_retry("PATCH", path, json_payload=payload or {})
 
-    async def put(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def put(
+        self,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Perform an async PUT request with an optional JSON body."""
-        return await self._send_with_retry("PUT", path, json_payload=payload or {})
+        return await self._send_with_retry(
+            "PUT", path, json_payload=payload or {}, headers=extra_headers
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()

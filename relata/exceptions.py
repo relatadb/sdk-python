@@ -227,6 +227,47 @@ class ConflictError(RelataError):
     """HTTP 409 — a version or uniqueness conflict."""
 
 
+class PreconditionFailedError(RelataError):
+    """HTTP 412 — a conditional write (``If-Match`` / ``If-None-Match`` / bundle
+    ``expectedVersion``) lost: the object is not at the version the caller read.
+
+    Nothing was written. Re-read the object and retry with its current version.
+
+    Attributes:
+        current_version: Live version of the object, or ``None`` when it does
+            not exist (also the response's ``ETag``).
+        failed_operation: Index of the failing operation in a ``commit`` bundle,
+            or ``0`` for a single conditional write.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        current_version: int | None = None,
+        failed_operation: int | None = None,
+        status_code: int = 412,
+        code: str | None = None,
+        type_url: str | None = None,
+        retryable: bool = False,
+        request_id: str | None = None,
+        query_id: str | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            code=code,
+            type_url=type_url,
+            retryable=retryable,
+            request_id=request_id,
+            query_id=query_id,
+            retry_after=retry_after,
+        )
+        self.current_version = current_version
+        self.failed_operation = failed_operation
+
+
 class ValidationError(RelataError):
     """HTTP 422 — the request body failed validation."""
 

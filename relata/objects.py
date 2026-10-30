@@ -17,7 +17,7 @@ import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 from relata.exceptions import NotFoundError
 
 if TYPE_CHECKING:
@@ -42,6 +42,41 @@ def _row_to_ndjson(rows: list[dict[str, Any]]) -> str:
     import json
 
     return "\n".join(json.dumps(r) for r in rows)
+
+
+def _object_path(object_type: str, object_id: str, purpose: str | None = None) -> str:
+    path = f"/objects/{path_segment(_validate_object_type(object_type))}/{path_segment(object_id)}"
+    return f"{path}?{urlencode({'purpose': purpose})}" if purpose else path
+
+
+def _precondition_headers(expected_version: int | None, if_absent: bool) -> dict[str, str]:
+    """``If-Match`` / ``If-None-Match`` for a conditional write (#5766)."""
+    if expected_version is not None and if_absent:
+        raise ValueError("expected_version and if_absent are mutually exclusive")
+    if if_absent:
+        return {"If-None-Match": "*"}
+    if expected_version is not None:
+        return {"If-Match": f'"{int(expected_version)}"'}
+    return {}
+
+
+def _commit_payload(
+    operations: list[dict[str, Any]], idempotency_key: str | None, purpose: str | None
+) -> dict[str, Any]:
+    """Wire body of ``POST /commit`` (#5767). Operations may use either
+    ``expected_version`` or ``expectedVersion``."""
+    wire: list[dict[str, Any]] = []
+    for operation in operations:
+        item = dict(operation)
+        if "expected_version" in item:
+            item["expectedVersion"] = item.pop("expected_version")
+        wire.append(item)
+    payload: dict[str, Any] = {"operations": wire}
+    if idempotency_key is not None:
+        payload["idempotencyKey"] = idempotency_key
+    if purpose:
+        payload["purpose"] = purpose
+    return payload
 
 
 class ObjectClient:
@@ -89,6 +124,8 @@ class ObjectClient:
         purpose: str | None = None,
         source: str | None = None,
         on_conflict: str = "upsert",
+        expected_version: int | None = None,
+        if_absent: bool = False,
     ) -> dict[str, Any]:
         """Upsert a single state object via ``POST /ingest``. The ``object_id``
         becomes the row's primary key; re-upserting with the same id
@@ -97,6 +134,14 @@ class ObjectClient:
         Args:
             on_conflict: ``"upsert"`` (default) overwrites; ``"skip"`` ignores
                 existing rows; ``"error"`` raises on conflict (HTTP 409).
+            expected_version: #5766 — replace only if the object is at this
+                version (``If-Match``); a different version raises
+                :class:`~relata.exceptions.PreconditionFailedError`. Switches
+                this call to the atomic ``PUT /objects/{type}/{id}`` door, which
+                is durable before it returns and returns the new ``version``
+                instead of a queue acknowledgement.
+            if_absent: #5766 — create only if the object does not exist
+                (``If-None-Match: *``); otherwise ``PreconditionFailedError``.
 
         Schema rejections do NOT raise: a rejected row resolves normally with
         ``rows_rejected > 0`` and a populated ``errors`` list (e.g.
@@ -123,6 +168,16 @@ class ObjectClient:
         occur after admission. An uncertain outcome is not a safe basis for an
         automatic retry.
         """
+        if expected_version is not None or if_absent:
+            # #5766: atomic conditional write — PUT with If-Match / If-None-Match.
+            # Returns ``{"type","id","version","commitId","replayed"}``; a lost
+            # race raises PreconditionFailedError carrying ``current_version``.
+            body_fields = {k: v for k, v in fields.items() if k != "id"}
+            return dict(self._t.put(
+                _object_path(object_type, object_id, purpose or self._purpose),
+                body_fields,
+                extra_headers=_precondition_headers(expected_version, if_absent),
+            ))
         row = dict(fields)
         row["id"] = object_id
         if source is not None:
@@ -237,6 +292,7 @@ class ObjectClient:
         object_id: str,
         *,
         purpose: str | None = None,
+        expected_version: int | None = None,
     ) -> None:
         """Bi-temporally delete an object by primary key.
 
@@ -254,6 +310,13 @@ class ObjectClient:
         """
         _validate_object_type(object_type)
         eff_purpose = purpose or self._purpose
+        if expected_version is not None:
+            # #5766: conditional tombstone — DELETE with If-Match.
+            self._t.delete(
+                _object_path(object_type, object_id, eff_purpose),
+                extra_headers=_precondition_headers(expected_version, False),
+            )
+            return
         params: dict[str, str] = {"object_type": object_type}
         if eff_purpose:
             params["purpose"] = eff_purpose
@@ -263,6 +326,42 @@ class ObjectClient:
             body,
             content_type="application/x-ndjson",
         )
+
+    def get_versioned(
+        self,
+        object_type: str,
+        object_id: str,
+    ) -> dict[str, Any] | None:
+        """Fetch one object with its monotonic ``_version`` (``GET /objects/{type}/{id}``).
+
+        The version is what ``expected_version`` in :meth:`upsert`,
+        :meth:`delete` and :meth:`commit` names. Returns ``None`` when the
+        object does not exist.
+        """
+        try:
+            return dict(self._t.get(_object_path(object_type, object_id)))
+        except NotFoundError:
+            return None
+
+    def commit(
+        self,
+        operations: list[dict[str, Any]],
+        *,
+        idempotency_key: str | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically apply up to 64 operations (``POST /commit``, #5767).
+
+        Each operation is ``{"op": "create"|"update"|"delete", "type": ...,
+        "id": ..., "expected_version"?: int, "data"?: {...}}``. All of them
+        become durable and visible, or none do. A failed precondition raises
+        :class:`~relata.exceptions.PreconditionFailedError` (``current_version``,
+        ``failed_operation``) and changes nothing. A retry with the same
+        ``idempotency_key`` returns the original result (``replayed: true``).
+        """
+        return dict(self._t.post(
+            "/commit", _commit_payload(operations, idempotency_key, purpose or self._purpose)
+        ))
 
     def close(self) -> None:
         self._t.close()
@@ -319,6 +418,8 @@ class AsyncObjectClient:
         purpose: str | None = None,
         source: str | None = None,
         on_conflict: str = "upsert",
+        expected_version: int | None = None,
+        if_absent: bool = False,
     ) -> dict[str, Any]:
         """Async equivalent of :meth:`ObjectClient.upsert`; see that
         docstring for its queue-admission, task-status, and publication-order
@@ -327,6 +428,16 @@ class AsyncObjectClient:
         before depending on the write; verify a particular row with a read when
         necessary. Uncertain outcomes are not a safe basis for automatic retry.
         """
+        if expected_version is not None or if_absent:
+            # #5766: atomic conditional write — PUT with If-Match / If-None-Match.
+            # Returns ``{"type","id","version","commitId","replayed"}``; a lost
+            # race raises PreconditionFailedError carrying ``current_version``.
+            body_fields = {k: v for k, v in fields.items() if k != "id"}
+            return dict(await self._t.put(
+                _object_path(object_type, object_id, purpose or self._purpose),
+                body_fields,
+                extra_headers=_precondition_headers(expected_version, if_absent),
+            ))
         row = dict(fields)
         row["id"] = object_id
         if source is not None:
@@ -408,10 +519,17 @@ class AsyncObjectClient:
         object_id: str,
         *,
         purpose: str | None = None,
+        expected_version: int | None = None,
     ) -> None:
         """Async equivalent of :meth:`ObjectClient.delete`."""
         _validate_object_type(object_type)
         eff_purpose = purpose or self._purpose
+        if expected_version is not None:
+            await self._t.delete(
+                _object_path(object_type, object_id, eff_purpose),
+                extra_headers=_precondition_headers(expected_version, False),
+            )
+            return
         params: dict[str, str] = {"object_type": object_type}
         if eff_purpose:
             params["purpose"] = eff_purpose
@@ -421,6 +539,42 @@ class AsyncObjectClient:
             body,
             content_type="application/x-ndjson",
         )
+
+    async def get_versioned(
+        self,
+        object_type: str,
+        object_id: str,
+    ) -> dict[str, Any] | None:
+        """Fetch one object with its monotonic ``_version`` (``GET /objects/{type}/{id}``).
+
+        The version is what ``expected_version`` in :meth:`upsert`,
+        :meth:`delete` and :meth:`commit` names. Returns ``None`` when the
+        object does not exist.
+        """
+        try:
+            return dict(await self._t.get(_object_path(object_type, object_id)))
+        except NotFoundError:
+            return None
+
+    async def commit(
+        self,
+        operations: list[dict[str, Any]],
+        *,
+        idempotency_key: str | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically apply up to 64 operations (``POST /commit``, #5767).
+
+        Each operation is ``{"op": "create"|"update"|"delete", "type": ...,
+        "id": ..., "expected_version"?: int, "data"?: {...}}``. All of them
+        become durable and visible, or none do. A failed precondition raises
+        :class:`~relata.exceptions.PreconditionFailedError` (``current_version``,
+        ``failed_operation``) and changes nothing. A retry with the same
+        ``idempotency_key`` returns the original result (``replayed: true``).
+        """
+        return dict(await self._t.post(
+            "/commit", _commit_payload(operations, idempotency_key, purpose or self._purpose)
+        ))
 
     async def close(self) -> None:
         await self._t.aclose()

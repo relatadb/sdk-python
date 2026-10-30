@@ -2058,6 +2058,45 @@ class RelataClient:
         data = await self._async.post("/ingest/bulk", payload)
         return IngestDocumentResponse.model_validate(data)
 
+    def commit(
+        self,
+        operations: list[dict[str, Any]],
+        *,
+        idempotency_key: str | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically apply up to 64 create/update/delete operations (#5767).
+
+        All-or-nothing: every ``expected_version`` precondition is checked
+        before anything is written, and the bundle is one durable record. A
+        failed precondition raises
+        :class:`~relata.exceptions.PreconditionFailedError` and changes nothing.
+        Retrying with the same ``idempotency_key`` returns the original result.
+        Returns ``{"commitId", "operations": [{"op","type","id","version"}],
+        "replayed"}``.
+        """
+        from relata.objects import _commit_payload
+
+        return dict(self._sync.post(
+            "/commit",
+            _commit_payload(operations, idempotency_key, purpose or self._default_purpose),
+        ))
+
+    async def acommit(
+        self,
+        operations: list[dict[str, Any]],
+        *,
+        idempotency_key: str | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, Any]:
+        """Async equivalent of :meth:`commit`."""
+        from relata.objects import _commit_payload
+
+        return dict(await self._async.post(
+            "/commit",
+            _commit_payload(operations, idempotency_key, purpose or self._default_purpose),
+        ))
+
     def ingest_document_status(self, task_id: str) -> IngestDocumentTaskStatus:
         """Read the current status of a document-ingest task.
 
