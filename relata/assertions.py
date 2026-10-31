@@ -37,8 +37,13 @@ def _rid(relation_id: str) -> str:
     return f"/v1/assertions/relations/{quote(relation_id, safe='')}/revoke"
 
 
-def _graph_path(  # noqa: ANN001
-    assertion_id: str, depth, limit, policy, policy_version, min_similarity=None
+def _graph_path(
+    assertion_id: str,
+    depth: int | None,
+    limit: int | None,
+    policy: str | None,
+    policy_version: int | None,
+    min_similarity: float | None = None,
 ) -> str:
     pairs = (("depth", depth), ("limit", limit), ("min_similarity", min_similarity))
     query = {k: str(v) for k, v in pairs if v is not None}
@@ -49,7 +54,13 @@ def _graph_path(  # noqa: ANN001
     return _aid(assertion_id, "evidence-graph") + (f"?{urlencode(query)}" if query else "")
 
 
-def _list_path(subject_type, subject_id, predicate, state, limit) -> str:  # noqa: ANN001
+def _list_path(
+    subject_type: str | None,
+    subject_id: str | None,
+    predicate: str | None,
+    state: str | None,
+    limit: int | None,
+) -> str:
     pairs = (
         ("subject_type", subject_type),
         ("subject_id", subject_id),
@@ -61,7 +72,15 @@ def _list_path(subject_type, subject_id, predicate, state, limit) -> str:  # noq
     return "/v1/assertions" + (f"?{urlencode(query)}" if query else "")
 
 
-def _resolve_path(subject_type, subject_id, predicate, valid_at, recorded_as_of, policy, policy_version) -> str:  # noqa: ANN001
+def _resolve_path(
+    subject_type: str,
+    subject_id: str,
+    predicate: str,
+    valid_at: int,
+    recorded_as_of: int | None,
+    policy: str | None,
+    policy_version: int | None,
+) -> str:
     query = {
         "subject_type": subject_type,
         "subject_id": subject_id,
@@ -103,7 +122,9 @@ class AssertionsClient:
         )
 
     def record(self, assertion: dict[str, Any]) -> dict[str, Any]:
-        """``POST /v1/assertions``: record a claim; idempotent on claim, source version and derivation."""
+        """``POST /v1/assertions``: record a claim; idempotent on claim, source version and
+        derivation.
+        """
         return dict(self._t.post("/v1/assertions", assertion))
 
     def list(
@@ -209,7 +230,9 @@ class AssertionsClient:
         policy: str | None = None,
         policy_version: int | None = None,
     ) -> dict[str, Any]:
-        """``GET /v1/assertions/resolve``: the value at ``valid_at`` as known at ``recorded_as_of``, with an explanation."""
+        """``GET /v1/assertions/resolve``: the value at ``valid_at`` as known at ``recorded_as_of``,
+        with an explanation.
+        """
         path = _resolve_path(
             subject_type, subject_id, predicate, valid_at, recorded_as_of, policy, policy_version
         )
@@ -262,7 +285,9 @@ class AsyncAssertionsClient:
         state: str | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        return dict(await self._t.get(_list_path(subject_type, subject_id, predicate, state, limit)))
+        return dict(
+            await self._t.get(_list_path(subject_type, subject_id, predicate, state, limit))
+        )
 
     async def get(self, assertion_id: str) -> dict[str, Any]:
         return dict(await self._t.get(_aid(assertion_id)))

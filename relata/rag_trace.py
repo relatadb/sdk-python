@@ -73,7 +73,7 @@ def _evidence_gaps(
     for i, iteration in enumerate(loop_result.iterations):
         if iteration.grading is None:
             continue
-        for hit, grade in zip(iteration.response.hits, iteration.grading.grades):
+        for hit, grade in zip(iteration.response.hits, iteration.grading.grades, strict=False):
             if grade is not HitGrade.CORRECT:
                 gaps.append(
                     {

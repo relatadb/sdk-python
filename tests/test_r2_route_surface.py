@@ -15,7 +15,7 @@ BASE = "http://localhost:9090"
 
 
 def _recorder(
-    status: int = 200, body: Any = None, *, headers: dict[str, str] | None = None
+    status: int = 200, body: object = None, *, headers: dict[str, str] | None = None
 ) -> tuple[list[tuple[str, str, str, Any]], httpx.MockTransport]:
     seen: list[tuple[str, str, str, Any]] = []
 
@@ -60,7 +60,9 @@ async def test_async_media_work_requeue_mirrors_sync() -> None:
 def test_files_head_returns_headers_view_and_none_on_404() -> None:
     from relata.files import FileHead, FilesClient
 
-    seen, tr = _recorder(200, b"", headers={"etag": '"e1"', "content-type": "text/plain", "content-length": "12"})
+    seen, tr = _recorder(
+        200, b"", headers={"etag": '"e1"', "content-type": "text/plain", "content-length": "12"}
+    )
     head = FilesClient(BASE, transport=tr).head("a/b.txt", bucket="b1")
     assert head == FileHead(etag='"e1"', content_type="text/plain", size=12)
     assert seen[0][:2] == ("HEAD", "/v1/files/content")
@@ -96,7 +98,8 @@ async def test_async_files_head_list_media_mirror_sync() -> None:
     seen, tr = _recorder(200, {"files": []}, headers={"content-length": "3"})
     async with AsyncFilesClient(BASE, transport=tr) as c:
         assert (await c.list(limit=1)) == {"files": []}
-        assert (await c.head("k")).size == 3
+        head = await c.head("k")
+        assert head is not None and head.size == 3
         await c.media_content("r1")
     assert [s[:2] for s in seen] == [
         ("GET", "/v1/files"),
@@ -123,7 +126,9 @@ def test_memory_recall_stream_yields_sse_frames() -> None:
     assert [f.get("id") for f in frames[:2]] == ["m1", "m2"]
     assert seen[0].method == "GET" and seen[0].url.path == "/v1/memory/recall/stream"
     params = dict(seen[0].url.params)
-    assert params["q"] == "ui" and params["purpose"] == "agent" and params["min_confidence"] == "0.5"
+    assert (
+        params["q"] == "ui" and params["purpose"] == "agent" and params["min_confidence"] == "0.5"
+    )
 
 
 async def test_async_memory_recall_stream_mirrors_sync() -> None:
@@ -189,7 +194,12 @@ async def test_async_gdpr_erase_deletion_verify() -> None:
         await g.deletion_status("op1")
         await g.verify_receipt({"receipt_id": "r1"})
     assert seen == [
-        ("POST", "/v1/gdpr/erase", "", {"subject_id": "s1", "reason": "r", "tenant_id": "t", "physical": True}),
+        (
+            "POST",
+            "/v1/gdpr/erase",
+            "",
+            {"subject_id": "s1", "reason": "r", "tenant_id": "t", "physical": True},
+        ),
         ("GET", "/v1/gdpr/deletions/op1", "", None),
         ("POST", "/v1/gdpr/verify-receipt", "", {"receipt_id": "r1"}),
     ]
@@ -300,11 +310,11 @@ def test_removed_wrappers_are_gone() -> None:
         assert not hasattr(RelataClient, name), name
     for cls in (SystemClient, AsyncSystemClient):
         assert not hasattr(cls, "list_pipelines") and not hasattr(cls, "define_pipeline")
-    for cls in (VectorClient, AsyncVectorClient):
+    for vector_cls in (VectorClient, AsyncVectorClient):
         for name in ("embed_image", "embed_face", "embed_audio", "embed_video"):
-            assert not hasattr(cls, name)
-        assert hasattr(cls, "embed") and hasattr(cls, "embed_batch")
-    for cls in (Namespace, AsyncNamespace):
-        assert not hasattr(cls, "branch_from")
+            assert not hasattr(vector_cls, name)
+        assert hasattr(vector_cls, "embed") and hasattr(vector_cls, "embed_batch")
+    for namespace_cls in (Namespace, AsyncNamespace):
+        assert not hasattr(namespace_cls, "branch_from")
     for name in ("LogClient", "AsyncLogClient", "ClusterNode"):
         assert not hasattr(relata, name)

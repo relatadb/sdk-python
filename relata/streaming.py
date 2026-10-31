@@ -18,15 +18,18 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from typing import TYPE_CHECKING, Any
 
 from relata._http import path_segment
-from relata.query import _validate_sql_identifier
 from relata._query_stream import QueryRowDecoder
 from relata.exceptions import IncompleteQueryStreamError, ResponseTooLargeError
+from relata.query import _validate_sql_identifier
 
 if TYPE_CHECKING:
+    import httpx
+
+    from relata._http import AsyncHttpTransport, HttpTransport
     from relata.client import RelataClient
 
 #: ``watch_stream(since=)`` is a decimal ``system_from`` ns cursor interpolated
@@ -53,7 +56,7 @@ def _watch_stream_sql(type: str, since: str | None) -> str:  # noqa: A002
     return sql
 
 
-def _classify_capped_error(transport: Any, resp: Any) -> None:
+def _classify_capped_error(transport: HttpTransport, resp: httpx.Response) -> None:
     """Materialise a streaming error response through ``transport``'s response
     cap (#3214) and raise the classified error. Reading via
     ``transport._read_capped`` means a malicious server can't OOM the SDK with
@@ -88,7 +91,7 @@ def _raise_stream_http_error(resp: Any, raw: bytes) -> None:  # noqa: ANN401
     )
 
 
-async def _aclassify_capped_error(transport: Any, resp: Any) -> None:
+async def _aclassify_capped_error(transport: AsyncHttpTransport, resp: httpx.Response) -> None:
     """Async twin of :func:`_classify_capped_error`."""
     raw = await transport._read_capped(resp)
     _raise_stream_http_error(resp, raw)
@@ -121,7 +124,7 @@ class StreamingClient:
         sql: str,
         *,
         purpose: str | None = None,
-    ) -> Iterator[dict[str, Any]]:
+    ) -> Generator[dict[str, Any], None, None]:
         """Stream query results as NDJSON rows. Yields one ``dict`` per row.
 
         Metadata is not yielded as rows. Exhaust the iterator to verify the
@@ -149,7 +152,9 @@ class StreamingClient:
             except (IncompleteQueryStreamError, ResponseTooLargeError):
                 raise
             except Exception as error:
-                raise decoder.failure("Query stream transport failed before verified completion") from error
+                raise decoder.failure(
+                    "Query stream transport failed before verified completion"
+                ) from error
 
     # ------------------------------------------------------------------
     # Arrow IPC stream
@@ -366,7 +371,9 @@ class AsyncStreamingClient:
                 except (IncompleteQueryStreamError, ResponseTooLargeError):
                     raise
                 except Exception as error:
-                    raise decoder.failure("Query stream transport failed before verified completion") from error
+                    raise decoder.failure(
+                        "Query stream transport failed before verified completion"
+                    ) from error
 
         return _gen()
 

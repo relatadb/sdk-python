@@ -345,7 +345,9 @@ class Memory:
 
     def get(self, memory_id: str) -> dict[str, Any] | None:
         """Fetch a single memory by id, or ``None`` if not found."""
-        path = f"/v1/memory/recognize/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
+        path = (
+            f"/v1/memory/recognize/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
+        )
         memory = _unwrap(self._t.get(path)).get("memory")
         return memory if isinstance(memory, dict) else None
 
@@ -417,7 +419,9 @@ class Memory:
         ``{"stored": N, "submitted": N, "results": [...]}``; ``stored`` below
         ``submitted`` means some items were rejected (see ``results``).
         """
-        return dict(self._t.post("/v1/memory/associate/batch", _associate_batch_body(items, self._purpose)))
+        return dict(
+            self._t.post("/v1/memory/associate/batch", _associate_batch_body(items, self._purpose))
+        )
 
     def episodes(
         self,
@@ -725,7 +729,9 @@ class AsyncMemory:
 
     async def get(self, memory_id: str) -> dict[str, Any] | None:
         """Fetch a single memory by id, or ``None`` if not found."""
-        path = f"/v1/memory/recognize/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
+        path = (
+            f"/v1/memory/recognize/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
+        )
         memory = _unwrap(await self._t.get(path)).get("memory")
         return memory if isinstance(memory, dict) else None
 
@@ -783,7 +789,9 @@ class AsyncMemory:
     async def associate_batch(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         """Link many memory pairs in one request (async) -- see :meth:`Memory.associate_batch`."""
         return dict(
-            await self._t.post("/v1/memory/associate/batch", _associate_batch_body(items, self._purpose))
+            await self._t.post(
+                "/v1/memory/associate/batch", _associate_batch_body(items, self._purpose)
+            )
         )
 
     async def episodes(

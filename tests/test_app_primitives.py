@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -12,7 +14,7 @@ from relata.app_primitives import AppPrimitivesClient
 BASE = "http://localhost:9090"
 
 
-def _client(handler):  # type: ignore[no-untyped-def]
+def _client(handler: Callable[[httpx.Request], httpx.Response]) -> AppPrimitivesClient:
     return AppPrimitivesClient(BASE, transport=httpx.MockTransport(handler))
 
 
@@ -26,7 +28,7 @@ def test_sequence_next_sends_camel_case_body() -> None:
 
 
 def test_claim_returns_jobs_and_complete_sends_fence() -> None:
-    seen: list[tuple[str, dict]] = []
+    seen: list[tuple[str, dict[str, Any]]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append((req.url.path, json.loads(req.content)))

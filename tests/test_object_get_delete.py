@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -29,7 +30,9 @@ def test_get_returns_row_when_found() -> None:
         body = json.loads(req.content)
         assert "SELECT * FROM HmSkill WHERE id = 'biosec.ioc'" in body["sql"]
         assert body["purpose"] == "hm_ledger"
-        return httpx.Response(200, json={"data": [{"id": "biosec.ioc", "content_b64": "abc"}], "rows": 1})
+        return httpx.Response(
+            200, json={"data": [{"id": "biosec.ioc", "content_b64": "abc"}], "rows": 1}
+        )
 
     c = ObjectClient(BASE, purpose="hm_ledger", transport=_mock(handler))
     row = c.get("HmSkill", "biosec.ioc")
@@ -61,7 +64,7 @@ def test_get_returns_none_on_404() -> None:
 def test_get_escapes_single_quote_in_id() -> None:
     from relata.objects import ObjectClient
 
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
         captured["sql"] = json.loads(req.content)["sql"]
@@ -151,7 +154,7 @@ def test_where_param_bool_raises() -> None:
     from relata.query import select
 
     with pytest.raises(TypeError, match="bool"):
-        select("T").where_param("flag = ?", True)  # type: ignore[arg-type]
+        select("T").where_param("flag = ?", True)
 
 
 def test_where_param_bad_type_raises() -> None:

@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlencode
 
 from relata._http import (
@@ -38,13 +38,19 @@ from relata._http import (
     HttpTransport,
     path_segment,
 )
+from relata.dns_tunnel import (
+    DNS_TUNNEL_MAX_ROWS,
+    DNS_TUNNEL_PAGE_SIZE,
+    DNS_TUNNEL_TYPES,
+    dns_tunnel_result,
+)
 from relata.exceptions import PurposeError, RelataError
 from relata.models import (
+    AlertSubmitReceipt,
+    AlertSubmitRequest,
     AuditCountResponse,
     EventAppendReceipt,
     EventAppendRequest,
-    AlertSubmitRequest,
-    AlertSubmitReceipt,
     HealthResponse,
     IngestDocumentResponse,
     IngestDocumentTaskStatus,
@@ -55,14 +61,9 @@ from relata.models import (
     StatusResponse,
     VersionInfo,
 )
-from relata.dns_tunnel import (
-    DNS_TUNNEL_MAX_ROWS,
-    DNS_TUNNEL_PAGE_SIZE,
-    DNS_TUNNEL_TYPES,
-    dns_tunnel_result,
-)
 
 if TYPE_CHECKING:
+    from relata.namespace import Namespace
     from relata.query import QueryBuilder
 
 
@@ -112,7 +113,7 @@ def _rewrite_question_mark_params(sql: str) -> str:
 
     counter = 0
 
-    def _replace(m: "re.Match[str]") -> str:  # type: ignore[name-defined]
+    def _replace(m: re.Match[str]) -> str:
         nonlocal counter
         counter += 1
         return f"${counter}"
@@ -185,12 +186,12 @@ def _graphql_data(resp: dict[str, object]) -> dict[str, object] | list[dict[str,
     On a non-empty ``errors`` array, raise :class:`RelataError` carrying the
     first error message; otherwise return ``data``.
     """
-    errors = resp.get("errors") or []
+    errors = cast("list[object]", resp.get("errors") or [])
     if errors:
         first = errors[0]
         msg = first.get("message", "graphql error") if isinstance(first, dict) else str(first)
         raise RelataError(f"graphql: {msg}")
-    return resp.get("data")
+    return cast("dict[str, object] | list[dict[str, object]] | None", resp.get("data"))
 
 
 
@@ -229,8 +230,8 @@ class RelataClient:
             listener (``RELATA_ADMIN_BIND``, default ``127.0.0.1:9091``).
             Per ADR-0261, ``/admin/*`` routes are mounted **only** there on a
             hardened deployment -- set this so
-            :class:`~relata.backup.BackupClient` reaches them. Leave unset (the default) when the admin
-            listener isn't split from the data plane (e.g. local/free-profile
+            :class:`~relata.backup.BackupClient` reaches them. Leave unset (the default) when the
+            admin listener isn't split from the data plane (e.g. local/free-profile
             dev) -- every request then goes to ``base_url`` unchanged.
         max_response_bytes: Cap on how much of any single response body the
             client will buffer (default ~64 MiB, #3214). A larger body raises
@@ -546,7 +547,7 @@ class RelataClient:
     def query_params(
         self,
         sql: str,
-        params: list,
+        params: list[Any],
         *,
         purpose: str | None = None,
         matcher: Literal["auto", "vf3", "bfs"] | None = None,
@@ -594,7 +595,7 @@ class RelataClient:
         sql: str,
         *,
         purpose: str | None = None,
-    ) -> "pyarrow.Table":  # type: ignore[name-defined]  # noqa: F821
+    ) -> pyarrow.Table:  # type: ignore[name-defined]  # noqa: F821
         """Execute a SQL query and return results as a ``pyarrow.Table`` (#1744).
 
         Calls ``POST /v1/query/arrow`` which streams Arrow IPC binary.  Requires
@@ -613,7 +614,8 @@ class RelataClient:
             df = tbl.to_pandas()
         """
         import io
-        import pyarrow.ipc as ipc  # type: ignore[import]
+
+        import pyarrow.ipc as ipc  # type: ignore[import-not-found,unused-ignore]
 
         from relata.streaming import StreamingClient
 
@@ -826,7 +828,9 @@ class RelataClient:
         return self._sync.post("/v1/types", payload)
 
     def deregister_type(self, name: str) -> dict[str, object]:
-        """Deregister an empty custom type. Admin token required; types with history or protected data are rejected."""
+        """Deregister an empty custom type. Admin token required; types with history or protected
+        data are rejected.
+        """
         return self._sync.delete(f"/v1/types/{path_segment(name)}")
 
     def type_detail(self, name: str) -> dict[str, object]:
@@ -1067,7 +1071,9 @@ class RelataClient:
             "link_name": link_name, "source_id": source_id, "target_id": target_id,
         })
 
-    async def adelete_link(self, link_name: str, source_id: str, target_id: str) -> dict[str, object]:
+    async def adelete_link(
+        self, link_name: str, source_id: str, target_id: str
+    ) -> dict[str, object]:
         """Async counterpart of delete_link; mutations are not automatically retried."""
         return await self._async.delete("/v1/links", {
             "link_name": link_name, "source_id": source_id, "target_id": target_id,
@@ -1124,7 +1130,11 @@ class RelataClient:
         p = purpose or self._default_purpose or "gdpr-erasure"
         return self._sync.post(
             "/v1/query",
-            {"purpose": p, "sql": "ERASE SUBJECT $1 REASON $2 CERTIFY", "params": [subject, reason]},
+            {
+                "purpose": p,
+                "sql": "ERASE SUBJECT $1 REASON $2 CERTIFY",
+                "params": [subject, reason],
+            },
         )
 
     # ------------------------------------------------------------------
@@ -1178,7 +1188,9 @@ class RelataClient:
         rows = data.get("data") or []
         return bool(rows and rows[0].get("match"))
 
-    def fuse_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
+    def fuse_identities(
+        self, id_a: str, id_b: str, *, purpose: str | None = None
+    ) -> dict[str, object]:
         """Ontological merge of two identities — writes an IdentityLink with
         link_type='fused' and returns the merged cluster (#967). Values are
         bound as ``$1``/``$2`` (#3211)."""
@@ -1187,7 +1199,9 @@ class RelataClient:
             "/v1/query", {"purpose": p, "sql": "FUSE_IDENTITIES($1, $2)", "params": [id_a, id_b]}
         )
 
-    def split_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
+    def split_identities(
+        self, id_a: str, id_b: str, *, purpose: str | None = None
+    ) -> dict[str, object]:
         """Ontological unmerge — inverse of fuse_identities (#967). Values are
         bound as ``$1``/``$2`` (#3211)."""
         p = purpose or self._default_purpose or "analytics"
@@ -1200,7 +1214,9 @@ class RelataClient:
     # Graph algorithm operators (#967)
     # ------------------------------------------------------------------
 
-    def graph_dijkstra(self, object_type: str, from_id: str, to_id: str, *, purpose: str | None = None) -> dict[str, object]:
+    def graph_dijkstra(
+        self, object_type: str, from_id: str, to_id: str, *, purpose: str | None = None
+    ) -> dict[str, object]:
         """Shortest path between two entities."""
         p = purpose or self._default_purpose or "analytics"
         sql = (
@@ -1221,7 +1237,7 @@ class RelataClient:
         Unlike :meth:`graph_dijkstra` (a SQL operator), this exposes the HTTP
         door's ``max_hops`` ceiling (#2344).
         """
-        params = {"from": from_id, "to": to_id}
+        params: dict[str, str | int] = {"from": from_id, "to": to_id}
         if max_hops is not None:
             params["max_hops"] = max_hops
         return self._sync.get(f"/v1/graph/shortest-path?{urlencode(params)}")
@@ -1238,7 +1254,7 @@ class RelataClient:
 
         ``direction`` is ``"out"`` | ``"in"`` | ``"both"`` (server default out).
         """
-        params = {"from": from_id}
+        params: dict[str, str | int] = {"from": from_id}
         if direction is not None:
             params["direction"] = direction
         if max_depth is not None:
@@ -1247,37 +1263,56 @@ class RelataClient:
             params["limit"] = limit
         return self._sync.get(f"/v1/graph/traverse?{urlencode(params)}")
 
-    def graph_pagerank(self, object_type: str, *, damping: float | None = None, max_iter: int | None = None, purpose: str | None = None) -> dict[str, object]:
+    def graph_pagerank(
+        self,
+        object_type: str,
+        *,
+        damping: float | None = None,
+        max_iter: int | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, object]:
         """PageRank centrality."""
         p = purpose or self._default_purpose or "analytics"
         parts = [f"GRAPH_PAGERANK({_sql_literal(object_type)}"]
-        if damping is not None: parts.append(f", DAMPING => {damping}")
-        if max_iter is not None: parts.append(f", MAX_ITER => {max_iter}")
+        if damping is not None:
+            parts.append(f", DAMPING => {damping}")
+        if max_iter is not None:
+            parts.append(f", MAX_ITER => {max_iter}")
         parts.append(")")
         return self._sync.post("/v1/query", {"purpose": p, "sql": "".join(parts)})
 
     def graph_scc(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Strongly connected components (fraud-ring detection)."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/v1/query", {"purpose": p, "sql": f"GRAPH_SCC({_sql_literal(object_type)})"})
+        return self._sync.post(
+            "/v1/query", {"purpose": p, "sql": f"GRAPH_SCC({_sql_literal(object_type)})"}
+        )
 
     def graph_cycles(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Cycle detection in the graph."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/v1/query", {"purpose": p, "sql": f"GRAPH_CYCLES({_sql_literal(object_type)})"})
+        return self._sync.post(
+            "/v1/query", {"purpose": p, "sql": f"GRAPH_CYCLES({_sql_literal(object_type)})"}
+        )
 
     def graph_community(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Community detection via label propagation."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/v1/query", {"purpose": p, "sql": f"GRAPH_COMMUNITY({_sql_literal(object_type)})"})
+        return self._sync.post(
+            "/v1/query", {"purpose": p, "sql": f"GRAPH_COMMUNITY({_sql_literal(object_type)})"}
+        )
 
-    def graph_node_similarity(self, object_type: str, node: str, *, purpose: str | None = None) -> dict[str, object]:
+    def graph_node_similarity(
+        self, object_type: str, node: str, *, purpose: str | None = None
+    ) -> dict[str, object]:
         """Node similarity — find entities similar to a seed node."""
         p = purpose or self._default_purpose or "analytics"
         sql = f"GRAPH_NODE_SIMILARITY({_sql_literal(object_type)}, NODE => {_sql_literal(node)})"
         return self._sync.post("/v1/query", {"purpose": p, "sql": sql})
 
-    def graph_link_predict(self, object_type: str, from_id: str, to_id: str, *, purpose: str | None = None) -> dict[str, object]:
+    def graph_link_predict(
+        self, object_type: str, from_id: str, to_id: str, *, purpose: str | None = None
+    ) -> dict[str, object]:
         """Link prediction between two nodes (#4633).
 
         The engine requires both ``FROM =>`` and ``TO =>`` — mirrors
@@ -1290,22 +1325,36 @@ class RelataClient:
         )
         return self._sync.post("/v1/query", {"purpose": p, "sql": sql})
 
-    def graph_triangle_count(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
+    def graph_triangle_count(
+        self, object_type: str, *, purpose: str | None = None
+    ) -> dict[str, object]:
         """Triangle count — measures graph density / cohesion."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/v1/query", {"purpose": p, "sql": f"TRIANGLE_COUNT({_sql_literal(object_type)})"})
+        return self._sync.post(
+            "/v1/query", {"purpose": p, "sql": f"TRIANGLE_COUNT({_sql_literal(object_type)})"}
+        )
 
     # ------------------------------------------------------------------
     # Intelligence operators (#967)
     # ------------------------------------------------------------------
 
-    def convoy_detect(self, *, radius_m: float | None = None, time_tol_secs: int | None = None, min_points: int | None = None, purpose: str | None = None) -> dict[str, object]:
+    def convoy_detect(
+        self,
+        *,
+        radius_m: float | None = None,
+        time_tol_secs: int | None = None,
+        min_points: int | None = None,
+        purpose: str | None = None,
+    ) -> dict[str, object]:
         """Convoy detection — find entities traveling together."""
         p = purpose or self._default_purpose or "analytics"
         parts = []
-        if radius_m is not None: parts.append(f"RADIUS => {radius_m}")
-        if time_tol_secs is not None: parts.append(f"TIME_TOL => {time_tol_secs * 1_000_000_000}")
-        if min_points is not None: parts.append(f"MIN_POINTS => {min_points}")
+        if radius_m is not None:
+            parts.append(f"RADIUS => {radius_m}")
+        if time_tol_secs is not None:
+            parts.append(f"TIME_TOL => {time_tol_secs * 1_000_000_000}")
+        if min_points is not None:
+            parts.append(f"MIN_POINTS => {min_points}")
         sql = f"CONVOY({', '.join(parts)})" if parts else "CONVOY()"
         return self._sync.post("/v1/query", {"purpose": p, "sql": sql})
 
@@ -1502,11 +1551,14 @@ class RelataClient:
             incomplete_reason=incomplete_reason,
         )
 
-    def geofence(self, fence: str, *, target_type: str | None = None, purpose: str | None = None) -> dict[str, object]:
+    def geofence(
+        self, fence: str, *, target_type: str | None = None, purpose: str | None = None
+    ) -> dict[str, object]:
         """Geo-fence query — find entities within a geographic fence."""
         p = purpose or self._default_purpose or "analytics"
         parts = [f"GEOFENCE({_sql_literal(fence)}"]
-        if target_type is not None: parts.append(f", TARGET_TYPE => {_sql_literal(target_type)}")
+        if target_type is not None:
+            parts.append(f", TARGET_TYPE => {_sql_literal(target_type)}")
         parts.append(")")
         return self._sync.post("/v1/query", {"purpose": p, "sql": "".join(parts)})
 
@@ -1760,7 +1812,7 @@ class RelataClient:
     async def aquery_params(
         self,
         sql: str,
-        params: list,
+        params: list[Any],
         *,
         purpose: str | None = None,
         matcher: Literal["auto", "vf3", "bfs"] | None = None,

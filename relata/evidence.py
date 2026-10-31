@@ -71,7 +71,9 @@ class EvidenceClient:
         return dict(self._t.get(_path(evidence_id)))
 
     def replay(self, evidence_id: str, *, include_content: bool = False) -> dict[str, Any]:
-        """``POST /v1/evidence/{id}/replay``: per-citation verified/hash_mismatch/missing/denied/deleted."""
+        """``POST /v1/evidence/{id}/replay``: per-citation
+        verified/hash_mismatch/missing/denied/deleted.
+        """
         return dict(self._t.post(_path(evidence_id) + "/replay", _replay_body(include_content)))
 
     def close(self) -> None:
@@ -117,7 +119,9 @@ class AsyncEvidenceClient:
         return dict(await self._t.get(_path(evidence_id)))
 
     async def replay(self, evidence_id: str, *, include_content: bool = False) -> dict[str, Any]:
-        return dict(await self._t.post(_path(evidence_id) + "/replay", _replay_body(include_content)))
+        return dict(
+            await self._t.post(_path(evidence_id) + "/replay", _replay_body(include_content))
+        )
 
     async def close(self) -> None:
         await self._t.aclose()

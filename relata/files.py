@@ -19,7 +19,12 @@ from urllib.parse import quote, urlencode
 import httpx
 from pydantic import BaseModel, ConfigDict
 
-from relata._http import DEFAULT_MAX_RESPONSE_BYTES, AsyncHttpTransport, HttpTransport, _RawHttpResponse
+from relata._http import (
+    DEFAULT_MAX_RESPONSE_BYTES,
+    AsyncHttpTransport,
+    HttpTransport,
+    _RawHttpResponse,
+)
 from relata.exceptions import NotFoundError, RelataError
 
 if TYPE_CHECKING:
@@ -103,7 +108,8 @@ def _media_path(row_id: str) -> str:
 
 def _json_page(response: _RawHttpResponse) -> dict[str, Any]:
     _status(response, 200)
-    return json.loads(response.content)
+    page: dict[str, Any] = json.loads(response.content)
+    return page
 
 
 def _path(key: str, bucket: str | None) -> str:
@@ -195,9 +201,12 @@ def _headers(tenant: str | None, extra: dict[str, str] | None) -> dict[str, str]
 
 def _status(response: _RawHttpResponse, expected: int) -> None:
     if response.status_code != expected:
-        raise RelataError(f"Unexpected Files response status: expected {expected}, got {response.status_code}",
-            status_code=response.status_code, code="unexpected-response-status",
-            request_id=response.headers.get("x-request-id"))
+        raise RelataError(
+            f"Unexpected Files response status: expected {expected}, got {response.status_code}",
+            status_code=response.status_code,
+            code="unexpected-response-status",
+            request_id=response.headers.get("x-request-id"),
+        )
 
 
 def _meta201(response: _RawHttpResponse) -> FileMetadata:
@@ -207,7 +216,9 @@ def _meta201(response: _RawHttpResponse) -> FileMetadata:
 
 def _content(response: _RawHttpResponse) -> FileContent:
     _status(response, 200)
-    return FileContent(response.content, response.headers.get("etag"), response.headers.get("content-type"))
+    return FileContent(
+        response.content, response.headers.get("etag"), response.headers.get("content-type")
+    )
 
 
 class FilesClient:
@@ -351,7 +362,7 @@ class FilesClient:
     def __enter__(self) -> FilesClient:
         return self
 
-    def __exit__(self, *_args: Any) -> None:
+    def __exit__(self, *_args: object) -> None:
         self.close()
 
 
@@ -405,8 +416,10 @@ class AsyncFilesClient:
         return _content(await self._t.request_bytes("GET", _media_path(row_id)))
 
     async def delete(self, key: str, *, bucket: str | None = None) -> None:
-        _status(await self._t.request_bytes("DELETE", _path(key, bucket), accept="application/json"), 204)
-
+        _status(
+            await self._t.request_bytes("DELETE", _path(key, bucket), accept="application/json"),
+            204,
+        )
 
     async def create_folder(self, key: str, *, bucket: str | None = None) -> FileMetadata:
         """Create a folder marker (async) -- see :meth:`FilesClient.create_folder`."""
@@ -486,5 +499,5 @@ class AsyncFilesClient:
     async def __aenter__(self) -> AsyncFilesClient:
         return self
 
-    async def __aexit__(self, *_args: Any) -> None:
+    async def __aexit__(self, *_args: object) -> None:
         await self.aclose()

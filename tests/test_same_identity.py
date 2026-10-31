@@ -22,7 +22,7 @@ BASE = "http://localhost:9090"
 def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )

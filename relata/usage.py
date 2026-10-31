@@ -228,7 +228,11 @@ def _validate_legacy_usage_baseline(baseline: LegacyUsageBaseline) -> None:
         raise ValueError("feedback_avg must be finite and between 0 and 1")
     if baseline.feedback_count == 0 and baseline.feedback_avg is not None:
         raise ValueError("feedback_avg must be None when feedback_count is zero")
-    if baseline.feedback_count is not None and baseline.feedback_count > 0 and baseline.feedback_avg is None:
+    if (
+        baseline.feedback_count is not None
+        and baseline.feedback_count > 0
+        and baseline.feedback_avg is None
+    ):
         raise ValueError("feedback_avg is required when feedback_count is positive")
     if baseline.last_cited_at is not None and (
         isinstance(baseline.last_cited_at, bool)

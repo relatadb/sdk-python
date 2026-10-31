@@ -8,7 +8,7 @@ from relata.tenants import AsyncTenantAdminClient, TenantAdminClient
 @pytest.mark.parametrize("asynchronous", [False, True])
 @pytest.mark.asyncio
 async def test_tenant_me_wire_contract(asynchronous: bool) -> None:
-    seen = []
+    seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
@@ -16,11 +16,11 @@ async def test_tenant_me_wire_contract(asynchronous: bool) -> None:
         assert str(request.url) == "http://data/v1/tenants/me"
         return httpx.Response(200, json={"id": "acme"})
 
-    args = {"transport": httpx.MockTransport(handler)}
+    transport = httpx.MockTransport(handler)
     if asynchronous:
-        async with AsyncTenantAdminClient("http://data", **args) as client:
-            assert await client.me() == {"id": "acme"}
+        async with AsyncTenantAdminClient("http://data", transport=transport) as async_client:
+            assert await async_client.me() == {"id": "acme"}
     else:
-        with TenantAdminClient("http://data", **args) as client:
-            assert client.me() == {"id": "acme"}
+        with TenantAdminClient("http://data", transport=transport) as sync_client:
+            assert sync_client.me() == {"id": "acme"}
     assert len(seen) == 1

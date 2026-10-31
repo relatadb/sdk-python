@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from relata.aml import (
     decode_beneficial_owners,
     decode_crypto_trace,
@@ -14,7 +16,7 @@ from relata.aml import (
 
 
 def test_decode_sanctions_hits() -> None:
-    rows = [
+    rows: list[dict[str, Any]] = [
         {
             "list_name": "OFAC",
             "entry_id": "e1",

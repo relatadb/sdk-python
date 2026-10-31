@@ -72,7 +72,7 @@ def _sync_client(body: _SyncBody, *, cap: int = 64 * 1024 * 1024) -> RelataClien
         return httpx.Response(200, stream=body)
 
     client = RelataClient(BASE, purpose="analytics")
-    client._RelataClient__sync_transport = HttpTransport(
+    client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, "token", 30.0, transport=httpx.MockTransport(handler),
         extra_headers={"X-Tenant-ID": "acme", "accept": "application/json"},
         max_response_bytes=cap,
@@ -89,7 +89,7 @@ def _async_client(body: _AsyncBody, *, cap: int = 64 * 1024 * 1024) -> RelataCli
         return httpx.Response(200, stream=body)
 
     client = RelataClient(BASE, purpose="analytics")
-    client._RelataClient__async_transport = AsyncHttpTransport(
+    client._RelataClient__async_transport = AsyncHttpTransport(  # type: ignore[attr-defined]
         BASE, "token", 30.0, transport=httpx.MockTransport(handler),
         extra_headers={"X-Tenant-ID": "acme", "accept": "application/json"},
         max_response_bytes=cap,
@@ -132,9 +132,8 @@ _INCOMPLETE = [
 @pytest.mark.parametrize("payload", _INCOMPLETE)
 def test_sync_incomplete_frames_close_without_retry(payload: bytes) -> None:
     body = _SyncBody([payload])
-    with _sync_client(body) as client:
-        with pytest.raises(IncompleteQueryStreamError) as caught:
-            list(StreamingClient(client).query_rows(SQL))
+    with _sync_client(body) as client, pytest.raises(IncompleteQueryStreamError) as caught:
+        list(StreamingClient(client).query_rows(SQL))
     assert caught.value.status_code == 200
     assert caught.value.retryable is False
     assert body.closes == 1
@@ -214,9 +213,8 @@ def test_per_frame_cap_allows_long_stream_and_split_multibyte_utf8() -> None:
 
 def test_oversized_split_frame_is_rejected_and_response_closed() -> None:
     body = _SyncBody([START, b'{"id":"', b"x" * 129, b'"}\n', _end(1)])
-    with _sync_client(body, cap=128) as client:
-        with pytest.raises(ResponseTooLargeError) as caught:
-            list(StreamingClient(client).query_rows(SQL))
+    with _sync_client(body, cap=128) as client, pytest.raises(ResponseTooLargeError) as caught:
+        list(StreamingClient(client).query_rows(SQL))
     assert caught.value.max_bytes == 128
     assert body.closes == 1
 

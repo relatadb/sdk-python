@@ -59,14 +59,17 @@ auto-resolve.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Unpack
 
 if TYPE_CHECKING:
+    from relata.client import RelataClient
     from relata.mcp import AsyncMcpClient, McpClient
-    from relata.rag import AsyncRagClient, RagClient
+    from relata.rag import AsyncRagClient, RagClient, RagQueryKwargs
 
-from relata.models import RagQueryResponse
+from relata.models import QueryResult, RagQueryResponse
 from relata.rag_loop import (
     MAX_ITERATIONS,
     EmbeddingFn,
@@ -115,17 +118,17 @@ class RagAnswerResult:
 
 
 def _dispatch_sql_shape(
-    client: Any,
+    client: RelataClient,
     query: str,
     type: str,  # noqa: A002
     shape: QueryShape,
     *,
     purpose: str | None,
     structured_field_map: Mapping[str, str] | None,
-    structured_known_fields: Any,
+    structured_known_fields: Collection[str] | None,
     attribute_field_map: Mapping[str, str] | None,
-    attribute_known_fields: Any,
-) -> Any:
+    attribute_known_fields: Collection[str] | None,
+) -> QueryResult | None:
     """Mirrors :func:`relata.rag_understanding.smart_rag_query`'s SQL-shape
     dispatch if/elif chain exactly — same functions, same field-map
     contract, not a reimplementation."""
@@ -192,14 +195,14 @@ def run_rag_answer(
     faithfulness_check: bool = True,
     faithfulness_llm: LlmFn | None = None,
     entailment_fn: EntailmentFn | None = None,
-    content_safety_patterns: Mapping[str, str] | None = None,
+    content_safety_patterns: Mapping[str, str | re.Pattern[str]] | None = None,
     structured_field_map: Mapping[str, str] | None = None,
-    structured_known_fields: Any = None,
+    structured_known_fields: Collection[str] | None = None,
     attribute_field_map: Mapping[str, str] | None = None,
-    attribute_known_fields: Any = None,
+    attribute_known_fields: Collection[str] | None = None,
     case_id: str | None = None,
     duration_ms: int | None = None,
-    **rag_kwargs: Any,
+    **rag_kwargs: Unpack[RagQueryKwargs],
 ) -> RagAnswerResult:
     """Run the full RAG-epic pipeline end to end: gate -> retrieve
     (iterate or fan out) -> synthesize + cite + faithfulness-check ->
@@ -274,7 +277,9 @@ def run_rag_answer(
         fanout_result=fanout_result, case_id=case_id, purpose=purpose, duration_ms=duration_ms,
     )
 
-    return RagAnswerResult(query, final_response, loop_result, fanout_result, synthesis_result, trace)
+    return RagAnswerResult(
+        query, final_response, loop_result, fanout_result, synthesis_result, trace
+    )
 
 
 async def arun_rag_answer(
@@ -294,14 +299,14 @@ async def arun_rag_answer(
     faithfulness_check: bool = True,
     faithfulness_llm: LlmFn | None = None,
     entailment_fn: EntailmentFn | None = None,
-    content_safety_patterns: Mapping[str, str] | None = None,
+    content_safety_patterns: Mapping[str, str | re.Pattern[str]] | None = None,
     structured_field_map: Mapping[str, str] | None = None,
-    structured_known_fields: Any = None,
+    structured_known_fields: Collection[str] | None = None,
     attribute_field_map: Mapping[str, str] | None = None,
-    attribute_known_fields: Any = None,
+    attribute_known_fields: Collection[str] | None = None,
     case_id: str | None = None,
     duration_ms: int | None = None,
-    **rag_kwargs: Any,
+    **rag_kwargs: Unpack[RagQueryKwargs],
 ) -> RagAnswerResult:
     """Async variant of :func:`run_rag_answer`. ``llm``/``embedding_fn``/
     ``grader_fn``/``hypothesis_fn``/``web_search_fallback``/``entailment_fn``
@@ -314,7 +319,7 @@ async def arun_rag_answer(
 
     shape = classify_query_shape(query)
     if shape in SQL_ROUTABLE_SHAPES:
-        client = rag_client._client  # noqa: SLF001
+        client = rag_client._inner._client  # noqa: SLF001
         sql_result = _dispatch_sql_shape(
             client, query, type, shape,
             purpose=purpose,
@@ -366,4 +371,6 @@ async def arun_rag_answer(
         fanout_result=fanout_result, case_id=case_id, purpose=purpose, duration_ms=duration_ms,
     )
 
-    return RagAnswerResult(query, final_response, loop_result, fanout_result, synthesis_result, trace)
+    return RagAnswerResult(
+        query, final_response, loop_result, fanout_result, synthesis_result, trace
+    )

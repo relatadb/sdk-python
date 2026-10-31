@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -30,7 +30,7 @@ def _mock(handler: Handler) -> httpx.MockTransport:
 def _client(handler: Handler) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok", purpose="schema")
     mock = _mock(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -58,7 +58,8 @@ def test_list_edge_types_gets_types_edges() -> None:
     out = client.list_edge_types()
     assert seen["method"] == "GET"
     assert seen["path"] == "/v1/types/edges"
-    assert out["edges"][0]["label"] == "DIRECTOR_OF"
+    edges = cast("list[dict[str, Any]]", out["edges"])
+    assert edges[0]["label"] == "DIRECTOR_OF"
 
 
 def test_register_edge_type_posts_correct_body() -> None:

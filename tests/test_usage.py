@@ -98,11 +98,11 @@ def test_record_usage_requires_key_and_observation_without_sending() -> None:
         )
     with pytest.raises(ValueError, match="idempotency_key"):
         record_usage(
-            client,
+            client,  # type: ignore[arg-type]
             idempotency_key="é" * 129,
             target=_target(),
             cited=True,
-        )  # type: ignore[arg-type]
+        )
     with pytest.raises(ValueError, match="at least one"):
         record_usage(client, idempotency_key="stable", target=_target())  # type: ignore[arg-type]
     assert client.sync_requests == []
@@ -229,14 +229,20 @@ def test_aggregate_usage_with_baseline_rejects_pre_cutover_and_bad_baseline() ->
         )
     with pytest.raises(ValueError, match="format_version"):
         aggregate_usage_with_baseline(
-            [], target=_target(), baseline=LegacyUsageBaseline(**{**baseline.__dict__, "format_version": "v2"})
+            [],
+            target=_target(),
+            baseline=LegacyUsageBaseline(**{**baseline.__dict__, "format_version": "v2"}),
         )
     with pytest.raises(ValueError, match="different target"):
         aggregate_usage_with_baseline(
             [],
             target=_target(),
-            baseline=LegacyUsageBaseline(**{
-                **baseline.__dict__,
-                "target": EventTarget(object_type="DocumentSource", key="report_id", value="another-report"),
-            }),
+            baseline=LegacyUsageBaseline(
+                **{
+                    **baseline.__dict__,
+                    "target": EventTarget(
+                        object_type="DocumentSource", key="report_id", value="another-report"
+                    ),
+                }
+            ),
         )

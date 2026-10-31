@@ -99,7 +99,11 @@ class ResolutionClient:
         self, *, ruleset: str | None = None, state: str | None = None, limit: int | None = None
     ) -> dict[str, Any]:
         """``GET /v1/resolution/candidates``."""
-        query = {k: str(v) for k, v in (("ruleset", ruleset), ("state", state), ("limit", limit)) if v is not None}
+        query = {
+            k: str(v)
+            for k, v in (("ruleset", ruleset), ("state", state), ("limit", limit))
+            if v is not None
+        }
         suffix = f"?{urlencode(query)}" if query else ""
         return dict(self._t.get(f"{_BASE}/candidates{suffix}"))
 
@@ -180,7 +184,9 @@ class AsyncResolutionClient:
         body = {"expected_version": int(expected_version), "definition": definition}
         return dict(await self._t.put(_ruleset_path(name), body))
 
-    async def run(self, name: str, *, proposals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    async def run(
+        self, name: str, *, proposals: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {} if proposals is None else {"proposals": proposals}
         return dict(await self._t.post(_ruleset_path(name, suffix="run"), body))
 
@@ -199,7 +205,11 @@ class AsyncResolutionClient:
     async def list_candidates(
         self, *, ruleset: str | None = None, state: str | None = None, limit: int | None = None
     ) -> dict[str, Any]:
-        query = {k: str(v) for k, v in (("ruleset", ruleset), ("state", state), ("limit", limit)) if v is not None}
+        query = {
+            k: str(v)
+            for k, v in (("ruleset", ruleset), ("state", state), ("limit", limit))
+            if v is not None
+        }
         suffix = f"?{urlencode(query)}" if query else ""
         return dict(await self._t.get(f"{_BASE}/candidates{suffix}"))
 

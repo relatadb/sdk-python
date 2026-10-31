@@ -195,8 +195,15 @@ def test_backup_incremental_create() -> None:
         seen.append(body)
         return httpx.Response(
             201,
-            json={"snapshot_id": "snap-incr", "kind": "incremental", "size_bytes": 512,
-                  "sha256": "def", "row_count": 100, "written_at_ns": 1760000100, "path": "/d/incr.json"},
+            json={
+                "snapshot_id": "snap-incr",
+                "kind": "incremental",
+                "size_bytes": 512,
+                "sha256": "def",
+                "row_count": 100,
+                "written_at_ns": 1760000100,
+                "path": "/d/incr.json",
+            },
         )
 
     c = BackupClient(BASE, transport=_wrap(handler))

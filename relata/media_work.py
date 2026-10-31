@@ -64,7 +64,9 @@ def _heartbeat_body(claim_id: int, lease_ms: int | None) -> dict[str, Any]:
     return body
 
 
-def _complete_body(claim_id: int, producer_version: str, batches: int, children: int) -> dict[str, Any]:
+def _complete_body(
+    claim_id: int, producer_version: str, batches: int, children: int
+) -> dict[str, Any]:
     return {
         "claim_id": int(claim_id),
         "producer_version": producer_version,
@@ -127,11 +129,17 @@ class MediaWorkClient:
         An empty ``items`` list means nothing is deliverable now (no long poll).
         Each item carries the ``claim_id`` the other calls must present.
         """
-        return dict(self._t.post("/v1/media/work/claim", _claim_body(claimant, max_items, lease_ms)))
+        return dict(
+            self._t.post("/v1/media/work/claim", _claim_body(claimant, max_items, lease_ms))
+        )
 
-    def heartbeat(self, work_id: str, claim_id: int, *, lease_ms: int | None = None) -> dict[str, Any]:
+    def heartbeat(
+        self, work_id: str, claim_id: int, *, lease_ms: int | None = None
+    ) -> dict[str, Any]:
         """``POST /v1/media/work/{id}/heartbeat``: extend the lease (409 once it lapsed)."""
-        return dict(self._t.post(_item_path(work_id, "/heartbeat"), _heartbeat_body(claim_id, lease_ms)))
+        return dict(
+            self._t.post(_item_path(work_id, "/heartbeat"), _heartbeat_body(claim_id, lease_ms))
+        )
 
     def complete(
         self, work_id: str, claim_id: int, *, producer_version: str, batches: int, children: int
@@ -153,9 +161,13 @@ class MediaWorkClient:
         code: str | None = None,
         detail: str | None = None,
     ) -> dict[str, Any]:
-        """``POST /v1/media/work/{id}/fail``: ``retryable`` is redelivered, ``permanent`` dead-letters."""
+        """``POST /v1/media/work/{id}/fail``: ``retryable`` is redelivered, ``permanent``
+        dead-letters.
+        """
         return dict(
-            self._t.post(_item_path(work_id, "/fail"), _fail_body(claim_id, failure_class, code, detail))
+            self._t.post(
+                _item_path(work_id, "/fail"), _fail_body(claim_id, failure_class, code, detail)
+            )
         )
 
     def requeue(self, work_id: str) -> dict[str, Any]:
@@ -207,13 +219,17 @@ class AsyncMediaWorkClient:
     async def claim(
         self, claimant: str, *, max_items: int | None = None, lease_ms: int | None = None
     ) -> dict[str, Any]:
-        return dict(await self._t.post("/v1/media/work/claim", _claim_body(claimant, max_items, lease_ms)))
+        return dict(
+            await self._t.post("/v1/media/work/claim", _claim_body(claimant, max_items, lease_ms))
+        )
 
     async def heartbeat(
         self, work_id: str, claim_id: int, *, lease_ms: int | None = None
     ) -> dict[str, Any]:
         return dict(
-            await self._t.post(_item_path(work_id, "/heartbeat"), _heartbeat_body(claim_id, lease_ms))
+            await self._t.post(
+                _item_path(work_id, "/heartbeat"), _heartbeat_body(claim_id, lease_ms)
+            )
         )
 
     async def complete(

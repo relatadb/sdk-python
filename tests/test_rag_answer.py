@@ -11,7 +11,7 @@ content-safety gate (PR #4559) — via `httpx.MockTransport`, mirroring
 from __future__ import annotations
 
 import json
-import math
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 import httpx
@@ -28,7 +28,9 @@ from relata.rag_understanding import DANGEROUS_CONTENT_PATTERNS
 BASE = "http://localhost:9090"
 
 
-def _hit(chunk_id: str, *, relevance_confidence: float | None = 0.9, **overrides: Any) -> dict[str, Any]:
+def _hit(
+    chunk_id: str, *, relevance_confidence: float | None = 0.9, **overrides: object
+) -> dict[str, Any]:
     base: dict[str, Any] = {
         "bm25_score": 4.2,
         "vector_score": 0.83,
@@ -48,10 +50,13 @@ def _hit(chunk_id: str, *, relevance_confidence: float | None = 0.9, **overrides
     return base
 
 
-def _mock_relata_client(handler: Any) -> RelataClient:
+def _mock_relata_client(
+    handler: Callable[[httpx.Request], httpx.Response]
+    | Callable[[httpx.Request], Coroutine[Any, Any, httpx.Response]],
+) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -61,7 +66,7 @@ def _mock_relata_client(handler: Any) -> RelataClient:
     return client
 
 
-def _embedding_fn_pass() -> Any:
+def _embedding_fn_pass() -> Callable[[str], list[float]]:
     """Embedding function under which the heuristic gate PASSes on
     iteration 0 (cosine similarity 1.0, `> HEURISTIC_PASS_THRESHOLD`) — the
     simplest happy-path, mirroring `test_rag_loop.py`'s `_embedding_fn_for_score`."""
@@ -86,7 +91,7 @@ def _stub_faithful_entailment(sentence: str, evidence: list[str]) -> bool:
 # ── happy path: the full chain actually composes ───────────────────────────
 
 
-def test_run_rag_answer_composes_the_full_chain():
+def test_run_rag_answer_composes_the_full_chain() -> None:
     """The core proof this module exists for: one call produces a real
     retrieval response, a real synthesized+cited answer, and a real
     reasoning-trace write-back — not three independently-tested pieces that
@@ -155,7 +160,7 @@ def test_run_rag_answer_composes_the_full_chain():
 
 
 @pytest.mark.asyncio
-async def test_arun_rag_answer_composes_the_full_chain():
+async def test_arun_rag_answer_composes_the_full_chain() -> None:
     """Async twin of the happy-path test — same composition, async clients."""
     rag_calls = 0
 
@@ -194,7 +199,7 @@ async def test_arun_rag_answer_composes_the_full_chain():
 # ── gate short-circuits: refusal and SQL-routing skip the rest entirely ────
 
 
-def test_content_safety_refusal_short_circuits_before_any_call():
+def test_content_safety_refusal_short_circuits_before_any_call() -> None:
     """A refused query makes zero /v1/rag/query and zero MCP calls — the gate
     runs before anything else, matching smart_rag_query's own contract."""
 
@@ -222,7 +227,7 @@ def test_content_safety_refusal_short_circuits_before_any_call():
     assert result.trace is None
 
 
-def test_sql_routable_shape_short_circuits_before_synthesis():
+def test_sql_routable_shape_short_circuits_before_synthesis() -> None:
     """An aggregation-shaped query answers via governed SQL, never reaching
     the loop/synthesis/trace stages — real rows, not a semantic guess."""
 
@@ -256,7 +261,7 @@ def test_sql_routable_shape_short_circuits_before_synthesis():
 # ── fan-out path: breadth instead of depth, still composes to a trace ──────
 
 
-def test_fanout_strategies_path_still_produces_a_full_trace():
+def test_fanout_strategies_path_still_produces_a_full_trace() -> None:
     """fanout_strategies replaces loop iteration with parallel breadth, but
     still composes all the way to synthesis + trace write-back — the
     FanoutResult is wrapped, not dropped."""

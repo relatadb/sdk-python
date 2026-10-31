@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-import pytest
-import httpx
+from typing import cast
 
+import httpx
+import pytest
+
+from relata.mcp import AsyncMcpClient, McpClient
 from relata.natural_language import (
     aquery_in_natural_language,
     asummarise_memory,
@@ -70,7 +73,7 @@ def test_read_only_query_rejects_write_and_large_limit() -> None:
     for sql in ("DELETE FROM Person", "SELECT * FROM Person LIMIT 101"):
         with pytest.raises(ValueError):
             query_in_natural_language(
-                client, "find a person", purpose="analytics", complete=lambda *_: sql
+                client, "find a person", purpose="analytics", complete=lambda *_, _sql=sql: _sql
             )
     assert not any(call[0] == "query" for call in client.calls)
 
@@ -90,7 +93,10 @@ def test_answer_callback_receives_governed_citation_rows() -> None:
         client,
         "find a person",
         purpose="analytics",
-        complete=lambda _prompt, _budget: {"text": "SELECT * FROM Person", "model_id": "query-model"},
+        complete=lambda _prompt, _budget: {
+            "text": "SELECT * FROM Person",
+            "model_id": "query-model",
+        },
         answer=answer,
     )
     assert seen == [{"chunk_id": "chunk-1", "report_id": "doc-1"}]
@@ -150,7 +156,7 @@ class FakeAsyncMcp:
 def test_summarise_memory_persists_via_remember_with_source_provenance() -> None:
     mcp = FakeMcp()
     result = summarise_memory(
-        mcp,
+        cast("McpClient", mcp),
         "recent notes",
         purpose="analytics",
         session_id="session-1",
@@ -165,7 +171,7 @@ def test_summarise_memory_persists_via_remember_with_source_provenance() -> None
 async def test_async_summarise_memory_uses_async_callbacks() -> None:
     mcp = FakeAsyncMcp()
     result = await asummarise_memory(
-        mcp,
+        cast("AsyncMcpClient", mcp),
         "recent notes",
         purpose="analytics",
         session_id="session-1",

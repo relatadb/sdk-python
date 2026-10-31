@@ -116,8 +116,14 @@ class PurposeError(RelataError):
         retry_after: float | None = None,
     ) -> None:
         super().__init__(
-            message, status_code=status_code, code=code,
-            type_url=type_url, retryable=retryable, request_id=request_id, query_id=query_id, retry_after=retry_after,
+            message,
+            status_code=status_code,
+            code=code,
+            type_url=type_url,
+            retryable=retryable,
+            request_id=request_id,
+            query_id=query_id,
+            retry_after=retry_after,
         )
 
 
@@ -139,8 +145,14 @@ class QuotaError(RelataError):
         retry_after: float | None = None,
     ) -> None:
         super().__init__(
-            message, status_code=status_code, code=code,
-            type_url=type_url, retryable=retryable, request_id=request_id, query_id=query_id, retry_after=retry_after,
+            message,
+            status_code=status_code,
+            code=code,
+            type_url=type_url,
+            retryable=retryable,
+            request_id=request_id,
+            query_id=query_id,
+            retry_after=retry_after,
         )
 
 
@@ -159,8 +171,14 @@ class AuthError(RelataError):
         retry_after: float | None = None,
     ) -> None:
         super().__init__(
-            message, status_code=status_code, code=code,
-            type_url=type_url, retryable=retryable, request_id=request_id, query_id=query_id, retry_after=retry_after,
+            message,
+            status_code=status_code,
+            code=code,
+            type_url=type_url,
+            retryable=retryable,
+            request_id=request_id,
+            query_id=query_id,
+            retry_after=retry_after,
         )
 
 
@@ -205,8 +223,14 @@ class ServerError(RelataError):
         retry_after: float | None = None,
     ) -> None:
         super().__init__(
-            message, status_code=status_code, code=code,
-            type_url=type_url, retryable=retryable, request_id=request_id, query_id=query_id, retry_after=retry_after,
+            message,
+            status_code=status_code,
+            code=code,
+            type_url=type_url,
+            retryable=retryable,
+            request_id=request_id,
+            query_id=query_id,
+            retry_after=retry_after,
         )
 
 

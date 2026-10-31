@@ -295,7 +295,7 @@ def normalize_ipv4(value: str) -> str:
     """Return the canonical ``a.b.c.d`` form of *value* (no leading zeros)."""
     if not value:
         raise CanonicalError("empty", "empty input")
-    octets = []
+    octets: list[int] = []
     digit_count = 0
     current = 0
     had_leading_zero = False

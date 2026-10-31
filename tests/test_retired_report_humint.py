@@ -1,6 +1,7 @@
 """Named vertical doors are absent; generic audit/governance remain."""
-from relata.audit import AuditClient, AsyncAuditClient
-from relata.governance import GovernanceClient, AsyncGovernanceClient
+from relata.audit import AsyncAuditClient, AuditClient
+from relata.governance import AsyncGovernanceClient, GovernanceClient
+
 
 def test_report_named_methods_are_absent() -> None:
     for cls in [AuditClient,AsyncAuditClient]:

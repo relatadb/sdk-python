@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 import httpx
 import pytest
 
 from relata import AsyncFeedBrokerClient, FeedBrokerClient
 
-
-ENTRY = {
+ENTRY: dict[str, Any] = {
     "entry_id": "entry-1",
     "channel": "osint-ioc",
     "publisher_id": "did:web:feeds.example.test",
@@ -29,7 +29,9 @@ def test_sync_feed_broker_uses_explicit_url_and_publish_contract() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
         if req.url.path == "/feed/channels":
-            return httpx.Response(200, json=[{"path": "relata-feed/osint-ioc", "min_tlp": "TLP:WHITE"}])
+            return httpx.Response(
+                200, json=[{"path": "relata-feed/osint-ioc", "min_tlp": "TLP:WHITE"}]
+            )
         return httpx.Response(200, json={"ok": True})
 
     client = FeedBrokerClient(
@@ -69,6 +71,8 @@ def test_async_feed_broker_uses_separate_broker_url_and_header() -> None:
 
 
 def test_feed_publish_requires_publisher_did() -> None:
-    client = FeedBrokerClient("http://broker.test", transport=httpx.MockTransport(lambda _: httpx.Response(200)))
+    client = FeedBrokerClient(
+        "http://broker.test", transport=httpx.MockTransport(lambda _: httpx.Response(200))
+    )
     with pytest.raises(ValueError, match="publisher_did"):
         client.publish(" ", ENTRY)

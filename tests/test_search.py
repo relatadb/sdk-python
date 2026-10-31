@@ -6,6 +6,8 @@ Uses httpx.MockTransport — no live server required.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -32,21 +34,21 @@ _SEARCH_PAYLOAD = {
 }
 
 
-def _mock_client(handler):
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE,
-        client._bearer_token,  # type: ignore[attr-defined]
-        client._timeout,  # type: ignore[attr-defined]
+        client._bearer_token,
+        client._timeout,
         transport=mock,
         extra_headers=extra,
     )
     client._RelataClient__async_transport = AsyncHttpTransport(  # type: ignore[attr-defined]
         BASE,
-        client._bearer_token,  # type: ignore[attr-defined]
-        client._timeout,  # type: ignore[attr-defined]
+        client._bearer_token,
+        client._timeout,
         transport=mock,
         extra_headers=extra,
     )
@@ -61,7 +63,7 @@ def _handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json=_SEARCH_PAYLOAD)
 
 
-def test_search_returns_typed_response():
+def test_search_returns_typed_response() -> None:
     client = _mock_client(_handler)
     result = client.search("alice smith", "Person")
     assert isinstance(result, SearchResponse)
@@ -74,8 +76,8 @@ def test_search_returns_typed_response():
     assert hit.highlights["name"] == "<em>Alice</em> Smith"
 
 
-def test_search_passes_optional_params():
-    captured: dict = {}
+def test_search_passes_optional_params() -> None:
+    captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.update(json.loads(request.content))
@@ -93,11 +95,11 @@ def test_search_passes_optional_params():
     assert captured["filters"] == {"tenant_id": "EUROPOL"}
 
 
-def test_search_omits_metric_and_weights_by_default():
+def test_search_omits_metric_and_weights_by_default() -> None:
     # #2672: without metric/weights the request body must not carry either
     # key, since their mere presence is what the server uses to decide
     # whether to route through HYBRID_SEARCH.
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.update(json.loads(request.content))
@@ -109,10 +111,10 @@ def test_search_omits_metric_and_weights_by_default():
     assert "weights" not in captured
 
 
-def test_search_passes_metric_and_weights_for_hybrid_fusion():
+def test_search_passes_metric_and_weights_for_hybrid_fusion() -> None:
     # #2672: metric/weights must reach the wire so search() can actually
     # trigger the server's HYBRID_SEARCH fusion path.
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.update(json.loads(request.content))
@@ -128,8 +130,8 @@ def test_search_passes_metric_and_weights_for_hybrid_fusion():
 
 
 @pytest.mark.asyncio
-async def test_asearch_passes_metric_and_weights_for_hybrid_fusion():
-    captured: dict = {}
+async def test_asearch_passes_metric_and_weights_for_hybrid_fusion() -> None:
+    captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.update(json.loads(request.content))
@@ -145,7 +147,7 @@ async def test_asearch_passes_metric_and_weights_for_hybrid_fusion():
 
 
 @pytest.mark.asyncio
-async def test_asearch_returns_typed_response():
+async def test_asearch_returns_typed_response() -> None:
     client = _mock_client(_handler)
     result = await client.asearch("alice smith", "Person")
     assert isinstance(result, SearchResponse)

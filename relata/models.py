@@ -39,19 +39,25 @@ class QueryResult(BaseModel):
     """
 
     rows: list[dict[str, Any]] = Field(default_factory=list)
-    query_id: str = Field("", description="Server-assigned query execution ID")
-    elapsed_ms: int = Field(0, description="Server-side execution time in ms (legacy)", ge=0)
-    processing_time_ms: int | None = Field(
-        None, description="Server-side processing time in ms (#1252)", ge=0
+    query_id: str = Field(default="", description="Server-assigned query execution ID")
+    elapsed_ms: int = Field(
+        default=0, description="Server-side execution time in ms (legacy)", ge=0
     )
-    row_count: int = Field(0, description="Number of rows returned")
+    processing_time_ms: int | None = Field(
+        default=None, description="Server-side processing time in ms (#1252)", ge=0
+    )
+    row_count: int = Field(default=0, description="Number of rows returned")
     columns: list[str] = Field(default_factory=list, description="Column names in order")
     next_cursor: str | None = Field(
-        None, description="Opaque keyset cursor returned when another query page exists"
+        default=None, description="Opaque keyset cursor returned when another query page exists"
     )
-    truncated: bool = Field(False, description="Whether the server truncated returned rows")
-    graph_version: str | None = Field(None, description="Opaque process-local graph equality token; not a cursor")
-    partial: bool = Field(False, description="Whether the server returned a partial shard result")
+    truncated: bool = Field(default=False, description="Whether the server truncated returned rows")
+    graph_version: str | None = Field(
+        default=None, description="Opaque process-local graph equality token; not a cursor"
+    )
+    partial: bool = Field(
+        default=False, description="Whether the server returned a partial shard result"
+    )
 
     @property
     def has_next_cursor_metadata(self) -> bool:
@@ -212,9 +218,9 @@ class IngestDocumentResponse(BaseModel):
 
     task_id: str = Field(..., description="Process-local background ingest task ID")
     rows_queued: int = Field(..., description="Rows accepted into the in-memory queue", ge=0)
-    rows_rejected: int = Field(0, description="Rows rejected before queue admission", ge=0)
+    rows_rejected: int = Field(default=0, description="Rows rejected before queue admission", ge=0)
     errors: list[str] = Field(default_factory=list, description="Per-row admission errors")
-    queue_depth: int = Field(0, description="Ingest queue depth after submission", ge=0)
+    queue_depth: int = Field(default=0, description="Ingest queue depth after submission", ge=0)
 
     def __repr__(self) -> str:
         return (
@@ -238,17 +244,43 @@ class IngestDocumentTaskStatus(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     task_id: str = Field(..., description="Background ingest task ID")
-    status: str = Field(..., description="pending is nonterminal; complete, partial, failed, uncertain, and incomplete are terminal outcomes; uncertain does not mean complete")
-    rows_total: int = Field(0, description="Rows scheduled for persistence", ge=0)
-    rows_written: int = Field(0, description="Rows persisted so far", ge=0)
-    rows_dropped: int = Field(0, description="Rows dropped by the background writer", ge=0)
-    drop_reasons: list[str] = Field(default_factory=list, description="Confirmed writer drop reasons, or an uncertainty diagnostic for uncertain status")
-    outcome_uncertain: bool | None = Field(None, description="True when the final write outcome could not be confirmed")
-    code: str | None = Field(None, description="Machine-readable task error code, when present")
-    derived_error: str | None = Field(None, description="Diagnostic for a recorded derived-write failure; it can appear while status is pending")
-    retryable: bool | None = Field(None, description="False when a derived-write failure is recorded or the primary outcome is uncertain; blind retry is unsafe")
+    status: str = Field(
+        ...,
+        description=(
+            "pending is nonterminal; complete, partial, failed, uncertain, and incomplete are "
+            "terminal outcomes; uncertain does not mean complete"
+        ),
+    )
+    rows_total: int = Field(default=0, description="Rows scheduled for persistence", ge=0)
+    rows_written: int = Field(default=0, description="Rows persisted so far", ge=0)
+    rows_dropped: int = Field(default=0, description="Rows dropped by the background writer", ge=0)
+    drop_reasons: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Confirmed writer drop reasons, or an uncertainty diagnostic for uncertain status"
+        ),
+    )
+    outcome_uncertain: bool | None = Field(
+        default=None, description="True when the final write outcome could not be confirmed"
+    )
+    code: str | None = Field(
+        default=None, description="Machine-readable task error code, when present"
+    )
+    derived_error: str | None = Field(
+        default=None,
+        description=(
+            "Diagnostic for a recorded derived-write failure; it can appear while status is pending"
+        ),
+    )
+    retryable: bool | None = Field(
+        default=None,
+        description=(
+            "False when a derived-write failure is recorded or the primary outcome is uncertain; "
+            "blind retry is unsafe"
+        ),
+    )
     write_token: dict[str, int] | None = Field(
-        None,
+        default=None,
         alias="_relata_write_token",
         description="Optional cluster write watermark returned after completion",
     )
@@ -320,9 +352,9 @@ class VersionInfo(BaseModel):
     """
 
     version: str = Field(..., description="Relata server version")
-    commit: str | None = Field(None, description="Git commit hash")
-    profile: str | None = Field(None, description="Deployment profile")
-    schema_version: str | None = Field(None, description="Ontology schema version")
+    commit: str | None = Field(default=None, description="Git commit hash")
+    profile: str | None = Field(default=None, description="Deployment profile")
+    schema_version: str | None = Field(default=None, description="Ontology schema version")
     features: list[str] = Field(default_factory=list, description="Compiled-in feature flags")
 
     def __repr__(self) -> str:
@@ -352,11 +384,11 @@ class Stats(BaseModel):
             typed model does not surface.
     """
 
-    records: int | None = Field(None, description="Total content-addressed blobs")
-    states: int | None = Field(None, description="Total live rows")
-    snapshot_rows: int | None = Field(None, description="Rows in MVs")
-    log_leaves: int | None = Field(None, description="WAL write_seq (pending #85)")
-    tokens: int | None = Field(None, description="Dedup token count (pending #84)")
+    records: int | None = Field(default=None, description="Total content-addressed blobs")
+    states: int | None = Field(default=None, description="Total live rows")
+    snapshot_rows: int | None = Field(default=None, description="Rows in MVs")
+    log_leaves: int | None = Field(default=None, description="WAL write_seq (pending #85)")
+    tokens: int | None = Field(default=None, description="Dedup token count (pending #84)")
     raw: dict[str, Any] = Field(
         default_factory=dict,
         description="Full server response for fields the typed model does not surface",
@@ -397,10 +429,10 @@ class ReadyReport(BaseModel):
         detail: Optional human-friendly explanation.
     """
 
-    is_ready: bool | None = Field(None, description="True when the node is ready to serve")
+    is_ready: bool | None = Field(default=None, description="True when the node is ready to serve")
     status: str = Field(..., description="Server-side status string")
-    reason: str | None = Field(None, description="Machine-friendly shed reason")
-    detail: str | None = Field(None, description="Human-friendly explanation")
+    reason: str | None = Field(default=None, description="Machine-friendly shed reason")
+    detail: str | None = Field(default=None, description="Human-friendly explanation")
 
     @model_validator(mode="after")
     def _derive_is_ready(self) -> ReadyReport:
@@ -444,15 +476,15 @@ class SearchResponse(BaseModel):
     """Response from ``POST /v1/search`` (#670)."""
 
     hits: list[SearchHit] = Field(default_factory=list)
-    total: int = Field(0, description="Total matching documents")
-    estimated_total_hits: int = Field(0, description="Full matching-set size (#967)")
+    total: int = Field(default=0, description="Total matching documents")
+    estimated_total_hits: int = Field(default=0, description="Full matching-set size (#967)")
     facets: dict[str, dict[str, int]] = Field(
         default_factory=dict, description="Facet counts keyed by field then value"
     )
     facet_stats: dict[str, dict[str, float]] = Field(
         default_factory=dict, description="Numeric facet stats (min/max/sum/avg) (#967)"
     )
-    processing_time_ms: int = Field(0, description="Server-side processing time")
+    processing_time_ms: int = Field(default=0, description="Server-side processing time")
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +510,8 @@ class RagHit(BaseModel):
         ..., description="Dense (vector) channel score — always present, never fused away"
     )
     rerank_score: float | None = Field(
-        None, description="Sidecar cross-encoder score — present only when rerank=True was set"
+        default=None,
+        description="Sidecar cross-encoder score — present only when rerank=True was set",
     )
     chunk_id: str = Field(..., description="Citation linkage — the DocumentChunk id")
     report_id: str = Field(
@@ -496,16 +529,16 @@ class RagHit(BaseModel):
     page_start: int = Field(..., description="First page the chunk spans")
     page_end: int = Field(..., description="Last page the chunk spans")
     prev_chunk_id: str | None = Field(
-        None, description="Adjacent previous chunk id (DocumentChunk pass-through)"
+        default=None, description="Adjacent previous chunk id (DocumentChunk pass-through)"
     )
     next_chunk_id: str | None = Field(
-        None, description="Adjacent next chunk id (DocumentChunk pass-through)"
+        default=None, description="Adjacent next chunk id (DocumentChunk pass-through)"
     )
     entity_ids: list[str] = Field(
         default_factory=list, description="Entity ids anchored to this chunk"
     )
     relevance_confidence: float | None = Field(
-        None,
+        default=None,
         description=(
             "Non-LLM per-hit confidence signal (#4520): "
             "w1 * channel_agreement(bm25_score, vector_score) + w2 * entity_overlap_fraction, "
@@ -528,7 +561,7 @@ class EntityCandidate(BaseModel):
 
     entity_id: str = Field(..., description="Canonical entity id — resume with this")
     label: str = Field(..., description="Human-readable display label, e.g. 'Ahmad Akhtar'")
-    document_count: int = Field(0, description="Documents this candidate appears in", ge=0)
+    document_count: int = Field(default=0, description="Documents this candidate appears in", ge=0)
     top_aliases: list[str] = Field(
         default_factory=list, description="A few known aliases for this candidate, if any"
     )
@@ -544,7 +577,7 @@ class Clarification(BaseModel):
     for an explicit choice rather than getting a silent top-1 pick.
     """
 
-    type: str = Field("entity_disambiguation", description="Clarification kind")
+    type: str = Field(default="entity_disambiguation", description="Clarification kind")
     question: str = Field(..., description="Human-readable prompt, e.g. 'Which one?'")
     candidates: list[EntityCandidate] = Field(
         default_factory=list, description="Candidates to choose from"
@@ -564,7 +597,7 @@ class Refusal(BaseModel):
     """
 
     reason: str = Field(
-        "content_safety", description="Machine-readable refusal reason code"
+        default="content_safety", description="Machine-readable refusal reason code"
     )
     category: str = Field(..., description="Matched dangerous-content category label")
     message: str = Field(..., description="Human-readable explanation, safe to surface to callers")
@@ -591,20 +624,20 @@ class RagQueryResponse(BaseModel):
     """
 
     hits: list[RagHit] = Field(default_factory=list)
-    total: int = Field(0, description="Number of hits — always equals len(hits)")
+    total: int = Field(default=0, description="Number of hits — always equals len(hits)")
     clarification: Clarification | None = Field(
-        None,
+        default=None,
         description="Present only when entity resolution was ambiguous (#4534)",
     )
     refused: Refusal | None = Field(
-        None,
+        default=None,
         description=(
             "Present only when the client-side content-safety gate (#4536) "
             "refused this query before any /v1/rag/query or /v1/query call was made"
         ),
     )
     sql_result: QueryResult | None = Field(
-        None,
+        default=None,
         description=(
             "Present when #4536's structured-attribute-filter router answered "
             "via a governed SQL /v1/query call instead of retrieval — real "
@@ -612,7 +645,7 @@ class RagQueryResponse(BaseModel):
         ),
     )
     low_confidence: bool = Field(
-        False,
+        default=False,
         description=(
             "True when an attribute-filter-shaped query (#4536) could not be "
             "routed to SQL (no matching canonical field) and fell back to "
@@ -620,7 +653,7 @@ class RagQueryResponse(BaseModel):
         ),
     )
     low_confidence_reason: str | None = Field(
-        None, description="Explanation for low_confidence, when set"
+        default=None, description="Explanation for low_confidence, when set"
     )
 
     @model_validator(mode="after")

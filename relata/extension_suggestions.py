@@ -10,7 +10,13 @@ from typing import Any
 
 _PROFILES: dict[str, tuple[str, ...]] = {
     "telco": ("MsisdnRecord", "CallRecord", "CdrRecord", "ImsiRecord", "TowerDump"),
-    "finint": ("BankAccount", "FinancialTransaction", "CryptoWallet", "AmlAlert", "WireTransferHop"),
+    "finint": (
+        "BankAccount",
+        "FinancialTransaction",
+        "CryptoWallet",
+        "AmlAlert",
+        "WireTransferHop",
+    ),
     "fara": ("Organization", "Transaction", "SanctionEntry", "PepRecord"),
     "cyber": ("ThreatIndicator", "MalwareRecord", "DomainRecord", "NetworkEvent"),
     "maritime": ("VesselRecord", "FlightRecord"),

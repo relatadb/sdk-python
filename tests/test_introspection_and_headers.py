@@ -36,18 +36,18 @@ def _client(handler: Handler, **client_kwargs: object) -> RelataClient:
     """
     client = RelataClient(BASE, **client_kwargs)  # type: ignore[arg-type]
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE,
-        client._bearer_token,  # type: ignore[attr-defined]
-        client._timeout,  # type: ignore[attr-defined]
+        client._bearer_token,
+        client._timeout,
         transport=mock,
         extra_headers=extra,
     )
     client._RelataClient__async_transport = AsyncHttpTransport(  # type: ignore[attr-defined]
         BASE,
-        client._bearer_token,  # type: ignore[attr-defined]
-        client._timeout,  # type: ignore[attr-defined]
+        client._bearer_token,
+        client._timeout,
         transport=mock,
         extra_headers=extra,
     )

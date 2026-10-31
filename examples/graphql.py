@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Any, cast
 
 from relata import RelataClient
 from relata.exceptions import RelataError
@@ -39,7 +40,12 @@ def main() -> None:
         # ── 1. Introspection: list registered types ───────────────────────
         print("=== 1. GraphQL introspection ===")
         schema = relata.graphql("{ __schema { types { name } } }")
-        types_ = (schema or {}).get("__schema", {}).get("types", []) if isinstance(schema, dict) else []
+        types_ = cast(
+            "list[dict[str, Any]]",
+            cast("dict[str, Any]", (schema or {}).get("__schema", {})).get("types", [])
+            if isinstance(schema, dict)
+            else [],
+        )
         print(f"  {len(types_)} registered type(s):")
         for t in types_[:10]:
             print(f"    - {t.get('name')}")

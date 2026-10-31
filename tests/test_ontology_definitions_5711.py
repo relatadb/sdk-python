@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -12,17 +13,21 @@ from relata.ontology_definitions import OntologyDefinitionsClient
 BASE = "http://localhost:9090"
 
 
-def _client(seen: list[tuple[str, str, str, object]], status: int = 200, body: object = None):
+def _client(
+    seen: list[tuple[str, str, str, Any]], status: int = 200, body: object = None
+) -> OntologyDefinitionsClient:
     def handler(req: httpx.Request) -> httpx.Response:
         payload = json.loads(req.content) if req.content else None
-        seen.append((req.method, req.url.raw_path.decode().split("?")[0], req.url.query.decode(), payload))
+        seen.append(
+            (req.method, req.url.raw_path.decode().split("?")[0], req.url.query.decode(), payload)
+        )
         return httpx.Response(status, json=body if body is not None else {"ok": True})
 
     return OntologyDefinitionsClient(BASE, transport=httpx.MockTransport(handler))
 
 
 def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
-    seen: list[tuple[str, str, str, object]] = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = _client(seen)
     d = {"objects": [{"name": "Person"}]}
     c.list()
@@ -70,17 +75,23 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
 
 
 def test_names_are_path_quoted() -> None:
-    seen: list[tuple[str, str, str, object]] = []
+    seen: list[tuple[str, str, str, Any]] = []
     _client(seen).get("a/b c")
     assert seen[0][1] == "/v1/ontology/definitions/a%2Fb%20c"
 
 
 def test_a_precondition_failure_is_raised_not_returned() -> None:
-    seen: list[tuple[str, str, str, object]] = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = _client(
         seen,
         412,
-        {"code": "ontology-version-conflict", "status": 412, "title": "x", "detail": "d", "current_version": 3},
+        {
+            "code": "ontology-version-conflict",
+            "status": 412,
+            "title": "x",
+            "detail": "d",
+            "current_version": 3,
+        },
     )
     with pytest.raises(Exception) as info:
         c.publish("crm", expected_version=1)

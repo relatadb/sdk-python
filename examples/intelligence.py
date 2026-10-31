@@ -19,6 +19,7 @@ Run:
 from __future__ import annotations
 
 import os
+from typing import Any, cast
 
 from relata import RelataClient
 
@@ -40,7 +41,10 @@ def main() -> None:
             "SELECT name, aliases, dob, list_name, program FROM SanctionEntry LIMIT 10000",
             purpose="compliance",
         )
-        print(f"  fetched {len(people.rows)} Person row(s) and {len(entries.rows)} sanctions reference row(s)")
+        print(
+            f"  fetched {len(people.rows)} Person row(s) and {len(entries.rows)} sanctions "
+            "reference row(s)"
+        )
         print("  apply your approved application-owned matching, list-version, and review policy")
         if people.truncated or entries.truncated or people.next_cursor or entries.next_cursor:
             print("  source results are incomplete; do not treat them as a negative screen")
@@ -48,7 +52,8 @@ def main() -> None:
         # ── 2. Ownership source rows (retrieval only) ────────────────────
         print("\n=== 2. OwnershipEdge source rows (application analysis required) ===")
         ownership = relata.query(
-            "SELECT subject, predicate, object, ownership_pct, jurisdiction FROM OwnershipEdge LIMIT 1000",
+            "SELECT subject, predicate, object, ownership_pct, jurisdiction FROM OwnershipEdge "
+            "LIMIT 1000",
             purpose="investigation",
         )
         print(f"  fetched {len(ownership.rows)} source row(s)")
@@ -59,7 +64,8 @@ def main() -> None:
         # ── 3. Transaction source rows (retrieval only) ───────────────────
         print(f"\n=== 3. TransactionGraph source rows for {target} (retrieval only) ===")
         transactions = relata.query(
-            "SELECT from_wallet, to_wallet, amount, asset, chain, is_mixer FROM TransactionGraph LIMIT 1000",
+            "SELECT from_wallet, to_wallet, amount, asset, chain, is_mixer FROM TransactionGraph "
+            "LIMIT 1000",
             purpose="investigation",
         )
         print(f"  fetched {len(transactions.rows)} source row(s)")
@@ -72,7 +78,9 @@ def main() -> None:
         convoys = relata.convoy_detect(
             radius_m=200.0, time_tol_secs=300, min_points=2, purpose="investigation"
         )
-        c_rows = convoys.get("rows", []) if isinstance(convoys, dict) else []
+        c_rows = cast(
+            "list[dict[str, Any]]", convoys.get("rows", []) if isinstance(convoys, dict) else []
+        )
         print(f"  {len(c_rows)} convoy(s) detected")
         for row in c_rows[:5]:
             print(
@@ -83,8 +91,11 @@ def main() -> None:
         # ── 5. DNS tunnel detection ───────────────────────────────────────
         print("\n=== 5. DNS tunnel triage ===")
         dns = relata.dns_tunnel_detect(purpose="investigation")
-        d_rows = dns.get("rows", []) if isinstance(dns, dict) else []
-        print(f"  {len(d_rows)} anomalous DNS pattern(s); complete={dns.get('complete')} rows_scanned={dns.get('rows_scanned')}")
+        d_rows = cast("list[dict[str, Any]]", dns.get("rows", []) if isinstance(dns, dict) else [])
+        print(
+            f"  {len(d_rows)} anomalous DNS pattern(s); complete={dns.get('complete')} "
+            f"rows_scanned={dns.get('rows_scanned')}"
+        )
         for row in d_rows[:5]:
             print(
                 f"    domain={row.get('domain', '?'):<30}  entropy={row.get('avg_entropy')}  "

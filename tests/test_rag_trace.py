@@ -43,7 +43,7 @@ from relata.synthesis import Citation, SynthesisResult, SynthesizedSentence
 BASE = "http://localhost:9090"
 
 
-def _hit(chunk_id: str, *, relevance_confidence: float | None = 0.7, **overrides: Any) -> RagHit:
+def _hit(chunk_id: str, *, relevance_confidence: float | None = 0.7, **overrides: object) -> RagHit:
     base: dict[str, Any] = {
         "bm25_score": 1.0,
         "vector_score": 1.0,
@@ -63,8 +63,8 @@ def _hit(chunk_id: str, *, relevance_confidence: float | None = 0.7, **overrides
     return RagHit(**base)
 
 
-def _citation(chunk_id: str, **overrides: Any) -> Citation:
-    base = {
+def _citation(chunk_id: str, **overrides: object) -> Citation:
+    base: dict[str, Any] = {
         "chunk_id": chunk_id,
         "report_id": "doc-1",
         "section_path": ["3", "3.2"],

@@ -74,6 +74,7 @@ def test_local_model_callback_runs_through_governed_query(local_model_url: str) 
     )
     assert result["sql"] == "SELECT * FROM Case LIMIT 5"
     assert result["result"]["rows"] == [{"case_ref": "C-1"}]
+    assert LocalModelHandler.last_request is not None
     assert LocalModelHandler.last_request["max_tokens"] == 512
     assert client.calls == [
         ("schema", "analytics"),

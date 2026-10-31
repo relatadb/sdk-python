@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import httpx
 
@@ -20,11 +21,13 @@ def test_headers_record_and_bound_retention() -> None:
 
 
 def test_get_list_and_replay_hit_the_documented_routes() -> None:
-    seen: list[tuple[str, str, str, object]] = []
+    seen: list[tuple[str, str, str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
         body = json.loads(req.content) if req.content else None
-        seen.append((req.method, req.url.raw_path.decode().split("?")[0], req.url.query.decode(), body))
+        seen.append(
+            (req.method, req.url.raw_path.decode().split("?")[0], req.url.query.decode(), body)
+        )
         return httpx.Response(200, json={"items": [], "citations": [{"outcome": "verified"}]})
 
     c = EvidenceClient(BASE, transport=httpx.MockTransport(handler))

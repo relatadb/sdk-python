@@ -1,8 +1,9 @@
 """#5666: cross-SDK shared RFC 9457 fixtures (Python leg).
 
 ``sdks/shared/problem-details-fixtures.json`` holds wire-exact error responses captured from a
-live ``relata serve`` (the Rust test ``http_e2e::contract_matrix::problem_fixtures_match_live_server``
-replays every fixture's ``live`` request against the real binary and fails on drift). The
+live ``relata serve`` (the Rust test
+``http_e2e::contract_matrix::problem_fixtures_match_live_server`` replays every fixture's
+``live`` request against the real binary and fails on drift). The
 TypeScript and Go SDKs run the same file, so one wire response must map to the same error kind,
 ``code``, ``type`` URL, ``retryable`` flag, request id and retry delay in all three.
 """
@@ -10,6 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -38,7 +40,7 @@ KIND_TO_CLASS = {
 }
 
 
-def _raise_for(case: dict) -> ex.RelataError:
+def _raise_for(case: dict[str, Any]) -> ex.RelataError:
     wire = case["wire"]
     body = wire["body"]
     content = body if isinstance(body, str) else json.dumps(body)
@@ -64,7 +66,7 @@ def test_fixture_file_is_the_documented_contract() -> None:
 
 
 @pytest.mark.parametrize("case", FIXTURES["cases"], ids=lambda c: c["name"])
-def test_wire_response_maps_to_the_shared_expectation(case: dict) -> None:
+def test_wire_response_maps_to_the_shared_expectation(case: dict[str, Any]) -> None:
     exp = case["expect"]
     err = _raise_for(case)
     want = KIND_TO_CLASS[exp["kind"]]

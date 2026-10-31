@@ -6,8 +6,8 @@ deployment -- never the main data-plane listener. These tests pin two
 things:
 
 1. ``admin_base_url``, when configured (on ``RelataClient`` or directly on
-   ``BackupClient``), routes admin-only requests to the admin listener instead of ``base_url`` -- spot-checked
-   through the real typed clients (not just the raw transport).
+   ``BackupClient``), routes admin-only requests to the admin listener instead of ``base_url``
+   -- spot-checked through the real typed clients (not just the raw transport).
 2. A bare, detail-free 404 against an admin-only path -- the shape
    the server's own RFC 7807 normalisation leaves behind for a request that
    matched no route on the listener that answered -- surfaces a "you're

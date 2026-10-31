@@ -75,15 +75,21 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Unpack
 
 if TYPE_CHECKING:
-    from relata.rag import AsyncRagClient, RagClient
+    from relata.rag import AsyncRagClient, RagClient, RagQueryKwargs
 
 from relata.models import RagHit, RagQueryResponse
-from relata.rag_understanding import HypothesisGenerator, expand_query_hyde, rrf_k_for_fanout, rrf_merge
+from relata.rag_understanding import (
+    HypothesisGenerator,
+    expand_query_hyde,
+    rrf_k_for_fanout,
+    rrf_merge,
+)
 
 # ---------------------------------------------------------------------------
 # Verified defaults — the cost ladder's thresholds (#4525's acceptance
@@ -124,7 +130,7 @@ CORRECTIVE_FRACTION_CORRECT_FLOOR = 0.5
 # ---------------------------------------------------------------------------
 
 
-class GateDecision(str, Enum):
+class GateDecision(str, Enum):  # noqa: UP042 - str() must stay "GateDecision.NAME"
     """Outcome of :func:`heuristic_gate`."""
 
     #: Score > :data:`HEURISTIC_PASS_THRESHOLD` — stop, synthesize from these
@@ -147,7 +153,7 @@ EmbeddingFn = Callable[[str], Sequence[float]]
 def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
     if not a or not b:
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
     if norm_a == 0.0 or norm_b == 0.0:
@@ -205,7 +211,7 @@ def heuristic_gate(
 # ---------------------------------------------------------------------------
 
 
-class HitGrade(str, Enum):
+class HitGrade(str, Enum):  # noqa: UP042 - str() must stay "HitGrade.NAME"
     """Per-hit grade from :func:`grade_hits`'s batched cheap-model call."""
 
     CORRECT = "correct"
@@ -389,7 +395,7 @@ def run_agentic_loop(
     hypothesis_fn: HypothesisGenerator | None = None,
     web_search_fallback: WebSearchFallbackFn | None = None,
     max_iterations: int = MAX_ITERATIONS,
-    **rag_kwargs: Any,
+    **rag_kwargs: Unpack[RagQueryKwargs],
 ) -> LoopResult:
     """Run the three-tier cost-ladder loop: heuristic gate -> (optionally)
     corrective retrieval grading -> loop-confidence stop, up to
@@ -455,7 +461,7 @@ async def arun_agentic_loop(
     hypothesis_fn: HypothesisGenerator | None = None,
     web_search_fallback: WebSearchFallbackFn | None = None,
     max_iterations: int = MAX_ITERATIONS,
-    **rag_kwargs: Any,
+    **rag_kwargs: Unpack[RagQueryKwargs],
 ) -> LoopResult:
     """Async variant of :func:`run_agentic_loop` — issues each iteration's
     ``/v1/rag/query`` call via :class:`~relata.rag.AsyncRagClient`.
@@ -661,7 +667,7 @@ def run_subagent_fanout(
     purpose: str | None = None,
     max_workers: int = MAX_FANOUT_STRATEGIES,
     merge_threshold: float = MERGE_THRESHOLD,
-    **rag_kwargs: Any,
+    **rag_kwargs: Unpack[RagQueryKwargs],
 ) -> FanoutResult:
     """Run ``strategies`` (2-5 parallel ``/v1/rag/query`` parameterizations) and
     deterministically pick + merge a winner.
@@ -713,7 +719,7 @@ async def arun_subagent_fanout(
     *,
     purpose: str | None = None,
     merge_threshold: float = MERGE_THRESHOLD,
-    **rag_kwargs: Any,
+    **rag_kwargs: Unpack[RagQueryKwargs],
 ) -> FanoutResult:
     """Async variant of :func:`run_subagent_fanout` — issues the strategy
     fan-out concurrently via ``asyncio.gather`` instead of a thread pool."""

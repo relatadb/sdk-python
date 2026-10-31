@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime, tzinfo
+from typing import Any
 
 import httpx
 import pytest
@@ -19,7 +21,7 @@ class CountingStream(httpx.SyncByteStream):
         self.iterations = 0
         self.closed = False
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[bytes]:
         self.iterations += 1
         yield self.payload
 
@@ -33,7 +35,7 @@ class CountingAsyncStream(httpx.AsyncByteStream):
         self.iterations = 0
         self.closed = False
 
-    async def __aiter__(self):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
         self.iterations += 1
         yield self.payload
 
@@ -41,7 +43,7 @@ class CountingAsyncStream(httpx.AsyncByteStream):
         self.closed = True
 
 
-def problem() -> dict:
+def problem() -> dict[str, Any]:
     return {"detail": "quota exceeded", "code": "quota", "type": "urn:relata:quota",
             "query_id": "query-7", "retryable": True, "retry_after": 9}
 
@@ -75,11 +77,13 @@ def test_sync_stream_error_invalid_retry_header_uses_body_once(retry_header: str
 
 
 @pytest.mark.asyncio
-async def test_async_stream_error_preserves_http_date_and_metadata_once(monkeypatch) -> None:
+async def test_async_stream_error_preserves_http_date_and_metadata_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FixedDatetime(datetime):
         @classmethod
-        def now(cls, tz=None):
-            return cls(2030, 1, 1, tzinfo=timezone.utc)
+        def now(cls, tz: tzinfo | None = None) -> FixedDatetime:
+            return cls(2030, 1, 1, tzinfo=UTC)
     monkeypatch.setattr(_http, "datetime", FixedDatetime)
     stream = CountingAsyncStream(json.dumps(problem()).encode())
     transport = AsyncHttpTransport("http://test", None, 1, max_retries=0,
@@ -104,7 +108,9 @@ async def test_stream_error_body_cap_closes_response(asynchronous: bool) -> None
     stream = CountingAsyncStream(b"x" * 65) if asynchronous else CountingStream(b"x" * 65)
     mock = httpx.MockTransport(lambda request: httpx.Response(503, stream=stream))
     if asynchronous:
-        transport = AsyncHttpTransport("http://test", None, 1, transport=mock, max_response_bytes=64)
+        transport = AsyncHttpTransport(
+            "http://test", None, 1, transport=mock, max_response_bytes=64
+        )
         try:
             async with transport._client.stream("POST", "/v1/query/stream") as response:
                 with pytest.raises(ResponseTooLargeError):
@@ -114,9 +120,11 @@ async def test_stream_error_body_cap_closes_response(asynchronous: bool) -> None
     else:
         sync = HttpTransport("http://test", None, 1, transport=mock, max_response_bytes=64)
         try:
-            with sync._client.stream("POST", "/v1/query/stream") as response:
-                with pytest.raises(ResponseTooLargeError):
-                    _classify_capped_error(sync, response)
+            with (
+                sync._client.stream("POST", "/v1/query/stream") as response,
+                pytest.raises(ResponseTooLargeError),
+            ):
+                _classify_capped_error(sync, response)
         finally:
             sync.close()
     assert stream.iterations == 1
@@ -144,8 +152,10 @@ def test_purpose_error_retains_problem_metadata() -> None:
         transport.close()
 
 
-@pytest.mark.parametrize("payload", [None, [], ["error"], "failure", 42, {"detail": ["wrong shape"], "code": 7}])
-def test_nonobject_or_malformed_problem_keeps_http_status(payload) -> None:
+@pytest.mark.parametrize(
+    "payload", [None, [], ["error"], "failure", 42, {"detail": ["wrong shape"], "code": 7}]
+)
+def test_nonobject_or_malformed_problem_keeps_http_status(payload: object) -> None:
     from relata.exceptions import ServerError
     transport = HttpTransport("http://test", None, 1, max_retries=0,
         transport=httpx.MockTransport(lambda request: httpx.Response(503, json=payload)))

@@ -15,7 +15,9 @@ BASE = "http://localhost:9090"
 def test_status_reads_the_status_route() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         assert (req.method, req.url.path) == ("GET", "/v1/freshness/status")
-        return httpx.Response(200, json={"contract": "relata.freshness/v1", "token": "fv1.x", "indexes": []})
+        return httpx.Response(
+            200, json={"contract": "relata.freshness/v1", "token": "fv1.x", "indexes": []}
+        )
 
     out = FreshnessClient(BASE, transport=httpx.MockTransport(handler)).status()
     assert out["token"] == "fv1.x"
@@ -66,7 +68,9 @@ def test_not_ready_is_an_error_not_a_silent_success() -> None:
 
 def test_freshness_headers() -> None:
     assert freshness_headers("tok") == {"X-Relata-Min-Version": "tok"}
-    full = freshness_headers("tok", indexes=["vector"], wait_ms=50, require_durable=True, partial=True)
+    full = freshness_headers(
+        "tok", indexes=["vector"], wait_ms=50, require_durable=True, partial=True
+    )
     assert full == {
         "X-Relata-Min-Version": "tok",
         "X-Relata-Require-Index": "vector",

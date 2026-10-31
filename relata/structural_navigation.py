@@ -1,7 +1,8 @@
 """Structural table-of-contents navigation — RAG epic SDK-side agentic
 retrieval strategy (#4542).
 
-The optional application adapter half of #4542 (``the former relata-connectors document_ingest module (removed, #5932)``
+The optional application adapter half of #4542
+(``the former relata-connectors document_ingest module (removed, #5932)``
 ``document_structure_batch``) derives a ``DocumentStructureNode`` tree from
 each document's ``section_path``/``page_start``/``page_end`` — one node per
 distinct heading-breadcrumb prefix, plus a synthetic root, each carrying a
@@ -42,8 +43,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from relata.client import RelataClient

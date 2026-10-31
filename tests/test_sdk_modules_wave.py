@@ -346,7 +346,9 @@ def test_ingest_cdr_normalizes_rows_through_generic_contract() -> None:
         assert rows[0]["call_type"] == "voice"
         assert rows[1]["call_type"] == "sms"
         seen.append({"rows": rows})
-        return httpx.Response(200, json={"rows_queued": 2, "rows_rejected": 0, "errors": [], "task_id": "itsk_test"})
+        return httpx.Response(
+            200, json={"rows_queued": 2, "rows_rejected": 0, "errors": [], "task_id": "itsk_test"}
+        )
 
     c = IngestClient(BASE, purpose="finint", transport=_wrap(handler))
     out = c.ingest_cdr(
@@ -440,7 +442,7 @@ def test_ingest_otlp_helpers_post_json_with_purpose() -> None:
         return httpx.Response(200, json={"ok": True})
 
     c = IngestClient(BASE, purpose="otel", transport=_wrap(handler))
-    payload = {"resourceSpans": []}
+    payload: dict[str, Any] = {"resourceSpans": []}
     assert c.otlp_traces(payload, purpose="otel")["ok"] is True
     assert c.otlp_logs({"resourceLogs": []}, purpose="otel")["ok"] is True
     assert c.otlp_metrics({"resourceMetrics": []}, purpose="otel")["ok"] is True

@@ -218,7 +218,9 @@ class AsyncExtractionClient:
         )
 
     async def submit(self, suggestions: Sequence[dict[str, Any]]) -> dict[str, Any]:
-        return dict(await self._t.post("/v1/ontology/suggestions", {"suggestions": list(suggestions)}))
+        return dict(
+            await self._t.post("/v1/ontology/suggestions", {"suggestions": list(suggestions)})
+        )
 
     async def list(
         self,

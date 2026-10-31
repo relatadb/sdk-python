@@ -8,6 +8,7 @@ Built against #4525's `rag_loop` module (merged, PR #4558) and #4523's typed
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -29,8 +30,10 @@ from relata.rag_loop import (
 BASE = "http://localhost:9090"
 
 
-def _hit(chunk_id: str, *, relevance_confidence: float | None, **overrides: Any) -> dict[str, Any]:
-    base = {
+def _hit(
+    chunk_id: str, *, relevance_confidence: float | None, **overrides: object
+) -> dict[str, Any]:
+    base: dict[str, Any] = {
         "bm25_score": 1.0,
         "vector_score": 1.0,
         "rerank_score": None,
@@ -49,10 +52,10 @@ def _hit(chunk_id: str, *, relevance_confidence: float | None, **overrides: Any)
     return base
 
 
-def _mock_client(handler: Any) -> RelataClient:
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -73,7 +76,7 @@ def _strategies() -> list[SubAgentStrategy]:
 # ── verified default thresholds ─────────────────────────────────────────────
 
 
-def test_fanout_threshold_defaults_match_verified_values():
+def test_fanout_threshold_defaults_match_verified_values() -> None:
     assert LOW_CONFIDENCE_FLOOR == 0.20
     assert MERGE_THRESHOLD == 0.50
     assert MIN_FANOUT_STRATEGIES == 2
@@ -83,7 +86,7 @@ def test_fanout_threshold_defaults_match_verified_values():
 # ── deterministic winner selection (AC #1) ──────────────────────────────────
 
 
-def test_winner_is_strict_argmax_by_confidence_no_llm_call():
+def test_winner_is_strict_argmax_by_confidence_no_llm_call() -> None:
     confidences = {"lexical": 0.9, "dense": 0.3, "hybrid": 0.1}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -103,7 +106,7 @@ def test_winner_is_strict_argmax_by_confidence_no_llm_call():
     assert result.winner.confidence == pytest.approx(0.9)
 
 
-def test_ties_broken_by_strategy_declaration_order():
+def test_ties_broken_by_strategy_declaration_order() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": [_hit("c1", relevance_confidence=0.9)]})
 
@@ -117,7 +120,7 @@ def test_ties_broken_by_strategy_declaration_order():
 # ── LOW_CONFIDENCE_FLOOR — excluded as noise before any expensive step ─────
 
 
-def test_low_confidence_strategies_excluded_as_noise():
+def test_low_confidence_strategies_excluded_as_noise() -> None:
     confidences = {"lexical": 0.9, "dense": 0.1, "hybrid": 0.05}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -134,7 +137,7 @@ def test_low_confidence_strategies_excluded_as_noise():
     assert result.included == [result.winner]
 
 
-def test_all_strategies_below_floor_falls_back_to_best_scoring():
+def test_all_strategies_below_floor_falls_back_to_best_scoring() -> None:
     confidences = {"lexical": 0.15, "dense": 0.1, "hybrid": 0.05}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -154,7 +157,7 @@ def test_all_strategies_below_floor_falls_back_to_best_scoring():
 # ── MERGE_THRESHOLD — supporting evidence folded in via RRF merge ──────────
 
 
-def test_survivor_above_merge_threshold_is_folded_in():
+def test_survivor_above_merge_threshold_is_folded_in() -> None:
     confidences = {"lexical": 0.9, "dense": 0.6, "hybrid": 0.05}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -172,7 +175,7 @@ def test_survivor_above_merge_threshold_is_folded_in():
     assert merged_ids == {"lexical-1", "dense-1"}
 
 
-def test_survivor_below_merge_threshold_is_not_folded_in():
+def test_survivor_below_merge_threshold_is_not_folded_in() -> None:
     confidences = {"lexical": 0.9, "dense": 0.4, "hybrid": 0.3}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -193,7 +196,7 @@ def test_survivor_below_merge_threshold_is_not_folded_in():
 # ── missing relevance_confidence (pre-#4520 server) defaults to 0.0 ────────
 
 
-def test_missing_relevance_confidence_defaults_to_zero_and_is_excluded():
+def test_missing_relevance_confidence_defaults_to_zero_and_is_excluded() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": [_hit("c1", relevance_confidence=None)]})
 
@@ -206,7 +209,7 @@ def test_missing_relevance_confidence_defaults_to_zero_and_is_excluded():
     assert len(result.excluded) == 2
 
 
-def test_empty_hits_scores_zero_confidence():
+def test_empty_hits_scores_zero_confidence() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": []})
 
@@ -219,7 +222,7 @@ def test_empty_hits_scores_zero_confidence():
 # ── strategy-count validation ───────────────────────────────────────────────
 
 
-def test_rejects_fewer_than_two_strategies():
+def test_rejects_fewer_than_two_strategies() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": []})
 
@@ -229,7 +232,7 @@ def test_rejects_fewer_than_two_strategies():
         run_subagent_fanout(rag, "q", "DocumentChunk", [_strategies()[0]], purpose="research")
 
 
-def test_rejects_more_than_five_strategies():
+def test_rejects_more_than_five_strategies() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": []})
 
@@ -243,7 +246,7 @@ def test_rejects_more_than_five_strategies():
 # ── every strategy issues exactly one /v1/rag/query call, nothing more ────────
 
 
-def test_each_strategy_issues_exactly_one_call():
+def test_each_strategy_issues_exactly_one_call() -> None:
     call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -261,7 +264,7 @@ def test_each_strategy_issues_exactly_one_call():
 
 
 @pytest.mark.asyncio
-async def test_arun_subagent_fanout_matches_sync_semantics():
+async def test_arun_subagent_fanout_matches_sync_semantics() -> None:
     confidences = {"lexical": 0.9, "dense": 0.6, "hybrid": 0.05}
 
     def handler(req: httpx.Request) -> httpx.Response:

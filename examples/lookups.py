@@ -23,7 +23,6 @@ from relata import RelataClient
 from relata.exceptions import RelataError
 from relata.identity import IdentityClient
 
-
 COUNTRY_CSV = """alpha2,alpha3,name
 PK,PAK,Pakistan
 IN,IND,India
@@ -53,8 +52,9 @@ def main() -> None:
         print("\n=== 2. list_lookups ===")
         lookups = identity.list_lookups()
         print(f"  {len(lookups)} lookup(s) registered:")
-        for l in lookups[:10]:
-            print(f"    - {l.get('name')} (size={l.get('size', l.get('entries', '?'))})")
+        for entry in lookups[:10]:
+            size = entry.get("size", entry.get("entries", "?"))
+            print(f"    - {entry.get('name')} (size={size})")
 
         # ── 3. Invoke a lookup by key ──────────────────────────────────────
         print("\n=== 3. invoke_lookup: country_alpha3['PK'] ===")

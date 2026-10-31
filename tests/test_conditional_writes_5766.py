@@ -107,7 +107,11 @@ def test_commit_posts_the_bundle_and_translates_expected_version() -> None:
         seen.append(req)
         return httpx.Response(
             200,
-            json={"commitId": "c1", "operations": [{"op": "update", "type": "Doc", "id": "a", "version": 3}], "replayed": False},
+            json={
+                "commitId": "c1",
+                "operations": [{"op": "update", "type": "Doc", "id": "a", "version": 3}],
+                "replayed": False,
+            },
         )
 
     out = _client(handler).commit(
@@ -129,7 +133,13 @@ def test_commit_failure_reports_the_failing_operation() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(
             412,
-            json={"status": 412, "detail": "missing", "code": "precondition-failed", "current_version": None, "failed_operation": 2},
+            json={
+                "status": 412,
+                "detail": "missing",
+                "code": "precondition-failed",
+                "current_version": None,
+                "failed_operation": 2,
+            },
         )
 
     with pytest.raises(PreconditionFailedError) as info:
@@ -152,7 +162,9 @@ async def test_async_conditional_put_and_commit() -> None:
     out = await c.upsert("Doc", "a", {"n": 1}, expected_version=1)
     assert out["version"] == 2
     assert seen[0].method == "PUT" and seen[0].headers["if-match"] == '"1"'
-    done = await c.commit([{"op": "create", "type": "Doc", "id": "b", "data": {}}], idempotency_key="k")
+    done = await c.commit(
+        [{"op": "create", "type": "Doc", "id": "b", "data": {}}], idempotency_key="k"
+    )
     assert done["replayed"] is True
     await c.delete("Doc", "a", expected_version=2)
     assert seen[-1].method == "DELETE" and seen[-1].headers["if-match"] == '"2"'
