@@ -463,10 +463,9 @@ caller-signed feed entry and the matching `X-Publisher-Did`; the SDK does not
 create or sign entries. `SystemClient.from_client()` does not configure a
 broker client.
 
-`IngestClient.media_status()` polls an existing task but does not upload raw
-media bytes. `McpClient.ingest_media()` is the available MCP tool wrapper and
-uses that tool's base64/payload shape; it is separate from a raw
-`POST /ingest/media` upload. The separate new `FilesClient` and
+`POST /ingest/media` was removed (#5942), together with
+`IngestClient.media_status()` and `McpClient.ingest_media()`; poll OpenETL work
+items with `MediaWorkClient.get()`. The separate new `FilesClient` and
 `AsyncFilesClient` wrap `/files/content` for opaque file bytes; they do not
 start media processing or document extraction.
 
