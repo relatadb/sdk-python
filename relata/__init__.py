@@ -41,6 +41,7 @@ from relata.audit import AsyncAuditClient, AuditClient
 from relata.backup import AsyncBackupClient, BackupClient
 from relata.evidence import AsyncEvidenceClient, EvidenceClient, evidence_headers
 from relata.ontology_definitions import AsyncOntologyDefinitionsClient, OntologyDefinitionsClient
+from relata.assertions import AssertionsClient, AsyncAssertionsClient
 from relata.resolution import AsyncResolutionClient, ResolutionClient
 from relata.freshness import AsyncFreshnessClient, FreshnessClient, freshness_headers
 from relata.client import RelataClient
@@ -248,6 +249,8 @@ __all__ = [
     "EvidenceClient",
     "OntologyDefinitionsClient",
     "AsyncOntologyDefinitionsClient",
+    "AssertionsClient",
+    "AsyncAssertionsClient",
     "ResolutionClient",
     "AsyncResolutionClient",
     "AsyncEvidenceClient",
