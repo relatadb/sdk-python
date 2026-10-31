@@ -72,7 +72,7 @@ from relata.exceptions import (
     ServerError,
     ValidationError,
 )
-from relata.files import AsyncFilesClient, FileContent, FileMetadata, FilesClient
+from relata.files import AsyncFilesClient, FileContent, FileMetadata, FilesClient, UploadSession
 from relata.feed_broker import AsyncFeedBrokerClient, FeedBrokerClient
 from relata.governance import AsyncGovernanceClient, GovernanceClient
 from relata.identity import AsyncIdentityClient, IdentityClient
@@ -224,6 +224,7 @@ __all__ = [
     "AsyncIdentityClient",
     "FilesClient",
     "AsyncFilesClient",
+    "UploadSession",
     "FileMetadata",
     "FileContent",
     "ObjectClient",

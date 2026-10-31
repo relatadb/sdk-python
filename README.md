@@ -432,7 +432,7 @@ Each module inherits the parent client's auth, tenant, and purpose context:
 | `relata.identity` | `IdentityClient` | Identity label/uncertainty + lookup tables + ERASE SUBJECT |
 | `relata.objects` | `ObjectClient` | Typed upsert + batch + point-lookup (`get`) + delete via `/ingest?object_type=` |
 | `relata.ingest` | `IngestClient` | Bulk NDJSON + CSV + media task status; it does not upload raw media bytes |
-| `relata.files` | `FilesClient` / `AsyncFilesClient` | Buffered governed Files `put`/`get`/`delete` for opaque bytes and representation metadata |
+| `relata.files` | `FilesClient` / `AsyncFilesClient` | Buffered governed Files `put`/`get`/`delete` for opaque bytes and representation metadata, plus resumable chunked `upload` (one chunk in memory, offset-based resume, SHA-256 verified; #5690) |
 | `relata.vectors` | `VectorClient` | KNN + hybrid search + similar-to (SQL-backed) |
 | `relata.system` | `SystemClient` | Generic jobs and operator surfaces; no feed broker routing |
 | `relata.feed_broker` | `FeedBrokerClient` / `AsyncFeedBrokerClient` | Optional RIFN broker health, channels, signed-entry publishing at an explicit broker URL |
@@ -505,7 +505,9 @@ Cancelling an async call or expiring the HTTP timeout closes/cancels the client
 request where supported; it does not promise that server work already accepted
 by the engine is aborted or rolled back. See
 the [HTTP Files contract](../../docs/src/specs/files-api.md) for server
-behavior. These clients wrap only `/files/content`, not the Files list or
+behavior. These clients wrap `/files/content` and the resumable `/files/uploads`
+session (`start_upload`, `upload_chunk`, `upload_status`, `complete_upload`,
+`abort_upload`, and the resuming `upload` helper), not the Files list or
 folder operations.
 
 **Admin-listener reachability (`admin_base_url`, #2321):** on a hardened

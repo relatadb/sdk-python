@@ -243,3 +243,74 @@ def test_files_refuses_unexpected_success_status_instead_of_acknowledging(method
     assert caught.value.status_code == wrong_status
     assert caught.value.code == 'unexpected-response-status'
     assert calls == [method.upper()]
+
+
+class FakeUploads:
+    """In-memory model of the resumable-upload protocol with one injected failure."""
+    def __init__(self, fail_chunk_at=None):
+        self.data, self.size, self.sha, self.fail_at = bytearray(), 0, None, fail_chunk_at
+        self.calls, self.digests, self.completed = [], [], None
+
+    def session(self):
+        return dict(upload_id='u1', bucket='tenant-a', key=KEY, size=self.size,
+            offset=len(self.data), complete=len(self.data) == self.size, sha256=self.sha,
+            expires_ns=1, max_chunk_bytes=4)
+
+    def __call__(self, request):
+        self.calls.append((request.method, request.url.path))
+        if request.method == 'POST' and request.url.path == '/files/uploads':
+            body = json.loads(request.content)
+            self.size, self.sha = body['size'], body.get('sha256')
+            return httpx.Response(201, json=self.session())
+        if request.method == 'PUT':
+            if self.fail_at is not None and len(self.data) == self.fail_at:
+                self.fail_at = None
+                return httpx.Response(503, json={'code':'busy','detail':'retry','retryable':True})
+            offset = int(request.url.params['offset'])
+            if offset != len(self.data):
+                return httpx.Response(409, json={'code':'offset','detail':'mismatch'})
+            self.digests.append(request.headers['X-Relata-Chunk-Sha256'])
+            self.data.extend(request.content)
+            return httpx.Response(200, json=self.session())
+        if request.method == 'GET':
+            return httpx.Response(200, json=self.session())
+        if request.url.path.endswith('/complete'):
+            self.completed = bytes(self.data)
+            return httpx.Response(201, json=metadata())
+        return httpx.Response(204)
+
+
+def test_sync_resumable_upload_resumes_after_transient_failure_with_exact_bytes():
+    import hashlib, io
+    payload = bytes(range(10))
+    server = FakeUploads(fail_chunk_at=4)
+    with FilesClient('http://test', transport=httpx.MockTransport(server)) as client:
+        meta = client.upload(KEY, io.BytesIO(payload), bucket='tenant-a', chunk_size=4)
+    assert meta.size == len(PAYLOAD)
+    assert server.completed == payload and server.sha == hashlib.sha256(payload).hexdigest()
+    assert server.digests == [hashlib.sha256(payload[i:i+4]).hexdigest() for i in (0, 4, 8)]
+    assert ('GET', '/files/uploads/u1') in server.calls  # offset re-read after the 503
+
+
+def test_sync_resumable_upload_gives_up_after_max_attempts_and_keeps_session():
+    server = FakeUploads()
+    def handler(request):
+        if request.method == 'PUT':
+            return httpx.Response(503, json={'code':'busy','detail':'retry','retryable':True})
+        return server(request)
+    with FilesClient('http://test', transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ServerError):
+            client.upload(KEY, b'0123456789', chunk_size=4, max_attempts=2)
+    assert ('DELETE', '/files/uploads/u1') not in server.calls and server.completed is None
+
+
+@pytest.mark.asyncio
+async def test_async_resumable_upload_round_trip():
+    payload = b'abcdefghij'
+    server = FakeUploads(fail_chunk_at=4)
+    async def handler(request):
+        return server(request)
+    async with AsyncFilesClient('http://test', transport=httpx.MockTransport(handler)) as client:
+        await client.upload(KEY, payload, chunk_size=4)
+        await client.abort_upload('u1')
+    assert server.completed == payload
