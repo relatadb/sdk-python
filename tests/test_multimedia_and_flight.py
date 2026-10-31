@@ -33,20 +33,6 @@ def _mocked_client(handler: Handler) -> RelataClient:
 # ---------------------------------------------------------------------------
 
 
-def test_face_search_sql_from_list() -> None:
-    from relata.client import _face_search_sql
-
-    sql = _face_search_sql("gallery-1", [0.1, 0.2, 0.3], k=5, threshold=0.6)
-    assert sql == "FACE_SEARCH('0.1,0.2,0.3', 'gallery-1', K => 5, THRESHOLD => 0.6)"
-
-
-def test_face_search_sql_from_string() -> None:
-    from relata.client import _face_search_sql
-
-    sql = _face_search_sql("g", "1.0,0.0", k=10, threshold=0.7)
-    assert "FACE_SEARCH('1.0,0.0', 'g', K => 10, THRESHOLD => 0.7)" in sql
-
-
 def test_multimedia_sql_never_wraps_operator_in_select_from() -> None:
     """#5497: the engine only parses the bare top-level OPERATOR(...) form.
 
@@ -54,30 +40,9 @@ def test_multimedia_sql_never_wraps_operator_in_select_from() -> None:
     identifier and fails on the trailing ``(`` — every builder here must
     emit the bare form (mirrors the TS SDK's #5496 regression test).
     """
-    from relata.client import _face_search_sql, _match_pdq_sql, _similar_image_sql
+    from relata.client import _similar_image_sql
 
-    assert "SELECT" not in _face_search_sql("g", [0.1], k=10, threshold=0.7)
-    assert "SELECT" not in _match_pdq_sql("c", "ff", threshold=0.9)
     assert "SELECT" not in _similar_image_sql("m", threshold=None, index=None)
-
-
-def test_match_pdq_sql_shape() -> None:
-    from relata.client import _match_pdq_sql
-
-    sql = _match_pdq_sql("ncmec", "ffff", threshold=0.9)
-    assert sql == "MATCH_PDQ('ffff', 'ncmec', THRESHOLD => 0.9)"
-
-
-def test_multimedia_sql_quotes_single_quotes() -> None:
-    """A gallery / corpus id with an apostrophe must be SQL-escaped (#76)."""
-    from relata.client import _face_search_sql, _match_pdq_sql
-
-    assert _face_search_sql("o'reilly", [0.1], k=1, threshold=0.5) == (
-        "FACE_SEARCH('0.1', 'o''reilly', K => 1, THRESHOLD => 0.5)"
-    )
-    assert _match_pdq_sql("o'reilly", "ff", threshold=0.5) == (
-        "MATCH_PDQ('ff', 'o''reilly', THRESHOLD => 0.5)"
-    )
 
 
 def test_similar_image_sql_bare_form() -> None:
@@ -118,50 +83,6 @@ def test_similar_image_sql_quotes_single_quotes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_face_search_posts_face_search_operator() -> None:
-    seen: list[dict[str, object]] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
-        body = json.loads(req.content)
-        seen.append(body)
-        return httpx.Response(
-            200,
-            json={
-                "rows": [{"entity_id": "e-1", "score": 0.98}],
-                "query_id": "q1",
-                "elapsed_ms": 2,
-            },
-        )
-
-    client = _mocked_client(handler)
-    result = client.face_search("gallery-1", [0.1, 0.2], k=5, threshold=0.6)
-    assert "FACE_SEARCH(" in str(seen[0]["sql"])
-    assert "SELECT" not in str(seen[0]["sql"])
-    assert "K => 5" in str(seen[0]["sql"])
-    assert "THRESHOLD => 0.6" in str(seen[0]["sql"])
-    assert seen[0]["purpose"] == "analytics"
-    assert result.rows == [{"entity_id": "e-1", "score": 0.98}]
-
-
-def test_match_pdq_posts_match_pdq_operator() -> None:
-    seen: list[dict[str, object]] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        body = json.loads(req.content)
-        seen.append(body)
-        return httpx.Response(
-            200,
-            json={"rows": [{"entity_id": "e-9"}], "query_id": "q2", "elapsed_ms": 1},
-        )
-
-    client = _mocked_client(handler)
-    result = client.match_pdq("ncmec", "ffff", threshold=0.95, purpose="investigation")
-    assert str(seen[0]["sql"]) == "MATCH_PDQ('ffff', 'ncmec', THRESHOLD => 0.95)"
-    assert seen[0]["purpose"] == "investigation"
-    assert result.rows[0]["entity_id"] == "e-9"
-
-
 def test_similar_image_posts_similar_image_operator() -> None:
     seen: list[dict[str, object]] = []
 
@@ -186,15 +107,6 @@ def test_similar_image_posts_similar_image_operator() -> None:
 
 
 @pytest.mark.asyncio
-async def test_aface_search_uses_same_sql() -> None:
-    client = RelataClient(BASE, purpose="analytics")
-    client._RelataClient__async_transport = (  # type: ignore[attr-defined]
-        AsyncHttpTransport(BASE, None, 30.0, transport=_wrap(_async_face_handler))
-    )
-    result = await client.aface_search("g1", [0.1, 0.2], k=3)
-    assert result.rows == [{"entity_id": "x"}]
-
-@pytest.mark.asyncio
 async def test_asimilar_image_uses_same_sql() -> None:
     client = RelataClient(BASE, purpose="analytics")
     client._RelataClient__async_transport = (  # type: ignore[attr-defined]
@@ -211,14 +123,6 @@ def _async_similar_image_handler(req: httpx.Request) -> httpx.Response:
     )
     return httpx.Response(
         200, json={"rows": [{"entity_id": "y"}], "query_id": "q", "elapsed_ms": 0}
-    )
-
-
-def _async_face_handler(req: httpx.Request) -> httpx.Response:
-    body = json.loads(req.content)
-    assert "FACE_SEARCH(" in body["sql"]
-    return httpx.Response(
-        200, json={"rows": [{"entity_id": "x"}], "query_id": "q", "elapsed_ms": 0}
     )
 
 

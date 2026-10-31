@@ -283,7 +283,6 @@ result = (
 | Bi-temporal | `SELECT * FROM Person AS OF '2024-06-01'` |
 | Provenance | `SELECT * FROM Person WITH PROVENANCE` |
 | Graph traversal | `FROM PATHS_BETWEEN('person-123', 'org-456', max_hops => 4)` |
-| Face search | `WHERE MATCH_FACE(probe_embedding, stored_embedding, 0.92)` |
 | Identity lookup | `FROM LOOKUP_IDENTITY('+919876543210')` |
 | Hybrid search | `SELECT *, HYBRID_SCORE('terror finance') AS score FROM Document` |
 
@@ -602,7 +601,6 @@ with safely-typed literals (str → single-quoted + escaped, int/float → numer
 | `.offset(n)` | OFFSET |
 | `.order_by(*cols)` | ORDER BY |
 | `.paths_between(src, dst, max_hops)` | PATHS_BETWEEN graph operator |
-| `.match_face(probe, candidate, threshold)` | MATCH_FACE operator |
 | `.lookup_identity(value)` | LOOKUP_IDENTITY operator |
 | `.hybrid_score(text)` | HYBRID_SCORE ranking |
 | `.raw(sql)` | Raw SQL escape hatch |
@@ -631,7 +629,6 @@ See the `examples/` directory:
 |---|---|
 | `basic_query.py` | Getting started, health check, quota check |
 | `analytics.py` | Full analytics workflow: identity → cases → graph → provenance |
-| `face_search.py` | MATCH_FACE operator, threshold comparison, CCTV temporal search |
 | `hybrid_search.py` | `VectorClient.hybrid_search()` — embed, ingest, BM25-only vs. vector-only vs. fused (RRF) search |
 | `graph_traversal.py` | PATHS_BETWEEN, temporal network shift, hub detection |
 | `audit.py` | Chain verification, audit summary, anomaly detection |
