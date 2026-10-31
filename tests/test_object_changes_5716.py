@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from relata.exceptions import RelataError
 from relata.objects import AsyncObjectClient, ObjectClient
 
 BASE = "http://localhost:9090"
@@ -95,3 +96,71 @@ async def test_async_iter_change_pages() -> None:
     client = AsyncObjectClient(BASE, transport=httpx.MockTransport(_paged_handler(seen)))
     pages = [p async for p in client.iter_change_pages()]
     assert len(pages) == 2 and pages[-1]["hasMore"] is False
+
+
+def _flaky_handler(seen: list[httpx.Request], failures: list[object]):
+    """Serve f:1 then f:2; before the second page fail with each of ``failures``."""
+    pending = list(failures)
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        cursor = req.url.params.get("cursor")
+        if cursor == "f:1" and pending:
+            item = pending.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return httpx.Response(int(item), json={"detail": "x"})  # type: ignore[call-overload]
+        pages = {
+            None: {"feedId": "f", "events": [{"eventId": "f:1"}], "nextCursor": "f:1", "hasMore": True},
+            "f:1": {"feedId": "f", "events": [{"eventId": "f:2"}], "nextCursor": "f:2", "hasMore": False},
+        }
+        return httpx.Response(200, json=pages[cursor])
+
+    return handler
+
+
+def test_follow_changes_reconnects_and_resumes_from_the_last_cursor() -> None:
+    seen: list[httpx.Request] = []
+    handler = _flaky_handler(seen, [httpx.ConnectError("down"), 503])
+    # The transport does not retry by default, so the outage reaches the follower.
+    client = ObjectClient(BASE, transport=httpx.MockTransport(handler))
+    follower = client.follow_changes(poll_interval=0, reconnect_backoff=0, limit=1)
+    got = [next(follower)["events"][0]["eventId"] for _ in range(2)]
+    follower.close()
+    assert got == ["f:1", "f:2"], "no gap and no duplicate across the outage"
+    # first read, two failed reads of cursor f:1, then the resumed read.
+    assert [r.url.params.get("cursor") for r in seen] == [None, "f:1", "f:1", "f:1"]
+
+
+def test_follow_changes_gives_up_after_max_reconnects() -> None:
+    seen: list[httpx.Request] = []
+    handler = _flaky_handler(seen, [503, 503, 503])
+    client = ObjectClient(BASE, transport=httpx.MockTransport(handler))
+    follower = client.follow_changes(poll_interval=0, reconnect_backoff=0, max_reconnects=2)
+    next(follower)
+    with pytest.raises(RelataError):
+        next(follower)
+    assert len(seen) == 4  # 1 ok + 3 failed attempts (2 reconnects allowed)
+
+
+def test_follow_changes_raises_non_transient_errors_immediately() -> None:
+    seen: list[httpx.Request] = []
+    handler = _flaky_handler(seen, [410])
+    client = ObjectClient(BASE, transport=httpx.MockTransport(handler))
+    follower = client.follow_changes(poll_interval=0, reconnect_backoff=0)
+    next(follower)
+    with pytest.raises(RelataError) as info:
+        next(follower)
+    assert info.value.status_code == 410
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_async_follow_changes_reconnects() -> None:
+    seen: list[httpx.Request] = []
+    handler = _flaky_handler(seen, [httpx.ConnectError("down")])
+    client = AsyncObjectClient(BASE, transport=httpx.MockTransport(handler))
+    follower = client.follow_changes(poll_interval=0, reconnect_backoff=0, limit=1)
+    got = [(await follower.__anext__())["events"][0]["eventId"] for _ in range(2)]
+    await follower.aclose()
+    assert got == ["f:1", "f:2"]
