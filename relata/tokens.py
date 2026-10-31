@@ -1,13 +1,14 @@
-"""Dedup / uniqueness token SDK (#84 — server routes now shipped).
+"""Tenant self-service bearer-token SDK.
 
-Wraps ``POST /tokens``, ``GET /tokens/:id``, ``DELETE /tokens/:id``,
-``GET /tokens/stats``.
+Wraps the caller's own auth-token routes:
 
-Server contract:
-Wraps ``POST /tokens``, ``GET /tokens/:id``, ``DELETE``
-- ``GET /tokens/:id`` → ``200 {"present": bool, "inserted_at_ns"?: i64, "ttl_secs"?: u64|null}``
-- ``DELETE /tokens/:id`` → ``200 {"revoked": bool}`` (admin only)
-- ``GET /tokens/stats`` → ``200 {"count": usize, "oldest_ns"?: i64|null, "eviction_policy": str}``
+- ``GET /v1/auth/tokens/self`` -- list the caller's own tenant-scoped tokens
+- ``GET /v1/auth/tokens/self/audit`` -- audit trail of the caller's token lifecycle
+- ``POST /v1/auth/tokens/self/rotate`` -- rotate the bearer token in use
+- ``DELETE /v1/auth/tokens/self/{id}`` -- revoke one of the caller's own tokens
+
+Minting and cluster-wide token administration live on the loopback admin
+listener (``/admin/tokens``) and are intentionally not part of this client.
 """
 
 from __future__ import annotations
@@ -22,30 +23,8 @@ if TYPE_CHECKING:
     from relata.client import RelataClient
 
 
-class TokenStats:
-    """Dedup token set statistics."""
-
-    __slots__ = ("count", "oldest_ns", "eviction_policy")
-
-    def __init__(self, count: int, oldest_ns: int | None, eviction_policy: str) -> None:
-        self.count = count
-        self.oldest_ns = oldest_ns
-        self.eviction_policy = eviction_policy
-
-    def __repr__(self) -> str:
-        return (
-            f"TokenStats(count={self.count}, "
-            f"oldest_ns={self.oldest_ns}, "
-            f"eviction_policy={self.eviction_policy!r})"
-        )
-
-
 class TokenClient:
-    """Synchronous dedup / uniqueness token client.
-
-    Provides atomic test-and-set (``remember``), presence check (``check``),
-    explicit revoke (``revoke`` — admin only), and stats.
-    """
+    """Synchronous tenant self-service token client."""
 
     def __init__(
         self,
@@ -69,36 +48,26 @@ class TokenClient:
             extra_headers=client._extra_headers,  # noqa: SLF001
         )
 
-    def remember(self, token_id: str, *, ttl_secs: int | None = None) -> bool:
-        """Atomic test-and-set. Returns ``True`` if newly inserted, ``False``
-        if already present. This is the replay-defence primitive — security
-        relevant; a backend that buffers the write asynchronously or loses
-        the token on restart fails the §7 contract."""
-        payload: dict[str, Any] = {"id": token_id}
-        if ttl_secs is not None:
-            payload["ttl_secs"] = ttl_secs
-        resp = self._t.post("/tokens", payload)
-        return bool(resp.get("newly_inserted", False))
+    def list_self(self) -> dict[str, Any]:
+        """List the caller's own tenant-scoped bearer tokens (``GET /v1/auth/tokens/self``)."""
+        return self._t.get("/v1/auth/tokens/self")
 
-    def check(self, token_id: str) -> dict[str, Any]:
-        """Non-mutating presence check. Returns ``{"present": bool,
-        "inserted_at_ns"?: int, "ttl_secs"?: int|None}``."""
-        return self._t.get(f"/tokens/{path_segment(token_id)}")
+    def self_audit(self) -> dict[str, Any]:
+        """Audit trail of the caller's own token lifecycle events
+        (``GET /v1/auth/tokens/self/audit``)."""
+        return self._t.get("/v1/auth/tokens/self/audit")
 
-    def revoke(self, token_id: str) -> bool:
-        """Explicit revoke (admin only). Returns ``True`` if a token was
-        actually removed."""
-        resp = self._t.delete(f"/tokens/{path_segment(token_id)}")
-        return bool(resp.get("revoked", False))
+    def rotate_self(self) -> dict[str, Any]:
+        """Rotate the bearer token in use (``POST /v1/auth/tokens/self/rotate``).
 
-    def stats(self) -> TokenStats:
-        """Return dedup-set statistics."""
-        resp = self._t.get("/tokens/stats")
-        return TokenStats(
-            count=int(resp.get("count", 0)),
-            oldest_ns=int(resp["oldest_ns"]) if resp.get("oldest_ns") is not None else None,
-            eviction_policy=str(resp.get("eviction_policy", "")),
-        )
+        The response carries the fresh secret; the old token is invalidated
+        immediately. Only per-tenant registry tokens may self-rotate.
+        """
+        return self._t.post("/v1/auth/tokens/self/rotate", {})
+
+    def revoke_self(self, token_id: str) -> dict[str, Any]:
+        """Revoke one of the caller's own tokens (``DELETE /v1/auth/tokens/self/{id}``)."""
+        return self._t.delete(f"/v1/auth/tokens/self/{path_segment(token_id)}")
 
     def close(self) -> None:
         self._t.close()
@@ -111,7 +80,7 @@ class TokenClient:
 
 
 class AsyncTokenClient:
-    """Asynchronous dedup / uniqueness token client — see :class:`TokenClient`."""
+    """Asynchronous tenant self-service token client -- see :class:`TokenClient`."""
 
     def __init__(
         self,
@@ -135,27 +104,21 @@ class AsyncTokenClient:
             extra_headers=client._extra_headers,  # noqa: SLF001
         )
 
-    async def remember(self, token_id: str, *, ttl_secs: int | None = None) -> bool:
-        payload: dict[str, Any] = {"id": token_id}
-        if ttl_secs is not None:
-            payload["ttl_secs"] = ttl_secs
-        resp = await self._t.post("/tokens", payload)
-        return bool(resp.get("newly_inserted", False))
+    async def list_self(self) -> dict[str, Any]:
+        """Async variant of :meth:`TokenClient.list_self`."""
+        return await self._t.get("/v1/auth/tokens/self")
 
-    async def check(self, token_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/tokens/{path_segment(token_id)}")
+    async def self_audit(self) -> dict[str, Any]:
+        """Async variant of :meth:`TokenClient.self_audit`."""
+        return await self._t.get("/v1/auth/tokens/self/audit")
 
-    async def revoke(self, token_id: str) -> bool:
-        resp = await self._t.delete(f"/tokens/{path_segment(token_id)}")
-        return bool(resp.get("revoked", False))
+    async def rotate_self(self) -> dict[str, Any]:
+        """Async variant of :meth:`TokenClient.rotate_self`."""
+        return await self._t.post("/v1/auth/tokens/self/rotate", {})
 
-    async def stats(self) -> TokenStats:
-        resp = await self._t.get("/tokens/stats")
-        return TokenStats(
-            count=int(resp.get("count", 0)),
-            oldest_ns=int(resp["oldest_ns"]) if resp.get("oldest_ns") is not None else None,
-            eviction_policy=str(resp.get("eviction_policy", "")),
-        )
+    async def revoke_self(self, token_id: str) -> dict[str, Any]:
+        """Async variant of :meth:`TokenClient.revoke_self`."""
+        return await self._t.delete(f"/v1/auth/tokens/self/{path_segment(token_id)}")
 
     async def close(self) -> None:
         await self._t.aclose()

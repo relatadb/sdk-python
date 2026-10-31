@@ -4,7 +4,7 @@ gate and structured-attribute-filter query routing, and by #4535 with
 aggregation/negation/boolean/ranking SQL routing.
 
 Nine cooperating pieces that run **before** (or instead of) the first
-``/rag/query`` call, sharing this one dispatch layer rather than a parallel
+``/v1/rag/query`` call, sharing this one dispatch layer rather than a parallel
 one (#4536's explicit instruction, reaffirmed by #4535 — every new shape
 extends :func:`classify_query_shape`, none of them fork it):
 
@@ -12,7 +12,7 @@ extends :func:`classify_query_shape`, none of them fork it):
    lightweight, no-LLM, pattern-based gate that runs ahead of everything
    else. On a match it short-circuits with a :class:`~relata.models.Refusal`
    (analogous to the ``clarification`` shape, but a distinct ``refused``
-   reason) *before* any ``/rag/query`` or ``/query`` call is constructed.
+   reason) *before* any ``/v1/rag/query`` or ``/v1/query`` call is constructed.
    Off by default — a deployment opts in by passing a category->pattern
    mapping (see :data:`DANGEROUS_CONTENT_PATTERNS` for a reviewed starter
    set); this is a deployment-specific policy decision, not something
@@ -31,18 +31,18 @@ extends :func:`classify_query_shape`, none of them fork it):
    SQL, not retrieval; see :func:`route_attribute_filter_query`.
 2. **HyDE** (:func:`expand_query_hyde`) — generate a hypothetical answer via
    one caller-supplied LLM call, then send that hypothetical answer as the
-   ``/rag/query`` search text instead of the bare query — **except** when
+   ``/v1/rag/query`` search text instead of the bare query — **except** when
    numeric intent is detected (:func:`is_numeric_intent`: revenue,
    percentage, count, dosage, ...), where HyDE is skipped entirely since a
    hallucinated hypothetical answer would invent a plausible-but-wrong
    number.
 3. **Decomposition** (:func:`decompose_query`, :func:`rrf_merge`) — split a
-   multi-part question into sub-queries, issue one ``/rag/query`` call per
+   multi-part question into sub-queries, issue one ``/v1/rag/query`` call per
    sub-query (in parallel), and Reciprocal-Rank-Fuse the results back
    together using an auto-scaling dampening constant,
    ``k = max(10, 60 / n)`` (:func:`rrf_k_for_fanout`) — **not** the fixed
    ``k=60`` RelataDB uses server-side to fuse BM25⊕vector *within* one
-   ``/rag/query`` call (``crates/relata-query/src/hybrid.rs::RRF_K``). That
+   ``/v1/rag/query`` call (``crates/relata-query/src/hybrid.rs::RRF_K``). That
    is a different merge at a different layer; reusing its fixed constant
    here would under-weight top ranks as the fan-out grows.
 4. **Structured-attribute-filter routing** (:func:`route_attribute_filter_query`
@@ -103,7 +103,7 @@ from relata.rag import DEFAULT_TOP_K
 
 # ---------------------------------------------------------------------------
 # 0. Content-safety pre-filter (#4536) — runs before everything else, before
-#    any /rag/query or /query call is constructed.
+#    any /v1/rag/query or /v1/query call is constructed.
 # ---------------------------------------------------------------------------
 
 #: A reviewed starter set of dangerous-content categories -> compiled regex,
@@ -442,7 +442,7 @@ def expand_query_hyde(query: str, *, hypothesis_fn: HypothesisGenerator) -> str:
 
     ``hypothesis_fn`` is called with ``query`` and must return a hypothetical
     answer (plain text); that hypothetical answer becomes the ``query`` field
-    sent to ``POST /rag/query`` (#4514), which embeds and searches it
+    sent to ``POST /v1/rag/query`` (#4514), which embeds and searches it
     server-side — this function does not embed anything itself.
     """
     if is_numeric_intent(query):
@@ -480,7 +480,7 @@ def rrf_k_for_fanout(n_subqueries: int) -> float:
     parallel result lists: ``max(10, 60 / n)`` (verified in the reference
     toolkit). Deliberately *not* RelataDB's fixed internal ``RRF_K=60``
     (``crates/relata-query/src/hybrid.rs``), which fuses BM25⊕vector within
-    one ``/rag/query`` call — a different merge at a different layer.
+    one ``/v1/rag/query`` call — a different merge at a different layer.
     """
     if n_subqueries <= 0:
         raise ValueError("n_subqueries must be positive")
@@ -563,7 +563,7 @@ def extract_attribute_filters(
     """Extract ``[{field, op, value}]`` predicates for an attribute-filter-
     shaped query (#4536) — the same filter-list shape
     :func:`~relata.rag.filters_for_entity_ids` already produces for
-    ``/rag/query``, reused here as the input to SQL ``WHERE`` construction
+    ``/v1/rag/query``, reused here as the input to SQL ``WHERE`` construction
     (:func:`route_attribute_filter_query`) rather than a ``filters=`` entry.
 
     ``field_map`` overrides/extends :data:`ATTRIBUTE_FIELD_KEYWORDS`
@@ -660,7 +660,7 @@ def route_attribute_filter_query(
     known_fields: Collection[str] | None = None,
 ) -> QueryResult | None:
     """Route an attribute-filter-shaped query (#4536) to a governed SQL
-    ``/query`` call instead of a semantic-similarity retrieval guess.
+    ``/v1/query`` call instead of a semantic-similarity retrieval guess.
 
     Returns ``None`` (never raises) when :func:`extract_attribute_filters`
     found nothing, or when ``known_fields`` is given and none of the
@@ -712,7 +712,7 @@ async def aroute_attribute_filter_query(
 # ("give me all X") question that legitimately returns thousands-to-millions
 # of rows — is `route_enumeration_query`/`aroute_enumeration_query` below
 # (section 5b): the server-side substrate (governed `S3Object` export +
-# `POST /rag/export` background operation, `crates/relata-cli/src/serve/
+# `POST /v1/rag/export` background operation, `crates/relata-cli/src/serve/
 # query/large_export.rs` + `crates/relata-cli/src/s3_server.rs`'s
 # `write_governed_export_object`) now exists and these two functions call and
 # poll it. They are intentionally NOT wired into `smart_rag_query`'s uniform
@@ -1018,7 +1018,7 @@ async def aroute_ranking_query(
 # retrieval top-k can enumerate exhaustively. The design (see the ticket's
 # "Large-result-set policy") is: run the query, materialize it as a real
 # file, hand back a link — not a row cap, not a truncated "sample + pointer"
-# passed off as complete. `POST /rag/export` (server-side) always runs the
+# passed off as complete. `POST /v1/rag/export` (server-side) always runs the
 # query as a background operation; a result at/under the server's row
 # threshold comes back inline, a larger one is written as a governed
 # `S3Object` and the response carries the real count, a small explicitly-
@@ -1034,7 +1034,7 @@ ENUMERATION_POLL_TIMEOUT_SECS = 300.0
 
 @dataclasses.dataclass
 class LargeExportResult:
-    """Result of a completed `POST /rag/export` operation (#4535).
+    """Result of a completed `POST /v1/rag/export` operation (#4535).
 
     Exactly one of two shapes, distinguished by :attr:`is_file_backed`:
 
@@ -1066,7 +1066,7 @@ class LargeExportResult:
 
 
 def _large_export_result_from_body(body: Mapping[str, Any]) -> LargeExportResult:
-    """Build a :class:`LargeExportResult` from a completed `/rag/export`
+    """Build a :class:`LargeExportResult` from a completed `/v1/rag/export`
     operation's JSON body (either shape — see that class's doc comment)."""
     return LargeExportResult(
         row_count=body.get("row_count", 0),
@@ -1140,7 +1140,7 @@ def route_enumeration_query(
     poll_timeout_secs: float = ENUMERATION_POLL_TIMEOUT_SECS,
 ) -> LargeExportResult | None:
     """Route an ENUMERATION-shaped query (#4535, e.g. "give me all calls
-    made by 9800004040 last year") to `POST /rag/export` instead of a
+    made by 9800004040 last year") to `POST /v1/rag/export` instead of a
     widened-``top_k`` retrieval guess that can never be exhaustive.
 
     Returns ``None`` (caller should fall back to retrieval, e.g. via
@@ -1165,7 +1165,7 @@ def route_enumeration_query(
     payload = _enumeration_export_payload(
         sql, type, key_filter=key_filter, date_from=date_from, date_to=date_to
     )
-    op = relata_client._sync.post("/rag/export", payload)  # noqa: SLF001
+    op = relata_client._sync.post("/v1/rag/export", payload)  # noqa: SLF001
     operation_id = op.get("operation_id")
     if not operation_id:
         return _large_export_result_from_body(op)
@@ -1176,7 +1176,7 @@ def route_enumeration_query(
             return _large_export_result_from_body(status)
         if time.monotonic() >= deadline:
             raise TimeoutError(
-                f"/rag/export operation {operation_id} did not complete within "
+                f"/v1/rag/export operation {operation_id} did not complete within "
                 f"{poll_timeout_secs}s"
             )
         time.sleep(poll_interval_secs)
@@ -1203,7 +1203,7 @@ async def aroute_enumeration_query(
     payload = _enumeration_export_payload(
         sql, type, key_filter=key_filter, date_from=date_from, date_to=date_to
     )
-    op = await relata_client._async.post("/rag/export", payload)  # noqa: SLF001
+    op = await relata_client._async.post("/v1/rag/export", payload)  # noqa: SLF001
     operation_id = op.get("operation_id")
     if not operation_id:
         return _large_export_result_from_body(op)
@@ -1214,14 +1214,14 @@ async def aroute_enumeration_query(
             return _large_export_result_from_body(status)
         if time.monotonic() >= deadline:
             raise TimeoutError(
-                f"/rag/export operation {operation_id} did not complete within "
+                f"/v1/rag/export operation {operation_id} did not complete within "
                 f"{poll_timeout_secs}s"
             )
         await asyncio.sleep(poll_interval_secs)
 
 
 # ---------------------------------------------------------------------------
-# Entry point — composes all nine ahead of the first /rag/query call
+# Entry point — composes all nine ahead of the first /v1/rag/query call
 # ---------------------------------------------------------------------------
 
 
@@ -1242,7 +1242,7 @@ def smart_rag_query(
 ) -> RagQueryResponse:
     """Run ``query`` through the content-safety gate, structured-attribute
     routing, decomposition, per-sub-query shape dispatch, and optional HyDE,
-    then issue the (possibly several, parallel) ``/rag/query`` calls via
+    then issue the (possibly several, parallel) ``/v1/rag/query`` calls via
     ``rag_client`` and RRF-merge the results.
 
     Args:
@@ -1286,7 +1286,7 @@ def smart_rag_query(
     Returns:
         A single :class:`~relata.models.RagQueryResponse`. ``refused`` is
         set (empty ``hits``) when the content-safety gate matched, before
-        any ``/rag/query``/``/query`` call was made. ``sql_result`` is set
+        any ``/v1/rag/query``/``/v1/query`` call was made. ``sql_result`` is set
         (empty ``hits``) when an attribute-filter/aggregation/negation/
         boolean/ranking-shaped query was routed to SQL instead of
         retrieval. Otherwise this is the (possibly RRF-merged) retrieval

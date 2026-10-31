@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class QueryResult(BaseModel):
-    """Result of a ``POST /query`` call.
+    """Result of a ``POST /v1/query`` call.
 
     The server returns ``{"rows": <int count>, "columns": [...], "data": [...],
     "query_id": "...", "elapsed_ms": N}``. The SDK normalises this so callers
@@ -136,7 +136,7 @@ class HealthResponse(BaseModel):
 
 
 class StatusResponse(BaseModel):
-    """Response from ``GET /status``.
+    """Response from ``GET /v1/system/status``.
 
     Attributes:
         profile: Deployment profile — one of ``"free"``, ``"server"``,
@@ -167,7 +167,7 @@ class StatusResponse(BaseModel):
 
 
 class AuditCountResponse(BaseModel):
-    """Response from ``GET /audit/count``.
+    """Response from ``GET /v1/audit/count``.
 
     Attributes:
         entries: Total number of audit log entries recorded.
@@ -198,7 +198,7 @@ class AuditCountResponse(BaseModel):
 
 
 class IngestDocumentResponse(BaseModel):
-    """Receipt from queued mixed-type ``POST /ingest/bulk``.
+    """Receipt from queued mixed-type ``POST /v1/ingest/bulk``.
 
     Attributes:
         task_id: Process-local task ID used to poll persistence progress.
@@ -226,7 +226,7 @@ class IngestDocumentResponse(BaseModel):
 
 
 class IngestDocumentTaskStatus(BaseModel):
-    """Current status returned by ``GET /ingest/tasks/{task_id}``.
+    """Current status returned by ``GET /v1/ingest/tasks/{task_id}``.
 
     Persistent local receipts survive restart; unresolved work becomes
     uncertain without reingestion. Volatile profiles remain process-local.
@@ -276,7 +276,7 @@ class AlertSubmitReceipt(BaseModel):
 
 
 class EventTarget(BaseModel):
-    """Tenant-scoped target reference for ``POST /events/append``."""
+    """Tenant-scoped target reference for ``POST /v1/ingest/events``."""
 
     object_type: str
     key: str
@@ -300,35 +300,6 @@ class EventAppendReceipt(BaseModel):
     object_type: str
     status: str
     durability: str
-
-
-# ---------------------------------------------------------------------------
-# Cluster
-# ---------------------------------------------------------------------------
-
-
-class ClusterNode(BaseModel):
-    """Metadata for a single node in a Relata cluster.
-
-    Attributes:
-        node_id: Stable identifier for this node (e.g. ``"coordinator"``,
-            ``"reader-1"``).
-        role: Node role — one of ``"coordinator"``, ``"reader"``,
-            ``"writer"``, ``"indexer"``.
-        url: Base HTTP URL for this node (e.g. ``"http://reader-1:8081"``).
-    """
-
-    node_id: str = Field(..., description="Stable node identifier")
-    role: str = Field(..., description="Node role")
-    url: str = Field(..., description="Base HTTP URL for this node")
-
-    def __repr__(self) -> str:
-        return (
-            f"ClusterNode("
-            f"node_id={self.node_id!r}, "
-            f"role={self.role!r}, "
-            f"url={self.url!r})"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +335,7 @@ class VersionInfo(BaseModel):
 
 
 class Stats(BaseModel):
-    """Response from ``GET /debug/stats``.
+    """Response from ``GET /v1/system/stats``.
 
     The shape mirrors the partner storage-backend contract §9 — every field
     the server populates is exposed; fields the server does not yet emit
@@ -457,7 +428,7 @@ class ReadyReport(BaseModel):
 
 
 class SearchHit(BaseModel):
-    """A single document returned by ``POST /search``."""
+    """A single document returned by ``POST /v1/search``."""
 
     id: str = Field(..., description="Object ID")
     object_type: str = Field(..., description="Object type name")
@@ -470,7 +441,7 @@ class SearchHit(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """Response from ``POST /search`` (#670)."""
+    """Response from ``POST /v1/search`` (#670)."""
 
     hits: list[SearchHit] = Field(default_factory=list)
     total: int = Field(0, description="Total matching documents")
@@ -485,12 +456,12 @@ class SearchResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# RAG (RAG epic — #4523, wraps POST /rag/query per #4514/ADR-0299)
+# RAG (RAG epic — #4523, wraps POST /v1/rag/query per #4514/ADR-0299)
 # ---------------------------------------------------------------------------
 
 
 class RagHit(BaseModel):
-    """A single hit from ``POST /rag/query`` (#4514's ADR-0299 contract).
+    """A single hit from ``POST /v1/rag/query`` (#4514's ADR-0299 contract).
 
     Every field below is part of the frozen request/response parameter table
     in #4514 ("do not deviate without re-opening ADR-0299") — none may be
@@ -564,7 +535,7 @@ class EntityCandidate(BaseModel):
 
 
 class Clarification(BaseModel):
-    """A ``clarification`` object from ``POST /rag/query`` (#4514/#4534, ADR-0299).
+    """A ``clarification`` object from ``POST /v1/rag/query`` (#4514/#4534, ADR-0299).
 
     Present when a query's entity resolution landed in the ambiguous branch
     (two or more candidates within margin of each other, per
@@ -583,10 +554,10 @@ class Clarification(BaseModel):
 class Refusal(BaseModel):
     """A client-side refusal from the content-safety pre-filter (#4536).
 
-    Unlike :class:`Clarification` (populated from a real ``/rag/query``
+    Unlike :class:`Clarification` (populated from a real ``/v1/rag/query``
     server response), a :class:`Refusal` is constructed entirely client-side
     by :func:`~relata.rag_understanding.check_content_safety` *before* any
-    ``/rag/query`` or ``/query`` call is made — the point of the gate is to
+    ``/v1/rag/query`` or ``/v1/query`` call is made — the point of the gate is to
     avoid ever constructing that call for clearly out-of-scope content. It is
     a coarse pre-filter, not a substitute for governance already enforced
     in-scan by RelataDB's ACL/cell-masking (ADR-0299 §11).
@@ -600,7 +571,7 @@ class Refusal(BaseModel):
 
 
 class RagQueryResponse(BaseModel):
-    """Response from ``POST /rag/query`` (#4514/ADR-0299).
+    """Response from ``POST /v1/rag/query`` (#4514/ADR-0299).
 
     ``hits`` is the only field the contract guarantees; ``total`` is a client
     convenience (always ``len(hits)``) mirroring :class:`SearchResponse`.
@@ -609,7 +580,7 @@ class RagQueryResponse(BaseModel):
     caller's pick via ``RagClient.resume_with_selection()``
     (:mod:`relata.rag`), which turns ``clarification.candidates[i].entity_id``
     into the ``filters: [{"field": "canonical_entity_id", "op": "in", ...}]``
-    entry the follow-up call carries — no new field, ``/rag/query`` stays
+    entry the follow-up call carries — no new field, ``/v1/rag/query`` stays
     stateless.
 
     Four more fields (``refused``/``sql_result``/``low_confidence``/
@@ -629,14 +600,14 @@ class RagQueryResponse(BaseModel):
         None,
         description=(
             "Present only when the client-side content-safety gate (#4536) "
-            "refused this query before any /rag/query or /query call was made"
+            "refused this query before any /v1/rag/query or /v1/query call was made"
         ),
     )
     sql_result: QueryResult | None = Field(
         None,
         description=(
             "Present when #4536's structured-attribute-filter router answered "
-            "via a governed SQL /query call instead of retrieval — real "
+            "via a governed SQL /v1/query call instead of retrieval — real "
             "filtered rows, not a semantic-similarity guess"
         ),
     )

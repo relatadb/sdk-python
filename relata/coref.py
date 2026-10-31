@@ -1,9 +1,9 @@
 """Session-scoped coreference (anaphora) resolution — RAG epic (#4530).
 
-Multi-turn conversational callers of ``/rag/query`` (#4514) lose their
+Multi-turn conversational callers of ``/v1/rag/query`` (#4514) lose their
 subject across turns: "What is India's capital?" then "Where is it located?"
 has no resolvable antecedent for "it" once the second query reaches
-retrieval in isolation, because ``/rag/query`` is deliberately stateless and
+retrieval in isolation, because ``/v1/rag/query`` is deliberately stateless and
 LLM-free per ADR-0299 — that contract does not change here.
 
 This module is the SDK-side fix: a **bounded state object**, not a replayed
@@ -13,8 +13,8 @@ see :func:`subject_from_hit`); before the next turn the caller runs the
 query through :meth:`CorefResolver.resolve`, which only pays a network cost
 when a cheap regex-level anaphora check trips.
 
-Storage is a governed ``MemoryItem`` via ``POST /memory/remember`` /
-``POST /memory/consolidate`` (:mod:`relata.memory`'s :class:`~relata.memory.Memory`)
+Storage is a governed ``MemoryItem`` via ``POST /v1/memory/remember`` /
+``POST /v1/memory/consolidate`` (:mod:`relata.memory`'s :class:`~relata.memory.Memory`)
 keyed by session id — **not an SDK-local cache of the subject value itself**,
 so a second process picking up the same session id still resolves correctly.
 RelataDB's bi-temporal supersession means each new subject naturally
@@ -116,7 +116,7 @@ def _rewrite_with_subject(query: str, subject: str) -> str:
 
 
 def subject_from_hit(hit: RagHit) -> str | None:
-    """Extract the resolved-subject candidate from a winning ``/rag/query`` hit.
+    """Extract the resolved-subject candidate from a winning ``/v1/rag/query`` hit.
 
     Per the mechanism (#4530 step 1): the hit's first ``entity_ids`` entry
     (already in #4514's frozen response contract — no new field needed)
@@ -133,7 +133,7 @@ class CorefResolver:
     Two calls drive the whole lifecycle:
 
     - :meth:`remember_subject` — call after a turn resolves a subject.
-    - :meth:`resolve` — call before the next turn's ``/rag/query`` call;
+    - :meth:`resolve` — call before the next turn's ``/v1/rag/query`` call;
       rewrites an unresolved pronoun using the last remembered subject, or
       returns the query unchanged when nothing trips.
 

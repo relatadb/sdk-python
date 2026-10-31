@@ -1,4 +1,4 @@
-"""Typed /query wire contract; engine binding is qualified by server fixtures."""
+"""Typed /v1/query wire contract; engine binding is qualified by server fixtures."""
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +25,7 @@ def test_typed_query_wire_and_indexed_error(asynchronous: bool, status: int) -> 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         assert request.method == "POST"
-        assert request.url.path == "/query"
+        assert request.url.path == "/v1/query"
         assert json.loads(request.content) == {"purpose": "analytics", "sql": SQL, "params": PARAMS}
         if status == 400:
             return httpx.Response(400, headers={"content-type": "application/problem+json"}, json={

@@ -33,20 +33,20 @@ def test_relation_calls_hit_their_documented_routes() -> None:
     assert seen == [
         (
             "POST",
-            "/assertion-relations",
+            "/v1/assertions/relations",
             "",
             {"from": "asr_a", "to": "asr_b", "kind": "supports", "rationale": "same passage", "locator": {"pointer": "page=3"}},
         ),
         (
             "POST",
-            "/assertion-relations",
+            "/v1/assertions/relations",
             "",
             {"from": "asr_a", "to": "asr_b", "kind": "contradicts", "rationale": "dates differ"},
         ),
-        ("POST", "/assertion-relations/rel%2F1/revoke", "", {"reason": "misread"}),
-        ("POST", "/assertions/asr_a/assessment", "", {"judgment": "disputed", "reason": "two witnesses disagree"}),
-        ("GET", "/assertions/asr_a/evidence-graph", "", None),
-        ("GET", "/assertions/asr%2Fa/evidence-graph", "depth=3&limit=10&policy=trust&policy_version=2", None),
+        ("POST", "/v1/assertions/relations/rel%2F1/revoke", "", {"reason": "misread"}),
+        ("POST", "/v1/assertions/asr_a/assessment", "", {"judgment": "disputed", "reason": "two witnesses disagree"}),
+        ("GET", "/v1/assertions/asr_a/evidence-graph", "", None),
+        ("GET", "/v1/assertions/asr%2Fa/evidence-graph", "depth=3&limit=10&policy=trust&policy_version=2", None),
     ]
 
 
@@ -59,10 +59,10 @@ async def test_async_relation_calls_mirror_the_sync_surface() -> None:
         await c.assess("a", "inconclusive", "r")
         await c.evidence_graph("a", depth=1)
     assert [(m, p, q) for m, p, q, _b in seen] == [
-        ("POST", "/assertion-relations", ""),
-        ("POST", "/assertion-relations/rel_1/revoke", ""),
-        ("POST", "/assertions/a/assessment", ""),
-        ("GET", "/assertions/a/evidence-graph", "depth=1"),
+        ("POST", "/v1/assertions/relations", ""),
+        ("POST", "/v1/assertions/relations/rel_1/revoke", ""),
+        ("POST", "/v1/assertions/a/assessment", ""),
+        ("GET", "/v1/assertions/a/evidence-graph", "depth=1"),
     ]
 
 

@@ -2,7 +2,7 @@
 
 Built against #4525's `rag_loop` module (merged, PR #4558) and #4523's typed
 `RagClient`/`AsyncRagClient`, via `httpx.MockTransport` — no live
-`/rag/query` server required, mirroring `test_rag_loop.py`'s approach.
+`/v1/rag/query` server required, mirroring `test_rag_loop.py`'s approach.
 """
 
 from __future__ import annotations
@@ -240,7 +240,7 @@ def test_rejects_more_than_five_strategies():
         run_subagent_fanout(rag, "q", "DocumentChunk", six, purpose="research")
 
 
-# ── every strategy issues exactly one /rag/query call, nothing more ────────
+# ── every strategy issues exactly one /v1/rag/query call, nothing more ────────
 
 
 def test_each_strategy_issues_exactly_one_call():

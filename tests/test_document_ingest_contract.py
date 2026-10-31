@@ -40,7 +40,7 @@ def _client(handler: Any) -> tuple[RelataClient, list[httpx.Request]]:
 
 def test_document_ingest_uses_generic_queued_bulk_and_task_status() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/ingest/bulk":
+        if request.url.path == "/v1/ingest/bulk":
             assert json.loads(request.content) == {
                 "objects": _ROWS,
                 "queued": True,
@@ -56,7 +56,7 @@ def test_document_ingest_uses_generic_queued_bulk_and_task_status() -> None:
                     "queue_depth": 2,
                 },
             )
-        assert request.url.path == "/ingest/tasks/task-1"
+        assert request.url.path == "/v1/ingest/tasks/task-1"
         return httpx.Response(
             200,
             json={
@@ -83,14 +83,14 @@ def test_document_ingest_uses_generic_queued_bulk_and_task_status() -> None:
     assert status.model_extra["error"] == {"code": "partial_write", "retryable": False}
     assert status.model_extra["partial_result"] == {"accepted_ids": ["chunk-1"]}
     assert [request.url.path for request in requests] == [
-        "/ingest/bulk", "/ingest/tasks/task-1"
+        "/v1/ingest/bulk", "/v1/ingest/tasks/task-1"
     ]
     client.close()
 
 
 def test_append_event_uses_generic_contract_and_returns_receipt() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/events/append"
+        assert request.url.path == "/v1/ingest/events"
         assert json.loads(request.content) == {
             "object_type": "DocumentUsageEvent",
             "idempotency_key": "answer-1:citation",
@@ -129,7 +129,7 @@ def test_append_event_uses_generic_contract_and_returns_receipt() -> None:
     assert receipt.event_id == "evt-abc"
     assert receipt.status == "accepted"
     assert receipt.durability == "local_wal_sync"
-    assert [request.url.path for request in requests] == ["/events/append"]
+    assert [request.url.path for request in requests] == ["/v1/ingest/events"]
     client.close()
 
 
@@ -185,7 +185,7 @@ def test_submit_alert_sync_and_async_preserve_contract() -> None:
                "alert_type": "app-signal", "severity": "high",
                "matched_type": "Event", "matched_row_id": "row-1", "context": {"count": 2}}
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/alerts/submit"
+        assert request.url.path == "/v1/alerts"
         assert json.loads(request.content) == payload
         return httpx.Response(200, json={"alert_id": "alert-stable", "status": "duplicate",
                                          "durability": "local_wal_sync"})

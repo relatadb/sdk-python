@@ -79,19 +79,8 @@ def test_path_segment_percent_encodes(raw: str, encoded: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Representative helpers — tenant delete, governance disable, a2a get, export
+# Representative helpers — governance disable, a2a get, export
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("payload", PAYLOADS)
-def test_tenant_delete_percent_encodes(payload: str) -> None:
-    from relata.tenants import TenantAdminClient
-
-    rec = _URLRecorder()
-    c = TenantAdminClient(BASE, transport=_transport(rec))
-    c.delete(payload)
-    assert rec.urls[0] == f"{BASE}/platform/tenants/{path_segment(payload)}"
-    _assert_wire_is_encoded(rec.raw_paths[0])
 
 
 @pytest.mark.parametrize("payload", PAYLOADS)
@@ -101,7 +90,7 @@ def test_governance_disable_rule_percent_encodes(payload: str) -> None:
     rec = _URLRecorder()
     c = GovernanceClient(BASE, transport=_transport(rec))
     c.disable_rule(payload)
-    assert rec.urls[0] == f"{BASE}/rules/{path_segment(payload)}"
+    assert rec.urls[0] == f"{BASE}/v1/rules/{path_segment(payload)}"
     _assert_wire_is_encoded(rec.raw_paths[0])
 
 
@@ -112,7 +101,7 @@ def test_a2a_get_task_percent_encodes(payload: str) -> None:
     rec = _URLRecorder()
     c = A2AClient(BASE, transport=_transport(rec))
     c.get_task(payload)
-    assert rec.urls[0] == f"{BASE}/a2a/tasks/{path_segment(payload)}"
+    assert rec.urls[0] == f"{BASE}/v1/a2a/tasks/{path_segment(payload)}"
     _assert_wire_is_encoded(rec.raw_paths[0])
 
 
@@ -127,7 +116,7 @@ def test_export_data_routes_type_through_query_params(payload: str) -> None:
     )
     client.export_data(payload)
     parts = urlsplit(rec.urls[0])
-    assert parts.path == "/export"
+    assert parts.path == "/v1/export"
     # The payload round-trips through urlencode as ONE `type` value — it can
     # never inject a sibling param (e.g. `&purpose=admin`) or rewrite the path.
     params = parse_qs(parts.query)
@@ -144,7 +133,7 @@ def test_session_commit_percent_encodes(payload: str) -> None:
         BASE, None, 30.0, transport=_transport(rec), extra_headers=None
     )
     client.session_commit(payload)
-    assert rec.urls[0] == f"{BASE}/session/{path_segment(payload)}/commit"
+    assert rec.urls[0] == f"{BASE}/v1/sessions/{path_segment(payload)}/commit"
     _assert_wire_is_encoded(rec.raw_paths[0])
 
 
@@ -160,13 +149,13 @@ def test_backup_restore_status_percent_encodes(payload: str) -> None:
 
 
 @pytest.mark.parametrize("payload", PAYLOADS)
-def test_token_check_percent_encodes(payload: str) -> None:
+def test_token_revoke_self_percent_encodes(payload: str) -> None:
     from relata.tokens import TokenClient
 
     rec = _URLRecorder()
     c = TokenClient(BASE, transport=_transport(rec))
-    c.check(payload)
-    assert rec.urls[0] == f"{BASE}/tokens/{path_segment(payload)}"
+    c.revoke_self(payload)
+    assert rec.urls[0] == f"{BASE}/v1/auth/tokens/self/{path_segment(payload)}"
     _assert_wire_is_encoded(rec.raw_paths[0])
 
 
@@ -178,24 +167,13 @@ def test_memory_forget_percent_encodes(payload: str) -> None:
     mem = Memory(BASE, purpose="agent-notes", transport=_transport(rec))
     mem.forget(payload)
     # safe="" encoding — the embedded '/' payload can never span segments.
-    assert f"/memory/forget/{path_segment(payload)}?" in rec.urls[0]
+    assert f"/v1/memory/forget/{path_segment(payload)}?" in rec.urls[0]
     _assert_wire_is_encoded(rec.raw_paths[0].split("?")[0])
 
 
 # ---------------------------------------------------------------------------
 # Async mirrors
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("payload", PAYLOADS)
-async def test_async_tenant_delete_percent_encodes(payload: str) -> None:
-    from relata.tenants import AsyncTenantAdminClient
-
-    rec = _URLRecorder()
-    c = AsyncTenantAdminClient(BASE, transport=_transport(rec))
-    await c.delete(payload)
-    assert rec.urls[0] == f"{BASE}/platform/tenants/{path_segment(payload)}"
-    _assert_wire_is_encoded(rec.raw_paths[0])
 
 
 @pytest.mark.parametrize("payload", PAYLOADS)
@@ -206,7 +184,7 @@ async def test_async_a2a_load_checkpoint_percent_encodes(payload: str) -> None:
     c = AsyncA2AClient(BASE, transport=_transport(rec))
     await c.load_checkpoint(payload, payload)
     seg = path_segment(payload)
-    assert rec.urls[0] == f"{BASE}/a2a/checkpoints/{seg}/{seg}"
+    assert rec.urls[0] == f"{BASE}/v1/a2a/checkpoints/{seg}/{seg}"
     _assert_wire_is_encoded(rec.raw_paths[0])
 
 
@@ -223,5 +201,5 @@ async def test_async_schema_branch_delete_percent_encodes(payload: str) -> None:
     rec = _URLRecorder()
     client = _async_client(rec)
     await client.adelete_schema_branch(payload)
-    assert rec.urls[0] == f"{BASE}/schema/branches/{path_segment(payload)}"
+    assert rec.urls[0] == f"{BASE}/v1/schema/branches/{path_segment(payload)}"
     _assert_wire_is_encoded(rec.raw_paths[0])

@@ -1,7 +1,7 @@
 """Reasoning-trace write-back — #4528, the final SDK-side stage of the RAG
 epic's agentic loop.
 
-**The gap this closes.** `/rag/query` (#4514) already returns governed,
+**The gap this closes.** `/v1/rag/query` (#4514) already returns governed,
 citable rows, and the write path this ticket calls
 (`rag_store_answer`/`rag_store_elements`, `crates/relata-cli/src/serve/mcp/
 doc_writes.rs`) already turns a final answer into an auditable `RagAnswer` +
@@ -20,7 +20,7 @@ path, two small additive fields on it (`iteration_trace`, `evidence_gaps`,
 both JSON-encoded text; see the handler's #4528 doc comment).
 
 RelataDB has no server-side agent loop (ADR-013): this module makes no LLM
-call and issues no `/rag/query` call of its own — it is pure bookkeeping
+call and issues no `/v1/rag/query` call of its own — it is pure bookkeeping
 over results the caller already produced.
 """
 

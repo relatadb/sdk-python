@@ -30,7 +30,7 @@ def test_upsert_if_absent_puts_with_if_none_match() -> None:
     assert out["version"] == 7
     (req,) = seen
     assert req.method == "PUT"
-    assert req.url.path == "/objects/Doc/a"
+    assert req.url.path == "/v1/objects/Doc/a"
     assert req.url.params["purpose"] == "audit"
     assert req.headers["if-none-match"] == "*"
     assert "if-match" not in req.headers
@@ -70,7 +70,7 @@ def test_conditional_flags_are_mutually_exclusive() -> None:
 
 def test_unconditional_upsert_still_uses_ingest() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.method == "POST" and req.url.path == "/ingest"
+        assert req.method == "POST" and req.url.path == "/v1/ingest"
         return httpx.Response(200, json={"rows_queued": 1})
 
     assert _client(handler).upsert("Doc", "a", {"n": "x"})["rows_queued"] == 1
@@ -85,13 +85,13 @@ def test_delete_with_expected_version_is_a_conditional_delete() -> None:
 
     _client(handler).delete("Doc", "a", expected_version=8)
     (req,) = seen
-    assert req.method == "DELETE" and req.url.path == "/objects/Doc/a"
+    assert req.method == "DELETE" and req.url.path == "/v1/objects/Doc/a"
     assert req.headers["if-match"] == '"8"'
 
 
 def test_get_versioned_reads_the_object_route_and_maps_404() -> None:
     def ok(req: httpx.Request) -> httpx.Response:
-        assert req.method == "GET" and req.url.path == "/objects/Doc/a"
+        assert req.method == "GET" and req.url.path == "/v1/objects/Doc/a"
         return httpx.Response(200, json={"id": "a", "_version": 5})
 
     assert _client(ok).get_versioned("Doc", "a") == {"id": "a", "_version": 5}
@@ -116,7 +116,7 @@ def test_commit_posts_the_bundle_and_translates_expected_version() -> None:
     )
     assert out["commitId"] == "c1"
     (req,) = seen
-    assert req.method == "POST" and req.url.path == "/commit"
+    assert req.method == "POST" and req.url.path == "/v1/commit"
     body = json.loads(req.content)
     assert body["idempotencyKey"] == "k1"
     assert body["purpose"] == "audit"
@@ -144,7 +144,7 @@ async def test_async_conditional_put_and_commit() -> None:
 
     async def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
-        if req.url.path == "/commit":
+        if req.url.path == "/v1/commit":
             return httpx.Response(200, json={"commitId": "c", "operations": [], "replayed": True})
         return httpx.Response(200, json={"version": 2})
 

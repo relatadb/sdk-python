@@ -77,12 +77,18 @@ from relata.exceptions import (
     ServerError,
     ValidationError,
 )
-from relata.files import AsyncFilesClient, FileContent, FileMetadata, FilesClient, UploadSession
+from relata.files import (
+    AsyncFilesClient,
+    FileContent,
+    FileHead,
+    FileMetadata,
+    FilesClient,
+    UploadSession,
+)
 from relata.feed_broker import AsyncFeedBrokerClient, FeedBrokerClient
 from relata.governance import AsyncGovernanceClient, GovernanceClient
 from relata.identity import AsyncIdentityClient, IdentityClient
 from relata.ingest import AsyncIngestClient, IngestClient
-from relata.log import AsyncLogClient, LogClient
 from relata.mcp import AsyncMcpClient, McpClient
 from relata.memory import AsyncMemory, Memory
 from relata.natural_language import (
@@ -94,7 +100,6 @@ from relata.natural_language import (
 from relata.models import (
     AuditCountResponse,
     Clarification,
-    ClusterNode,
     EventAppendReceipt,
     EventAppendRequest,
     AlertSubmitRequest,
@@ -232,6 +237,7 @@ __all__ = [
     "UploadSession",
     "FileMetadata",
     "FileContent",
+    "FileHead",
     "ObjectClient",
     "AsyncObjectClient",
     "IngestClient",
@@ -274,14 +280,12 @@ __all__ = [
     "TokenClient",
     "AppPrimitivesClient",
     "AsyncTokenClient",
-    "LogClient",
-    "AsyncLogClient",
     # T9 flagship retrieval surface (#1991)
     "Namespace",
     "AsyncNamespace",
     "SearchClient",
     "AsyncSearchClient",
-    # RAG epic — typed /rag/query client (#4523, foundational; #4514/ADR-0299)
+    # RAG epic — typed /v1/rag/query client (#4523, foundational; #4514/ADR-0299)
     "RagClient",
     "AsyncRagClient",
     # RAG epic — citation injection + post-synthesis faithfulness scoring
@@ -370,7 +374,6 @@ __all__ = [
     "HealthResponse",
     "StatusResponse",
     "AuditCountResponse",
-    "ClusterNode",
     "IngestDocumentResponse",
     "IngestDocumentTaskStatus",
     "EventAppendReceipt",

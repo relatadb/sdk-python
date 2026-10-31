@@ -1,4 +1,4 @@
-"""Wire contract for the /ingest/bulk envelope options (#5689, #5714)."""
+"""Wire contract for the /v1/ingest/bulk envelope options (#5689, #5714)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ _CONTRACT = {"dataset": "orders", "version": 2}
 
 
 def _check(request: httpx.Request) -> None:
-    assert request.url.path == "/ingest/bulk"
+    assert request.url.path == "/v1/ingest/bulk"
     assert request.headers["idempotency-key"] == "batch-100"
     assert request.headers["x-relata-durability"] == "sync"
     body = json.loads(request.content)
@@ -61,5 +61,5 @@ def test_plain_bulk_keeps_the_ndjson_door() -> None:
     seen: list[httpx.Request] = []
     client = IngestClient(BASE, purpose="analytics", transport=_handler(seen))
     client.bulk("OrderEvent", _ROWS)
-    assert seen[0].url.path == "/ingest"
+    assert seen[0].url.path == "/v1/ingest"
     assert "idempotency-key" not in seen[0].headers

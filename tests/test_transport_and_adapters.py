@@ -215,7 +215,7 @@ def test_503_on_post_is_not_retried() -> None:
         retry_backoff=0.001,
     )
     with pytest.raises(ServerError) as exc_info:
-        t.post("/query", {"sql": "SELECT 1"})
+        t.post("/v1/query", {"sql": "SELECT 1"})
     assert exc_info.value.status_code == 503
     assert call_count[0] == 1  # never retried
 
@@ -261,7 +261,7 @@ def test_transport_error_on_post_not_retried() -> None:
         retry_backoff=0.001,
     )
     with pytest.raises(RelataConnectionError):
-        t.post("/query", {"sql": "SELECT 1"})
+        t.post("/v1/query", {"sql": "SELECT 1"})
     assert call_count[0] == 1  # never retried
 
 
@@ -283,7 +283,7 @@ def test_non_retryable_status_not_retried_on_get() -> None:
         retry_backoff=0.001,
     )
     with pytest.raises(NotFoundError):
-        t.get("/types/Missing")
+        t.get("/v1/types/Missing")
     assert call_count[0] == 1
 
 
@@ -342,12 +342,12 @@ def test_pydantic_ai_backend_add_search() -> None:
     from relata_adapters.pydantic_ai import RelataMemoryBackend
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/memory/remember":
+        if req.url.path == "/v1/memory/remember":
             return httpx.Response(
                 200,
                 json={"content": [{"type": "text", "text": json.dumps({"id": "m-1"})}], "isError": False},
             )
-        if "/memory/recall" in req.url.path:
+        if "/v1/memory/recall" in req.url.path:
             return httpx.Response(
                 200,
                 json={"content": [{"type": "text", "text": json.dumps({"rows": [{"id": "m-1", "content": "hi"}]})}], "isError": False},

@@ -54,7 +54,7 @@ def _mock_client(handler):
 
 
 def _handler(request: httpx.Request) -> httpx.Response:
-    assert request.url.path == "/search"
+    assert request.url.path == "/v1/search"
     body = json.loads(request.content)
     assert body["query"] == "alice smith"
     assert body["type"] == "Person"

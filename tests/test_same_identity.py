@@ -1,6 +1,6 @@
 """Tests for ``RelataClient.same_identity`` (#2246).
 
-Verifies the SQL emitted to ``POST /query`` (``SAME_IDENTITY($1, $2)`` with
+Verifies the SQL emitted to ``POST /v1/query`` (``SAME_IDENTITY($1, $2)`` with
 the values bound via the server-side parameterized path — #3211) and the
 boolean decode of the ``match`` verdict across the true / false / empty
 cases. Uses ``httpx.MockTransport`` — no live server required.

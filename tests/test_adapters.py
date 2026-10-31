@@ -1,7 +1,7 @@
 """Tests for the agent-framework memory adapters (#683).
 
 The frameworks themselves are not imported (the adapters are framework-agnostic);
-these tests drive each adapter through a mocked Relata `/memory/*` surface via
+these tests drive each adapter through a mocked Relata `/v1/memory/*` surface via
 httpx.MockTransport and assert the store/recall/retract behaviour.
 """
 
@@ -38,17 +38,17 @@ class Recorder:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
         path = request.url.path
-        if path == "/memory/remember":
+        if path == "/v1/memory/remember":
             self._next_id += 1
             return httpx.Response(200, json=_mcp({"id": f"mem-{self._next_id}"}))
-        if path == "/memory/recall":
+        if path == "/v1/memory/recall":
             return httpx.Response(
                 200,
                 json=_mcp(
                     {"rows": [{"id": "a", "content": "dark mode", "score": 0.9}], "count": 1}
                 ),
             )
-        if path.startswith("/memory/forget/"):
+        if path.startswith("/v1/memory/forget/"):
             return httpx.Response(200, json=_mcp({"memory_item_id": path.rsplit("/", 1)[-1]}))
         return httpx.Response(404, json={"error": "not found"})
 
@@ -79,21 +79,21 @@ def test_langchain_save_and_load() -> None:
 
     mem.save_context({"input": "what theme?"}, {"output": "dark mode"})
     # two remembers: the human input + the ai output
-    assert rec.paths().count("/memory/remember") == 2
+    assert rec.paths().count("/v1/memory/remember") == 2
 
     out = mem.load_memory_variables({"input": "theme preference"})
     assert "dark mode" in out["history"]
-    assert "/memory/recall" in rec.paths()
+    assert "/v1/memory/recall" in rec.paths()
 
     mem.clear()
-    assert rec.paths().count("/memory/forget/mem-1") == 1
+    assert rec.paths().count("/v1/memory/forget/mem-1") == 1
 
 
 def test_llamaindex_put_get_reset() -> None:
     rec = Recorder()
     mem = LlamaIndexMemory(_memory(rec))
     mem.put({"role": "user", "content": "remember dark mode"})
-    assert rec.paths().count("/memory/remember") == 1
+    assert rec.paths().count("/v1/memory/remember") == 1
 
     hits = mem.get("theme")
     assert hits and hits[0]["content"] == "dark mode"
@@ -101,14 +101,14 @@ def test_llamaindex_put_get_reset() -> None:
     assert mem.get_all() == []  # documented: not supported without a query
 
     mem.reset()
-    assert any(p.startswith("/memory/forget/") for p in rec.paths())
+    assert any(p.startswith("/v1/memory/forget/") for p in rec.paths())
 
 
 def test_crewai_save_search_threshold() -> None:
     rec = Recorder()
     store = RelataStorage(_memory(rec))
     store.save("Alice prefers dark mode", metadata={"user": "alice"})
-    assert rec.paths().count("/memory/remember") == 1
+    assert rec.paths().count("/v1/memory/remember") == 1
 
     hits = store.search("preferences", limit=5)
     assert len(hits) == 1
@@ -130,6 +130,6 @@ def test_autogen_async_add_query_clear() -> None:
         await mem.close()
 
     asyncio.run(run())
-    assert rec.paths().count("/memory/remember") == 1
-    assert "/memory/recall" in rec.paths()
-    assert any(p.startswith("/memory/forget/") for p in rec.paths())
+    assert rec.paths().count("/v1/memory/remember") == 1
+    assert "/v1/memory/recall" in rec.paths()
+    assert any(p.startswith("/v1/memory/forget/") for p in rec.paths())

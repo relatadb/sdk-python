@@ -1,10 +1,10 @@
 """Typed search client — T9 flagship surface (#1991, epic #1982).
 
-Wraps the server's typed ``POST /search`` JSON query door (T1, #1983 — landed
+Wraps the server's typed ``POST /v1/search`` JSON query door (T1, #1983 — landed
 on develop via #2045) with a Pythonic, retrieval-native surface. The door
 compiles the typed body to a governed SQL plan via
 ``relata_query::json_query::compile`` and dispatches it through the existing
-governed ``/query`` path, so PURPOSE / ACL / cell-masking / tenant isolation
+governed ``/v1/query`` path, so PURPOSE / ACL / cell-masking / tenant isolation
 apply identically to a hand-written query — **no SQL on the client side**.
 
 The ergonomic entry point is :class:`~relata.namespace.Namespace`, reached via
@@ -30,7 +30,7 @@ Server contract (``JsonSearchRequest``, #1983):
 - ``compute_attributes`` — side-output ranking signals per hit, e.g.
   ``{"bm25_score": "BM25()", "snippet": "HIGHLIGHT(bio)"}`` (#1985 T3, #2465).
 
-The response is the governed ``/query`` envelope (``{rows, columns, ...}``),
+The response is the governed ``/v1/query`` envelope (``{rows, columns, ...}``),
 returned here as a :class:`~relata.models.QueryResult`.
 """
 
@@ -140,7 +140,7 @@ class SearchClient:
                 ``rank_by=["bm25", match_column, text]``. Mutually exclusive
                 with an explicit ``rank_by``.
             match_column: Column for the ``text`` BM25 match (default ``"*"``
-                = whole-row match, mirroring the legacy ``/search`` default).
+                = whole-row match, mirroring the legacy ``/v1/search`` default).
             rank_by: Explicit ranking directive — ``["bm25","title","..."]``,
                 ``["field_weight",{"title":3.0,...},"..."]`` (BM25F per-field
                 weighting, #2676), ``["vector","ann","..."]``. See module
@@ -157,7 +157,7 @@ class SearchClient:
             purpose: Optional purpose override.
 
         Returns:
-            :class:`~relata.models.QueryResult` — the governed ``/query``
+            :class:`~relata.models.QueryResult` — the governed ``/v1/query``
             response (rows in BM25-relevance order when ``text``/BM25 rank is
             used).
         """
@@ -173,7 +173,7 @@ class SearchClient:
             compute_attributes=compute_attributes,
             purpose=self._purpose(purpose),
         )
-        data = self._client._sync.post("/search", payload)  # noqa: SLF001
+        data = self._client._sync.post("/v1/search", payload)  # noqa: SLF001
         return QueryResult.model_validate(data)
 
     async def aquery(
@@ -203,7 +203,7 @@ class SearchClient:
             compute_attributes=compute_attributes,
             purpose=self._purpose(purpose),
         )
-        data = await self._client._async.post("/search", payload)  # noqa: SLF001
+        data = await self._client._async.post("/v1/search", payload)  # noqa: SLF001
         return QueryResult.model_validate(data)
 
 
@@ -258,7 +258,7 @@ def _build_payload(
     compute_attributes: dict[str, str] | None = None,
     purpose: str | None,
 ) -> dict[str, object]:
-    """Assemble the typed ``POST /search`` JSON body (no ``query`` key)."""
+    """Assemble the typed ``POST /v1/search`` JSON body (no ``query`` key)."""
     if text is not None and rank_by is not None:
         raise ValueError("pass either `text` or an explicit `rank_by`, not both")
 

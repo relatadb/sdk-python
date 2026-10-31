@@ -1,5 +1,5 @@
 """
-Lookup tables — CSV enrichment at query time via `/lookup/*` (#967 / #79).
+Lookup tables — CSV enrichment at query time via `/v1/lookup/*` (#967 / #79).
 
 Lookup tables are small, read-only dictionaries the server joins into queries
 at plan time. Classic use case: enriching a country code or currency code into

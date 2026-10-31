@@ -21,11 +21,11 @@ BASE = "http://localhost:9090"
 
 
 def _capture() -> tuple[McpClient, dict[str, Any]]:
-    """An McpClient whose transport records the last /mcp/tools/call payload."""
+    """An McpClient whose transport records the last /v1/mcp/tools/call payload."""
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/mcp/tools/call":
+        if request.url.path == "/v1/mcp/tools/call":
             seen.update(json.loads(request.content))
         result = {"ok": True}
         body = {"content": [{"type": "text", "text": json.dumps(result)}], "isError": False}

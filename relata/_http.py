@@ -145,7 +145,7 @@ def _check_content_length(resp: httpx.Response, max_bytes: int) -> None:
 # #2321 (ADR-0261): paths mounted only on the loopbound admin control-plane
 # listener (RELATA_ADMIN_BIND, default 127.0.0.1:9091) — never the main
 # data-plane listener. See crates/relata-cli/src/serve/admin_listener.rs.
-_ADMIN_ONLY_PREFIXES = ("/admin/", "/platform/")
+_ADMIN_ONLY_PREFIXES = ("/admin/",)
 
 
 def _is_admin_only_path(path: str) -> bool:
@@ -177,7 +177,7 @@ def _response_detail_is_blank(content_type: str, raw_text: str) -> bool:
 
 def _admin_listener_hint(path: str) -> str:
     """Build the "you're probably pointed at the wrong port" hint for a bare
-    404 against an admin/platform-only ``path`` (#2321)."""
+    404 against an admin-only ``path`` (#2321)."""
     return (
         f"{path} returned a bare 404 with no error detail. This route is "
         "served only by Relata's loopbound admin control-plane listener "
@@ -221,7 +221,7 @@ def _classify_error(
     detail = next((body[key] for key in ("detail", "error", "message")
                    if isinstance(body.get(key), str) and body[key]), "unknown server error")
     # #2321 (ADR-0261): a bare 404 with no detail text against an
-    # admin/platform-only path almost always means this client is pointed at
+    # admin-only path almost always means this client is pointed at
     # the data-plane listener rather than the loopbound admin listener those
     # routes are exclusively mounted on — surface a hint instead of an
     # uninformative bare 404/"unknown server error".
@@ -386,7 +386,7 @@ class HttpTransport:
             timeout=timeout,
             transport=transport,
         )
-        # #2321 (ADR-0261): /admin/* and /platform/* requests route to a
+        # #2321 (ADR-0261): /admin/* requests route to a
         # second client bound to admin_base_url when supplied -- those routes
         # are mounted only on the loopbound admin control-plane listener,
         # never the main data-plane listener base_url usually targets.
@@ -411,7 +411,7 @@ class HttpTransport:
 
     def _client_for(self, path: str) -> httpx.Client:
         """Resolve the httpx client a request to ``path`` should use:
-        the admin client for ``/admin/*``/``/platform/*`` when configured,
+        the admin client for ``/admin/*`` when configured,
         the ordinary client otherwise (unchanged behaviour when unset)."""
         if self._admin_client is not None and _is_admin_only_path(path):
             return self._admin_client
@@ -687,7 +687,7 @@ class AsyncHttpTransport:
             transport=transport,
         )
         # #2321 (ADR-0261): see HttpTransport.__init__ for the rationale --
-        # /admin/*|/platform/* route to a second client bound to
+        # /admin/* routes to a second client bound to
         # admin_base_url when supplied; None preserves prior behaviour.
         self._admin_client: httpx.AsyncClient | None = None
         if admin_base_url is not None:

@@ -51,37 +51,32 @@ class SystemClient:
         Useful for agent dashboards that need to know whether the detection
         pipeline is healthy before relying on its outputs.
         """
-        return self._t.get("/jobs")
+        return self._t.get("/v1/jobs")
 
     def job_status(self, name: str) -> dict[str, Any]:
-        """Status of a single background job by name. Wraps ``GET /jobs/:name``."""
-        return self._t.get(f"/jobs/{quote(name, safe='')}")
+        """Status of a single background job by name. Wraps ``GET /v1/jobs/:name``."""
+        return self._t.get(f"/v1/jobs/{quote(name, safe='')}")
 
     # ── notifications ─────────────────────────────────────────────────────────
+    # Webhooks are a delivery channel of notification rules: set
+    # ``webhook_url`` (and optionally ``webhook_headers``) on the rule body.
 
     def notification_rules(self) -> list[dict[str, Any]]:
-        """GET /notifications/rules — list notification rules."""
-        data = self._t.get("/notifications/rules")
+        """GET /v1/notification-rules — list notification rules."""
+        data = self._t.get("/v1/notification-rules")
         return data if isinstance(data, list) else data.get("rules", [])
 
     def create_notification_rule(self, rule: dict[str, Any]) -> dict[str, Any]:
-        """POST /notifications/rules — create a notification rule."""
-        return self._t.post("/notifications/rules", rule)
+        """POST /v1/notification-rules — create a notification rule.
+
+        Webhook delivery is a channel of the rule itself: include
+        ``webhook_url`` (and optional ``webhook_headers``) in ``rule``.
+        """
+        return self._t.post("/v1/notification-rules", rule)
 
     def delete_notification_rule(self, rule_id: str) -> dict[str, Any]:
-        """DELETE /notifications/rules/:id — delete a notification rule."""
-        return self._t.delete(f"/notifications/rules/{quote(rule_id, safe='')}")
-
-    # ── pipelines ─────────────────────────────────────────────────────────────
-
-    def list_pipelines(self) -> list[dict[str, Any]]:
-        """GET /pipelines — list registered ingest pipelines."""
-        data = self._t.get("/pipelines")
-        return data if isinstance(data, list) else data.get("pipelines", [])
-
-    def define_pipeline(self, definition: dict[str, Any]) -> dict[str, Any]:
-        """POST /pipelines — define a new ingest pipeline."""
-        return self._t.post("/pipelines", definition)
+        """DELETE /v1/notification-rules/:id — delete a notification rule."""
+        return self._t.delete(f"/v1/notification-rules/{quote(rule_id, safe='')}")
 
     def close(self) -> None:
         self._t.close()
@@ -119,27 +114,20 @@ class AsyncSystemClient:
         )
 
     async def jobs_status(self) -> dict[str, Any]:
-        return await self._t.get("/jobs")
+        return await self._t.get("/v1/jobs")
 
     async def job_status(self, name: str) -> dict[str, Any]:
-        return await self._t.get(f"/jobs/{quote(name, safe='')}")
+        return await self._t.get(f"/v1/jobs/{quote(name, safe='')}")
 
     async def notification_rules(self) -> list[dict[str, Any]]:
-        data = await self._t.get("/notifications/rules")
+        data = await self._t.get("/v1/notification-rules")
         return data if isinstance(data, list) else data.get("rules", [])
 
     async def create_notification_rule(self, rule: dict[str, Any]) -> dict[str, Any]:
-        return await self._t.post("/notifications/rules", rule)
+        return await self._t.post("/v1/notification-rules", rule)
 
     async def delete_notification_rule(self, rule_id: str) -> dict[str, Any]:
-        return await self._t.delete(f"/notifications/rules/{quote(rule_id, safe='')}")
-
-    async def list_pipelines(self) -> list[dict[str, Any]]:
-        data = await self._t.get("/pipelines")
-        return data if isinstance(data, list) else data.get("pipelines", [])
-
-    async def define_pipeline(self, definition: dict[str, Any]) -> dict[str, Any]:
-        return await self._t.post("/pipelines", definition)
+        return await self._t.delete(f"/v1/notification-rules/{quote(rule_id, safe='')}")
 
     async def close(self) -> None:
         await self._t.aclose()

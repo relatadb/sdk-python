@@ -23,7 +23,7 @@ def test_changes_sends_cursor_limit_type_and_start() -> None:
     assert out["nextCursor"] == "f:3"
     (req,) = seen
     assert req.method == "GET"
-    assert req.url.path == "/object-changes"
+    assert req.url.path == "/v1/changes"
     assert dict(req.url.params) == {"cursor": "f:2", "limit": "50", "type": "Doc"}
 
 

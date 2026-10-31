@@ -3,7 +3,7 @@
 Covers:
 - ``RelataClient`` constructor accepts ``tenant`` / ``acting_as`` /
   ``delegated_by`` / ``headers`` and propagates them as HTTP headers.
-- ``stats()`` / ``astats()`` round-trip through ``GET /debug/stats``.
+- ``stats()`` / ``astats()`` round-trip through ``GET /v1/system/stats``.
 - ``version()`` / ``aversion()`` round-trip through ``GET /version``.
 - ``ready()`` / ``aready()`` round-trip through ``GET /health/ready``.
 
@@ -118,7 +118,7 @@ def test_stats_round_trip() -> None:
     }
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/debug/stats"
+        assert req.url.path == "/v1/system/stats"
         return httpx.Response(200, json=payload)
 
     client = _client(handler)

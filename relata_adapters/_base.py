@@ -2,7 +2,7 @@
 
 Each adapter (LangChain / LlamaIndex / CrewAI / AutoGen) maps its framework's
 memory interface onto these primitives, which in turn call Relata's governed
-``/memory/*`` verbs via :class:`relata.Memory`. The adapters never import their
+``/v1/memory/*`` verbs via :class:`relata.Memory`. The adapters never import their
 framework, so they install and import cleanly with or without it (mirroring the
 existing ``relata_langgraph`` adapter).
 

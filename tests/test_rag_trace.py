@@ -264,7 +264,7 @@ def _capture_sync() -> tuple[McpClient, dict[str, Any]]:
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/mcp/tools/call":
+        if request.url.path == "/v1/mcp/tools/call":
             seen.update(json.loads(request.content))
         result = {
             "stored": "RagAnswer",
@@ -303,7 +303,7 @@ async def test_astore_reasoning_trace_calls_rag_store_answer_with_full_payload()
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/mcp/tools/call":
+        if request.url.path == "/v1/mcp/tools/call":
             seen.update(json.loads(request.content))
         result = {"stored": "RagAnswer", "source_rows": 1}
         body = {"content": [{"type": "text", "text": json.dumps(result)}], "isError": False}

@@ -2,7 +2,7 @@
 
 The audit found that every language mirror built SQL by interpolating
 caller-controlled identifiers (``object_type``, ``embedding_slot``) and values
-into the governed ``/query`` body with no validation. The Python fix:
+into the governed ``/v1/query`` body with no validation. The Python fix:
 
 - Identifiers are validated against ``^[A-Za-z_][A-Za-z0-9_]*$`` and rejected
   client-side (``ValueError``) before any HTTP call is made.

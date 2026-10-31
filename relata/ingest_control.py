@@ -1,8 +1,8 @@
 """Ingestion control plane: source checkpoints, data contracts, quarantine (#5689, #5714).
 
-Wraps ``GET /ingest/checkpoints/{source}``, ``GET /ingest/contracts``,
-``GET|PUT /ingest/contracts/{dataset}``, ``GET /ingest/contracts/{dataset}/quality``,
-``GET /ingest/quarantine`` and ``DELETE /ingest/quarantine/{id}``. These routes use
+Wraps ``GET /v1/ingest/checkpoints/{source}``, ``GET /v1/ingest/contracts``,
+``GET|PUT /v1/ingest/contracts/{dataset}``, ``GET /v1/ingest/contracts/{dataset}/quality``,
+``GET /v1/ingest/quarantine`` and ``DELETE /v1/ingest/quarantine/{id}``. These routes use
 the data-plane credential and are scoped to the caller's tenant.
 """
 
@@ -28,11 +28,11 @@ def _quarantine_path(dataset: str | None, after_id: int | None, limit: int | Non
         params["after_id"] = str(int(after_id))
     if limit is not None:
         params["limit"] = str(int(limit))
-    return "/ingest/quarantine" + (f"?{urlencode(params)}" if params else "")
+    return "/v1/ingest/quarantine" + (f"?{urlencode(params)}" if params else "")
 
 
 def _quarantine_item(quarantine_id: int) -> str:
-    return f"/ingest/quarantine/{int(quarantine_id)}"
+    return f"/v1/ingest/quarantine/{int(quarantine_id)}"
 
 
 def _expect_204(status_code: int, request_id: str | None) -> None:
@@ -71,40 +71,40 @@ class IngestControlClient:
         )
 
     def checkpoint(self, source: str) -> dict[str, Any]:
-        """``GET /ingest/checkpoints/{source}``: last durably committed checkpoint."""
-        return dict(self._t.get(f"/ingest/checkpoints/{path_segment(source)}"))
+        """``GET /v1/ingest/checkpoints/{source}``: last durably committed checkpoint."""
+        return dict(self._t.get(f"/v1/ingest/checkpoints/{path_segment(source)}"))
 
     def list_contracts(self) -> dict[str, Any]:
-        """``GET /ingest/contracts``: ``{"contracts": [{"dataset", "latest_version"}]}``."""
-        return dict(self._t.get("/ingest/contracts"))
+        """``GET /v1/ingest/contracts``: ``{"contracts": [{"dataset", "latest_version"}]}``."""
+        return dict(self._t.get("/v1/ingest/contracts"))
 
     def get_contract(self, dataset: str) -> dict[str, Any]:
-        """``GET /ingest/contracts/{dataset}``: every retained contract version."""
-        return dict(self._t.get(f"/ingest/contracts/{path_segment(dataset)}"))
+        """``GET /v1/ingest/contracts/{dataset}``: every retained contract version."""
+        return dict(self._t.get(f"/v1/ingest/contracts/{path_segment(dataset)}"))
 
     def put_contract(self, dataset: str, contract: dict[str, Any]) -> dict[str, Any]:
-        """``PUT /ingest/contracts/{dataset}``: define the next contract version.
+        """``PUT /v1/ingest/contracts/{dataset}``: define the next contract version.
 
         The server checks backward compatibility; ``contract`` is sent verbatim.
         Returns ``{"dataset", "version", "status": "created"}``.
         """
-        return dict(self._t.put(f"/ingest/contracts/{path_segment(dataset)}", contract))
+        return dict(self._t.put(f"/v1/ingest/contracts/{path_segment(dataset)}", contract))
 
     def contract_quality(self, dataset: str) -> dict[str, Any]:
-        """``GET /ingest/contracts/{dataset}/quality``: validation counts, freshness, drift."""
-        return dict(self._t.get(f"/ingest/contracts/{path_segment(dataset)}/quality"))
+        """``GET /v1/ingest/contracts/{dataset}/quality``: validation counts, freshness, drift."""
+        return dict(self._t.get(f"/v1/ingest/contracts/{path_segment(dataset)}/quality"))
 
     def list_quarantine(
         self, *, dataset: str | None = None, after_id: int | None = None, limit: int | None = None
     ) -> dict[str, Any]:
-        """``GET /ingest/quarantine``: a page of quarantined records.
+        """``GET /v1/ingest/quarantine``: a page of quarantined records.
 
         Pass the previous page's ``next_after_id`` as ``after_id`` to continue.
         """
         return dict(self._t.get(_quarantine_path(dataset, after_id, limit)))
 
     def delete_quarantine(self, quarantine_id: int) -> None:
-        """``DELETE /ingest/quarantine/{id}``: discard one record (404 when unknown)."""
+        """``DELETE /v1/ingest/quarantine/{id}``: discard one record (404 when unknown)."""
         resp = self._t.request_bytes(
             "DELETE", _quarantine_item(quarantine_id), accept="application/json"
         )
@@ -146,19 +146,19 @@ class AsyncIngestControlClient:
         )
 
     async def checkpoint(self, source: str) -> dict[str, Any]:
-        return dict(await self._t.get(f"/ingest/checkpoints/{path_segment(source)}"))
+        return dict(await self._t.get(f"/v1/ingest/checkpoints/{path_segment(source)}"))
 
     async def list_contracts(self) -> dict[str, Any]:
-        return dict(await self._t.get("/ingest/contracts"))
+        return dict(await self._t.get("/v1/ingest/contracts"))
 
     async def get_contract(self, dataset: str) -> dict[str, Any]:
-        return dict(await self._t.get(f"/ingest/contracts/{path_segment(dataset)}"))
+        return dict(await self._t.get(f"/v1/ingest/contracts/{path_segment(dataset)}"))
 
     async def put_contract(self, dataset: str, contract: dict[str, Any]) -> dict[str, Any]:
-        return dict(await self._t.put(f"/ingest/contracts/{path_segment(dataset)}", contract))
+        return dict(await self._t.put(f"/v1/ingest/contracts/{path_segment(dataset)}", contract))
 
     async def contract_quality(self, dataset: str) -> dict[str, Any]:
-        return dict(await self._t.get(f"/ingest/contracts/{path_segment(dataset)}/quality"))
+        return dict(await self._t.get(f"/v1/ingest/contracts/{path_segment(dataset)}/quality"))
 
     async def list_quarantine(
         self, *, dataset: str | None = None, after_id: int | None = None, limit: int | None = None

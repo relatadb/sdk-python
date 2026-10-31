@@ -2,7 +2,7 @@
 
 Exposes the generic row-ingest APIs. :meth:`relata.client.RelataClient.ingest_document`
 sends prepared document rows as a queued mixed-type request to
-``/ingest/bulk``; document extraction and source-format mapping belong in an
+``/v1/ingest/bulk``; document extraction and source-format mapping belong in an
 application adapter.
 """
 
@@ -203,7 +203,7 @@ def _envelope_headers(
     durability: str | None,
     media_work_claim: int | None = None,
 ) -> dict[str, str]:
-    """Headers for the ``/ingest/bulk`` envelope: SmartIngest override,
+    """Headers for the ``/v1/ingest/bulk`` envelope: SmartIngest override,
     ``Idempotency-Key`` (#5689), ``X-Relata-Durability`` (``"sync"``) and the
     ``X-Relata-Claim`` media-work fence."""
     headers = _detect_headers(detect_packs)
@@ -305,9 +305,9 @@ class IngestClient:
           for this call; a comma-separated list (e.g. ``"network,financial"``)
           selects packs. Requires the ``IngestDetectOverride`` ACL grant.
         - ``on_conflict`` — when set (``"upsert"`` | ``"skip"`` | ``"error"``),
-          routes to ``POST /ingest/bulk`` so conflict resolution + ``tenant_id``
+          routes to ``POST /v1/ingest/bulk`` so conflict resolution + ``tenant_id``
           take effect.
-        - ``tenant_id`` — tenant scope (only honoured on the ``/ingest/bulk`` door).
+        - ``tenant_id`` — tenant scope (only honoured on the ``/v1/ingest/bulk`` door).
         - ``idempotency_key`` — ``Idempotency-Key`` header (#5689): a retry with
           the same key and rows replays the recorded response without a second
           write; a different body is ``409 idempotency-conflict``.
@@ -319,7 +319,7 @@ class IngestClient:
         - ``contract`` — ``{"dataset", "version"?}``: validate against a data
           contract (#5714); invalid rows are quarantined server-side.
         Any of ``on_conflict``, ``idempotency_key``, ``source_checkpoint`` or
-        ``contract`` routes the call to ``POST /ingest/bulk``.
+        ``contract`` routes the call to ``POST /v1/ingest/bulk``.
         - ``media_work_claim`` — the ``claim_id`` from ``MediaWorkClient.claim``,
           sent as ``X-Relata-Claim``. Required when ``source_checkpoint`` names a
           ``openetl/media/<work_id>`` source (the server fences stale holders).
@@ -343,14 +343,14 @@ class IngestClient:
                 contract,
             )
             return self._t.post_raw(
-                "/ingest/bulk",
+                "/v1/ingest/bulk",
                 json.dumps(payload),
                 content_type="application/json",
                 extra_headers=_envelope_headers(detect_packs, idempotency_key, durability, media_work_claim),
             )
         body = "\n".join(json.dumps(r) for r in rows)
         return self._t.post_raw(
-            f"/ingest?{self._params(object_type, purpose)}",
+            f"/v1/ingest?{self._params(object_type, purpose)}",
             body,
             content_type="application/x-ndjson",
             extra_headers=_detect_headers(detect_packs),
@@ -370,7 +370,7 @@ class IngestClient:
         header, #2258 SI-3): ``"none"`` disables, ``"network,financial"`` selects.
         """
         return self._t.post_raw(
-            f"/ingest?{self._params(object_type, purpose)}",
+            f"/v1/ingest?{self._params(object_type, purpose)}",
             csv_text,
             content_type="text/csv",
             extra_headers=_detect_headers(detect_packs),
@@ -382,7 +382,7 @@ class IngestClient:
         *,
         purpose: str | None = None,
     ) -> dict[str, Any]:
-        """Normalize CDR rows and queue them through ``POST /ingest``.
+        """Normalize CDR rows and queue them through ``POST /v1/ingest``.
 
         The returned receipt includes SDK-side ``errors`` for invalid rows and
         the generic ingest ``task_id`` for accepted rows. Poll that task for
@@ -392,7 +392,7 @@ class IngestClient:
         import json
 
         receipt = self._t.post_raw(
-            f"/ingest?{self._params('CdrRecord', purpose)}",
+            f"/v1/ingest?{self._params('CdrRecord', purpose)}",
             json.dumps(normalized, separators=(",", ":")),
             content_type="application/json",
         )
@@ -420,11 +420,11 @@ class IngestClient:
         purpose: str | None = None,
         batch_size: int = 500,
     ) -> int:
-        """Stream rows from an iterator into batched ``POST /ingest`` calls.
+        """Stream rows from an iterator into batched ``POST /v1/ingest`` calls.
 
         Memory is O(batch_size), not O(total_rows). Returns the number of
         input rows in batches whose ``bulk`` call returned without an SDK
-        exception. ``/ingest`` is queued: this is not a count of rows accepted
+        exception. ``/v1/ingest`` is queued: this is not a count of rows accepted
         by the writer or confirmed written, and this helper discards batch
         receipts/task IDs. Call :meth:`bulk` per batch and poll each task when
         completion or per-row error accounting is required. Stops when a
@@ -538,14 +538,14 @@ class AsyncIngestClient:
                 contract,
             )
             return await self._t.post_raw(
-                "/ingest/bulk",
+                "/v1/ingest/bulk",
                 json.dumps(payload),
                 content_type="application/json",
                 extra_headers=_envelope_headers(detect_packs, idempotency_key, durability, media_work_claim),
             )
         body = "\n".join(json.dumps(r) for r in rows)
         return await self._t.post_raw(
-            f"/ingest?{self._params(object_type, purpose)}",
+            f"/v1/ingest?{self._params(object_type, purpose)}",
             body,
             content_type="application/x-ndjson",
             extra_headers=_detect_headers(detect_packs),
@@ -561,7 +561,7 @@ class AsyncIngestClient:
     ) -> dict[str, Any]:
         """Async variant of :meth:`bulk_csv`."""
         return await self._t.post_raw(
-            f"/ingest?{self._params(object_type, purpose)}",
+            f"/v1/ingest?{self._params(object_type, purpose)}",
             csv_text,
             content_type="text/csv",
             extra_headers=_detect_headers(detect_packs),
@@ -573,12 +573,12 @@ class AsyncIngestClient:
         *,
         purpose: str | None = None,
     ) -> dict[str, Any]:
-        """Async normalize CDR rows and queue them through generic ``/ingest``."""
+        """Async normalize CDR rows and queue them through generic ``/v1/ingest``."""
         normalized, errors = _normalize_cdr_rows(rows)
         import json
 
         receipt = await self._t.post_raw(
-            f"/ingest?{self._params('CdrRecord', purpose)}",
+            f"/v1/ingest?{self._params('CdrRecord', purpose)}",
             json.dumps(normalized, separators=(",", ":")),
             content_type="application/json",
         )
@@ -617,7 +617,7 @@ class AsyncIngestClient:
         cursor or an async generator) as well as a plain list. Memory is
         O(batch_size), not O(total_rows). Returns the number of input rows in
         batches whose ``bulk`` call returned without an SDK exception. The
-        queued ``/ingest`` request is not a writer-confirmed count; this helper
+        queued ``/v1/ingest`` request is not a writer-confirmed count; this helper
         discards batch receipts/task IDs and does not inspect row-level errors
         in a successful response. Call ``bulk`` per batch and poll each task
         when completion or error accounting is required.

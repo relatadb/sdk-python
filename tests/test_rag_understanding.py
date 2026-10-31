@@ -1,7 +1,7 @@
 """Tests for query-shape dispatch + HyDE + decomposition (#4524).
 
 Built against #4523's typed `RagClient`/`AsyncRagClient` (merged, PR #4549)
-via `httpx.MockTransport` — no live `/rag/query` server required, per the
+via `httpx.MockTransport` — no live `/v1/rag/query` server required, per the
 same approach #4523's tests use (`#4514` need not have merged first, since
 the contract is frozen by ADR-0299).
 """
@@ -122,7 +122,7 @@ def test_classify_simple_shape():
     assert classify_query_shape("What is RelataDB?") == QueryShape.SIMPLE
 
 
-# ── query-shape dispatch — the different /rag/query call shape it produces ─
+# ── query-shape dispatch — the different /v1/rag/query call shape it produces ─
 
 
 def test_conjunction_shape_requests_expand_window():
@@ -369,7 +369,7 @@ def test_smart_rag_query_decomposition_merges_with_auto_scaled_k():
         "DocumentChunk",
         purpose="research",
     )
-    assert call_count == 2  # one /rag/query call per decomposed sub-query
+    assert call_count == 2  # one /v1/rag/query call per decomposed sub-query
     assert isinstance(result, RagQueryResponse)
     ids = [h.chunk_id for h in result.hits]
     assert set(ids) == {"c1", "c2", "c3"}
@@ -480,7 +480,7 @@ def test_content_safety_gate_does_not_refuse_benign_lookalikes(query: str):
 
 
 def test_smart_rag_query_refused_before_any_http_call():
-    """A refused query must never reach `/rag/query` — no HTTP call at all."""
+    """A refused query must never reach `/v1/rag/query` — no HTTP call at all."""
     called = False
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -579,7 +579,7 @@ def test_route_attribute_filter_query_returns_sql_filtered_rows():
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             captured.update(json.loads(req.content))
             return httpx.Response(
                 200,
@@ -609,7 +609,7 @@ def test_route_attribute_filter_query_returns_sql_filtered_rows():
 
 def test_route_attribute_filter_query_returns_none_when_no_filters_extracted():
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made")
+        raise AssertionError("no /v1/query call should be made")
 
     client = _mock_client(handler)
     assert route_attribute_filter_query(client, "What is RelataDB?", "Person") is None
@@ -621,7 +621,7 @@ def test_route_attribute_filter_query_falls_back_when_known_fields_dont_match():
     than guessing against a field that doesn't exist on `type`."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made when no field matches the schema")
+        raise AssertionError("no /v1/query call should be made when no field matches the schema")
 
     client = _mock_client(handler)
     result = route_attribute_filter_query(
@@ -638,10 +638,10 @@ def test_smart_rag_query_routes_attribute_filter_to_sql_not_retrieval():
 
     def handler(req: httpx.Request) -> httpx.Response:
         nonlocal rag_called
-        if req.url.path == "/rag/query":
+        if req.url.path == "/v1/rag/query":
             rag_called = True
             return httpx.Response(200, json={"hits": [_hit("c1")]})
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(
                 200,
                 json={
@@ -669,7 +669,7 @@ def test_smart_rag_query_routes_attribute_filter_to_sql_not_retrieval():
 
 def test_smart_rag_query_attribute_filter_falls_back_to_retrieval_with_low_confidence():
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/query":
+        if req.url.path == "/v1/rag/query":
             return httpx.Response(200, json={"hits": [_hit("c1")]})
         raise AssertionError(f"unexpected call to {req.url.path}")
 
@@ -691,9 +691,9 @@ def test_smart_rag_query_attribute_filter_falls_back_to_retrieval_with_low_confi
 @pytest.mark.asyncio
 async def test_asmart_rag_query_routes_attribute_filter_to_sql():
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/query":
-            raise AssertionError("should not call /rag/query for an attribute-filter shape")
-        if req.url.path == "/query":
+        if req.url.path == "/v1/rag/query":
+            raise AssertionError("should not call /v1/rag/query for an attribute-filter shape")
+        if req.url.path == "/v1/query":
             return httpx.Response(
                 200,
                 json={
@@ -720,7 +720,7 @@ async def test_asmart_rag_query_routes_attribute_filter_to_sql():
 @pytest.mark.asyncio
 async def test_aroute_attribute_filter_query_returns_none_when_no_filters_extracted():
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made")
+        raise AssertionError("no /v1/query call should be made")
 
     client = _mock_client(handler)
     assert await aroute_attribute_filter_query(client, "What is RelataDB?", "Person") is None
@@ -854,7 +854,7 @@ def test_route_aggregation_query_falls_back_when_known_fields_dont_match():
     rather than silently counting an unfiltered (and therefore wrong) total."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made when the field can't resolve")
+        raise AssertionError("no /v1/query call should be made when the field can't resolve")
 
     client = _mock_client(handler)
     result = route_aggregation_query(
@@ -885,7 +885,7 @@ async def test_aroute_aggregation_query_returns_count():
 
 def test_route_negation_query_returns_none_without_field_map():
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made")
+        raise AssertionError("no /v1/query call should be made")
 
     client = _mock_client(handler)
     assert route_negation_query(client, "Which SIMI members are NOT in custody?", "Person") is None
@@ -921,7 +921,7 @@ def test_route_negation_query_builds_not_ilike_predicate():
 
 def test_route_negation_query_falls_back_when_known_fields_dont_match():
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made")
+        raise AssertionError("no /v1/query call should be made")
 
     client = _mock_client(handler)
     result = route_negation_query(
@@ -959,7 +959,7 @@ async def test_aroute_negation_query_builds_not_ilike_predicate():
 
 def test_route_boolean_query_returns_none_without_field_map():
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made")
+        raise AssertionError("no /v1/query call should be made")
 
     client = _mock_client(handler)
     assert route_boolean_query(client, "Members of SIMI AND LeT", "Person") is None
@@ -1012,7 +1012,7 @@ def test_route_boolean_query_returns_none_when_fewer_than_two_predicates_resolve
     'boolean' query."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made with < 2 predicates")
+        raise AssertionError("no /v1/query call should be made with < 2 predicates")
 
     client = _mock_client(handler)
     result = route_boolean_query(
@@ -1058,7 +1058,7 @@ async def test_aroute_boolean_query_joins_predicates():
 
 def test_route_ranking_query_returns_none_without_field_map():
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made")
+        raise AssertionError("no /v1/query call should be made")
 
     client = _mock_client(handler)
     assert route_ranking_query(client, "Top 5 most active members", "Person") is None
@@ -1134,7 +1134,7 @@ def test_route_ranking_query_ascending_for_lowest():
 
 def test_route_ranking_query_falls_back_when_known_fields_dont_match():
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /query call should be made")
+        raise AssertionError("no /v1/query call should be made")
 
     client = _mock_client(handler)
     result = route_ranking_query(
@@ -1171,12 +1171,12 @@ async def test_aroute_ranking_query_builds_order_by_limit():
 
 
 def test_route_enumeration_query_returns_inline_result_when_small():
-    """A completed /rag/export operation at/under the server's row threshold
+    """A completed /v1/rag/export operation at/under the server's row threshold
     is returned inline — no bucket/key, real rows in `.data`."""
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/export":
+        if req.url.path == "/v1/rag/export":
             captured.update(json.loads(req.content))
             return httpx.Response(
                 202,
@@ -1208,7 +1208,7 @@ def test_route_enumeration_query_is_file_backed_when_large():
     row_count — not a truncated list presented as complete."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/export":
+        if req.url.path == "/v1/rag/export":
             return httpx.Response(
                 202,
                 json={
@@ -1253,7 +1253,7 @@ def test_route_enumeration_query_is_file_backed_when_large():
 
 def test_route_enumeration_query_falls_back_when_known_fields_dont_match():
     def handler(req: httpx.Request) -> httpx.Response:
-        raise AssertionError("no /rag/export call should be made when the field can't resolve")
+        raise AssertionError("no /v1/rag/export call should be made when the field can't resolve")
 
     client = _mock_client(handler)
     result = route_enumeration_query(
@@ -1268,7 +1268,7 @@ def test_route_enumeration_query_falls_back_when_known_fields_dont_match():
 
 def test_route_enumeration_query_raises_timeout_error_when_never_completes():
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/export":
+        if req.url.path == "/v1/rag/export":
             return httpx.Response(
                 202,
                 json={
@@ -1297,7 +1297,7 @@ def test_route_enumeration_query_propagates_server_error_on_failed_operation():
     not bypass it."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/export":
+        if req.url.path == "/v1/rag/export":
             return httpx.Response(
                 202,
                 json={
@@ -1324,7 +1324,7 @@ def test_route_enumeration_query_propagates_server_error_on_failed_operation():
 @pytest.mark.asyncio
 async def test_aroute_enumeration_query_returns_inline_result_when_small():
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/export":
+        if req.url.path == "/v1/rag/export":
             return httpx.Response(
                 202,
                 json={
@@ -1354,10 +1354,10 @@ def test_smart_rag_query_routes_aggregation_to_count_not_enumeration():
 
     def handler(req: httpx.Request) -> httpx.Response:
         nonlocal rag_called
-        if req.url.path == "/rag/query":
+        if req.url.path == "/v1/rag/query":
             rag_called = True
             return httpx.Response(200, json={"hits": [_hit("c1")]})
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(200, json=_count_response(1234))
         raise AssertionError(f"unexpected call to {req.url.path}")
 
@@ -1378,7 +1378,7 @@ def test_smart_rag_query_non_structured_question_still_routes_to_retrieval():
     question is unaffected — still routes to retrieval."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/query":
+        if req.url.path == "/v1/rag/query":
             return httpx.Response(200, json={"hits": [_hit("c1")]})
         raise AssertionError("aggregation/negation/boolean/ranking routing must not trigger")
 
@@ -1393,9 +1393,9 @@ def test_smart_rag_query_non_structured_question_still_routes_to_retrieval():
 
 def test_smart_rag_query_routes_boolean_to_sql():
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/query":
+        if req.url.path == "/v1/rag/query":
             raise AssertionError("boolean-shaped query must not fall through to retrieval")
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(
                 200,
                 json={
@@ -1426,7 +1426,7 @@ def test_smart_rag_query_negation_falls_back_to_retrieval_with_low_confidence():
     mirrors #4536's attribute-filter fallback contract)."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/query":
+        if req.url.path == "/v1/rag/query":
             return httpx.Response(200, json={"hits": [_hit("c1")]})
         raise AssertionError(f"unexpected call to {req.url.path}")
 
@@ -1444,9 +1444,9 @@ def test_smart_rag_query_negation_falls_back_to_retrieval_with_low_confidence():
 @pytest.mark.asyncio
 async def test_asmart_rag_query_routes_ranking_to_sql():
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/rag/query":
+        if req.url.path == "/v1/rag/query":
             raise AssertionError("ranking-shaped query must not fall through to retrieval")
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(
                 200,
                 json={

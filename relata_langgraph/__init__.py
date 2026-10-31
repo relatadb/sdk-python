@@ -7,8 +7,8 @@ mirrors), so either can be passed directly to ``workflow.compile(checkpointer=..
 (#2229, fixing #340 — the previous bespoke ``put``/``get``/``list``/``delete``
 client was not usable there). Checkpoint state is held in a bounded,
 process-local map behind the A2A checkpoint endpoints
-(``PUT/GET /a2a/checkpoints/{thread_id}/{checkpoint_id}``,
-``GET /a2a/checkpoints/{thread_id}``): it round-trips exactly while retained,
+(``PUT/GET /v1/a2a/checkpoints/{thread_id}/{checkpoint_id}``,
+``GET /v1/a2a/checkpoints/{thread_id}``): it round-trips exactly while retained,
 but is lost on server restart and FIFO-evicted after 4096 entries. Each save
 also attempts a governed ``MemoryItem`` mirror for audit and provenance; that
 mirror is not an exact checkpoint recovery source.
@@ -101,10 +101,10 @@ _NOT_FOUND = httpx.codes.NOT_FOUND
 
 _DELETE_THREAD_UNSUPPORTED = (
     "RelataCheckpointer does not support thread deletion: the Relata "
-    "/a2a/checkpoints door has no delete route (checkpoints FIFO-evict "
+    "/v1/a2a/checkpoints door has no delete route (checkpoints FIFO-evict "
     "server-side — see docs/src/guides/langgraph-checkpointer.md). For "
     "explicit governed erasure of the audit-trail MemoryItem mirror, call "
-    "`DELETE /memory/forget/:id` directly (relata.A2AClient) against the "
+    "`DELETE /v1/memory/forget/:id` directly (relata.A2AClient) against the "
     "underlying memory item id."
 )
 
@@ -126,7 +126,7 @@ def _thread_segment(thread_id: str) -> str:
 
 def _checkpoint_segment(checkpoint_ns: str, checkpoint_id: str) -> str:
     """Encode `(checkpoint_ns, checkpoint_id)` into the single path segment the
-    `/a2a/checkpoints/{thread_id}/{checkpoint_id}` route expects.
+    `/v1/a2a/checkpoints/{thread_id}/{checkpoint_id}` route expects.
 
     `checkpoint_ns` is percent-quoted (it may be empty, or a subgraph
     namespace containing arbitrary characters); `checkpoint_id` is a LangGraph
@@ -312,7 +312,7 @@ def _require_thread_id(config: RunnableConfig | None) -> tuple[str, str]:
     if config is None or not config.get("configurable", {}).get("thread_id"):
         raise ValueError(
             "RelataCheckpointer.list()/alist() require a thread_id in config; the "
-            "Relata /a2a/checkpoints door has no cross-thread listing route."
+            "Relata /v1/a2a/checkpoints door has no cross-thread listing route."
         )
     configurable = config["configurable"]
     return configurable["thread_id"], configurable.get("checkpoint_ns", "")
@@ -405,7 +405,7 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         return state
 
     def _list_ids(self, thread_id: str, checkpoint_ns: str) -> list[str]:
-        resp = self._client.get(f"/a2a/checkpoints/{_thread_segment(thread_id)}")
+        resp = self._client.get(f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}")
         _raise_for_status(resp)
         out: list[str] = []
         for seg in resp.json().get("checkpoints", []):
@@ -418,13 +418,13 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         self, thread_id: str, checkpoint_ns: str, checkpoint_id: str
     ) -> CheckpointTuple | None:
         body = self._get(
-            f"/a2a/checkpoints/{_thread_segment(thread_id)}/"
+            f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}/"
             f"{_checkpoint_segment(checkpoint_ns, checkpoint_id)}"
         )
         if body is None:
             return None
         writes_body = self._get(
-            f"/a2a/checkpoints/{_thread_segment(thread_id)}/"
+            f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}/"
             f"{_writes_segment(checkpoint_ns, checkpoint_id)}"
         )
         return self._codec.decode_tuple(thread_id, checkpoint_ns, checkpoint_id, body, writes_body)
@@ -479,7 +479,7 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
         """Save a checkpoint in the server's process-local map.
-        `PUT /a2a/checkpoints/{thread_id}/{checkpoint_id}`
+        `PUT /v1/a2a/checkpoints/{thread_id}/{checkpoint_id}`
         stores the checkpoint + metadata verbatim; overwrites any existing
         checkpoint for the same id (re-saves don't accumulate duplicates)."""
         thread_id = config["configurable"]["thread_id"]
@@ -487,7 +487,7 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         checkpoint_id = checkpoint["id"]
         body = self._codec.encode_put_body(config, checkpoint, metadata)
         self._put(
-            f"/a2a/checkpoints/{_thread_segment(thread_id)}/"
+            f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}/"
             f"{_checkpoint_segment(checkpoint_ns, checkpoint_id)}",
             body,
         )
@@ -522,7 +522,7 @@ class RelataCheckpointer(BaseCheckpointSaver[int]):
         checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
         checkpoint_id = config["configurable"]["checkpoint_id"]
         path = (
-            f"/a2a/checkpoints/{_thread_segment(thread_id)}/"
+            f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}/"
             f"{_writes_segment(checkpoint_ns, checkpoint_id)}"
         )
         writes_body = self._codec.apply_writes(self._get(path), writes, task_id, task_path)
@@ -644,7 +644,7 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
         return state
 
     async def _list_ids(self, thread_id: str, checkpoint_ns: str) -> list[str]:
-        resp = await self._client.get(f"/a2a/checkpoints/{_thread_segment(thread_id)}")
+        resp = await self._client.get(f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}")
         _raise_for_status(resp)
         out: list[str] = []
         for seg in resp.json().get("checkpoints", []):
@@ -657,13 +657,13 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
         self, thread_id: str, checkpoint_ns: str, checkpoint_id: str
     ) -> CheckpointTuple | None:
         body = await self._get(
-            f"/a2a/checkpoints/{_thread_segment(thread_id)}/"
+            f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}/"
             f"{_checkpoint_segment(checkpoint_ns, checkpoint_id)}"
         )
         if body is None:
             return None
         writes_body = await self._get(
-            f"/a2a/checkpoints/{_thread_segment(thread_id)}/"
+            f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}/"
             f"{_writes_segment(checkpoint_ns, checkpoint_id)}"
         )
         return self._codec.decode_tuple(thread_id, checkpoint_ns, checkpoint_id, body, writes_body)
@@ -716,7 +716,7 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
         checkpoint_id = checkpoint["id"]
         body = self._codec.encode_put_body(config, checkpoint, metadata)
         await self._put(
-            f"/a2a/checkpoints/{_thread_segment(thread_id)}/"
+            f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}/"
             f"{_checkpoint_segment(checkpoint_ns, checkpoint_id)}",
             body,
         )
@@ -739,7 +739,7 @@ class AsyncRelataCheckpointer(BaseCheckpointSaver[int]):
         checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
         checkpoint_id = config["configurable"]["checkpoint_id"]
         path = (
-            f"/a2a/checkpoints/{_thread_segment(thread_id)}/"
+            f"/v1/a2a/checkpoints/{_thread_segment(thread_id)}/"
             f"{_writes_segment(checkpoint_ns, checkpoint_id)}"
         )
         writes_body = self._codec.apply_writes(await self._get(path), writes, task_id, task_path)

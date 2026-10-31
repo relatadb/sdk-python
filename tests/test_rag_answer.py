@@ -96,10 +96,10 @@ def test_run_rag_answer_composes_the_full_chain():
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal rag_calls
-        if request.url.path == "/rag/query":
+        if request.url.path == "/v1/rag/query":
             rag_calls += 1
             return httpx.Response(200, json={"hits": [_hit("chunk-1")], "total": 1})
-        if request.url.path == "/mcp/tools/call":
+        if request.url.path == "/v1/mcp/tools/call":
             body = json.loads(request.content)
             trace_calls.append(body)
             result = {
@@ -161,10 +161,10 @@ async def test_arun_rag_answer_composes_the_full_chain():
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal rag_calls
-        if request.url.path == "/rag/query":
+        if request.url.path == "/v1/rag/query":
             rag_calls += 1
             return httpx.Response(200, json={"hits": [_hit("chunk-9")], "total": 1})
-        if request.url.path == "/mcp/tools/call":
+        if request.url.path == "/v1/mcp/tools/call":
             result = {"stored": "RagAnswer"}
             envelope = {"content": [{"type": "text", "text": json.dumps(result)}], "isError": False}
             return httpx.Response(200, json=envelope)
@@ -195,7 +195,7 @@ async def test_arun_rag_answer_composes_the_full_chain():
 
 
 def test_content_safety_refusal_short_circuits_before_any_call():
-    """A refused query makes zero /rag/query and zero MCP calls — the gate
+    """A refused query makes zero /v1/rag/query and zero MCP calls — the gate
     runs before anything else, matching smart_rag_query's own contract."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -227,7 +227,7 @@ def test_sql_routable_shape_short_circuits_before_synthesis():
     the loop/synthesis/trace stages — real rows, not a semantic guess."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/query":
+        if request.url.path == "/v1/query":
             return httpx.Response(
                 200, json={"rows": [{"count": 42}], "columns": ["count"], "row_count": 1}
             )
@@ -263,7 +263,7 @@ def test_fanout_strategies_path_still_produces_a_full_trace():
     trace_calls: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/rag/query":
+        if request.url.path == "/v1/rag/query":
             body = json.loads(request.content)
             slot = body.get("embedding_slot", "text")
             conf = 0.9 if slot == "text" else 0.3
@@ -274,7 +274,7 @@ def test_fanout_strategies_path_still_produces_a_full_trace():
                     "total": 1,
                 },
             )
-        if request.url.path == "/mcp/tools/call":
+        if request.url.path == "/v1/mcp/tools/call":
             trace_calls.append(json.loads(request.content))
             result = {"stored": "RagAnswer"}
             envelope = {"content": [{"type": "text", "text": json.dumps(result)}], "isError": False}

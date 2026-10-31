@@ -34,8 +34,8 @@ def test_get_list_and_replay_hit_the_documented_routes() -> None:
     c.replay("evd_1")
     assert out["citations"][0]["outcome"] == "verified"
     assert seen == [
-        ("GET", "/evidence", "limit=5", None),
-        ("GET", "/evidence/evd_a%2Fb", "", None),
-        ("POST", "/evidence/evd_1/replay", "", {"include_content": True}),
-        ("POST", "/evidence/evd_1/replay", "", {}),
+        ("GET", "/v1/evidence", "limit=5", None),
+        ("GET", "/v1/evidence/evd_a%2Fb", "", None),
+        ("POST", "/v1/evidence/evd_1/replay", "", {"include_content": True}),
+        ("POST", "/v1/evidence/evd_1/replay", "", {}),
     ]

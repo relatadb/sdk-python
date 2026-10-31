@@ -46,13 +46,13 @@ def test_ingest_control_routes_and_bodies() -> None:
     c.list_quarantine(dataset="orders", after_id=5, limit=50)
     c.list_quarantine()
     assert seen == [
-        ("GET", "/ingest/checkpoints/kafka%2Forders%201", "", None),
-        ("GET", "/ingest/contracts", "", None),
-        ("GET", "/ingest/contracts/orders", "", None),
-        ("PUT", "/ingest/contracts/orders", "", {"version": 2, "fields": []}),
-        ("GET", "/ingest/contracts/orders/quality", "", None),
-        ("GET", "/ingest/quarantine", "dataset=orders&after_id=5&limit=50", None),
-        ("GET", "/ingest/quarantine", "", None),
+        ("GET", "/v1/ingest/checkpoints/kafka%2Forders%201", "", None),
+        ("GET", "/v1/ingest/contracts", "", None),
+        ("GET", "/v1/ingest/contracts/orders", "", None),
+        ("PUT", "/v1/ingest/contracts/orders", "", {"version": 2, "fields": []}),
+        ("GET", "/v1/ingest/contracts/orders/quality", "", None),
+        ("GET", "/v1/ingest/quarantine", "dataset=orders&after_id=5&limit=50", None),
+        ("GET", "/v1/ingest/quarantine", "", None),
     ]
 
 
@@ -60,7 +60,7 @@ def test_quarantine_delete_expects_204() -> None:
     seen: list = []
     c = IngestControlClient(BASE, transport=httpx.MockTransport(_rec(seen, 204)))
     assert c.delete_quarantine(9) is None
-    assert seen == [("DELETE", "/ingest/quarantine/9", "", None)]
+    assert seen == [("DELETE", "/v1/ingest/quarantine/9", "", None)]
     missing = IngestControlClient(
         BASE, transport=httpx.MockTransport(_rec([], 404, {"title": "nf", "status": 404}))
     )
@@ -80,9 +80,9 @@ def test_ingest_control_async() -> None:
 
     asyncio.run(run())
     assert [(s[0], s[1]) for s in seen] == [
-        ("GET", "/ingest/checkpoints/s"),
-        ("PUT", "/ingest/contracts/d"),
-        ("GET", "/ingest/quarantine"),
+        ("GET", "/v1/ingest/checkpoints/s"),
+        ("PUT", "/v1/ingest/contracts/d"),
+        ("GET", "/v1/ingest/quarantine"),
     ]
 
 
@@ -95,7 +95,7 @@ def test_async_quarantine_delete() -> None:
         await c.close()
 
     asyncio.run(run())
-    assert seen == [("DELETE", "/ingest/quarantine/3", "", None)]
+    assert seen == [("DELETE", "/v1/ingest/quarantine/3", "", None)]
 
 
 def test_memory_associate_batch() -> None:
@@ -108,7 +108,7 @@ def test_memory_associate_batch() -> None:
     assert seen == [
         (
             "POST",
-            "/memory/associate/batch",
+            "/v1/memory/associate/batch",
             "",
             {
                 "items": [
@@ -131,13 +131,13 @@ def test_async_memory_associate_batch() -> None:
         await m.close()
 
     asyncio.run(run())
-    assert seen[0][1] == "/memory/associate/batch"
+    assert seen[0][1] == "/v1/memory/associate/batch"
     assert seen[0][3] == {"items": [{"purpose": "notes", "from_id": "a", "to_id": "b"}]}
 
 
 _FOLDER = dict(
     bucket="t", key="a/", row_id=None, size=0, etag='"e"', content_type="application/x-directory",
-    modified_ns=1, is_folder=True, download_url="/files/content?key=a%2F",
+    modified_ns=1, is_folder=True, download_url="/v1/files/content?key=a%2F",
 )
 
 
@@ -146,11 +146,11 @@ def test_files_create_folder() -> None:
     c = FilesClient(BASE, transport=httpx.MockTransport(_rec(seen, 201, _FOLDER)))
     meta = c.create_folder("a", bucket="t")
     assert meta.is_folder and meta.key == "a/"
-    assert seen == [("POST", "/files/folders", "", {"key": "a", "bucket": "t"})]
+    assert seen == [("POST", "/v1/files/folders", "", {"key": "a", "bucket": "t"})]
 
     async def run() -> None:
         ac = AsyncFilesClient(BASE, transport=httpx.MockTransport(_rec(seen, 201, _FOLDER)))
         await ac.create_folder("b")
 
     asyncio.run(run())
-    assert seen[1] == ("POST", "/files/folders", "", {"key": "b"})
+    assert seen[1] == ("POST", "/v1/files/folders", "", {"key": "b"})

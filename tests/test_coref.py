@@ -29,7 +29,7 @@ def _mcp(result: dict[str, Any]) -> dict[str, Any]:
 
 
 class _FakeMemoryServer:
-    """Minimal in-process fake reproducing the ``/memory/*`` contract this
+    """Minimal in-process fake reproducing the ``/v1/memory/*`` contract this
     module depends on: ``remember`` inserts, ``consolidate`` supersedes (pop
     old id, insert new — mirroring the server's bi-temporal retract+re-insert),
     and ``recall`` filters by exact ``session_id`` match, same as
@@ -48,13 +48,13 @@ class _FakeMemoryServer:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
-        if path == "/memory/remember":
+        if path == "/v1/memory/remember":
             self.remember_calls += 1
             body = json.loads(request.content)
             mid = self._new_id()
             self.rows[mid] = {"content": body["content"], "session_id": body["session_id"]}
             return httpx.Response(200, json=_mcp({"id": mid, "session_id": body["session_id"]}))
-        if path == "/memory/consolidate":
+        if path == "/v1/memory/consolidate":
             self.consolidate_calls += 1
             body = json.loads(request.content)
             old = self.rows.pop(body["id"], None)
@@ -62,9 +62,9 @@ class _FakeMemoryServer:
             session_id = old["session_id"] if old else ""
             self.rows[new_id] = {"content": body["content"], "session_id": session_id}
             return httpx.Response(200, json=_mcp({"new_id": new_id}))
-        if path == "/memory/recall":
+        if path == "/v1/memory/recall":
             self.recall_calls += 1
-            sid = request.url.params.get("session_id", "")
+            sid = json.loads(request.content).get("session_id", "")
             rows = [
                 {"id": mid, "content": r["content"], "session_id": r["session_id"]}
                 for mid, r in self.rows.items()

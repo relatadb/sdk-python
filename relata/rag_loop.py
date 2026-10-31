@@ -4,7 +4,7 @@ ladder).
 
 Per ADR-0298, RelataDB runs no server-side agent loop and no LLM (ADR-013) —
 this module is the SDK-side control flow that decides, after each
-``POST /rag/query`` call (#4514's ADR-0299 contract), whether the hits are
+``POST /v1/rag/query`` call (#4514's ADR-0299 contract), whether the hits are
 good enough to synthesize from or whether another round is warranted, and it
 never calls an LLM itself: every LLM-backed decision point is a caller-
 supplied callable, exactly like :mod:`relata.rag_understanding`'s
@@ -14,11 +14,11 @@ supplied callable, exactly like :mod:`relata.rag_understanding`'s
 test-backed reason):**
 
 1. **Heuristic gate** (:func:`heuristic_gate`) — centroid cosine similarity
-   between the query embedding and the top-K ``/rag/query`` hits' embeddings,
+   between the query embedding and the top-K ``/v1/rag/query`` hits' embeddings,
    <5ms, no LLM call either way. Score > :data:`HEURISTIC_PASS_THRESHOLD`
    (``0.85``) auto-passes (stop, synthesize from these hits). Score <
    :data:`HEURISTIC_RETRY_THRESHOLD` (``0.60``) auto-retries (issue another
-   ``/rag/query`` call, still no LLM). Between the two thresholds, control
+   ``/v1/rag/query`` call, still no LLM). Between the two thresholds, control
    proceeds to the evaluator below.
 2. **Corrective retrieval grading** (:func:`grade_hits`) — one batched
    cheap-model call grades every hit ``correct``/``ambiguous``/``incorrect``
@@ -131,7 +131,7 @@ class GateDecision(str, Enum):
     #: hits. No LLM call.
     PASS = "pass"
     #: Score < :data:`HEURISTIC_RETRY_THRESHOLD` — issue another
-    #: ``/rag/query`` call. No LLM call.
+    #: ``/v1/rag/query`` call. No LLM call.
     RETRY = "retry"
     #: Between the two thresholds — proceed to corrective retrieval grading
     #: (:func:`grade_hits`), the loop's one LLM call per iteration.
@@ -182,7 +182,7 @@ def heuristic_gate(
     hit_embeddings: Sequence[Sequence[float]],
 ) -> HeuristicGateResult:
     """Cheap pre-LLM gate: centroid cosine between ``query_embedding`` and
-    the top-K ``/rag/query`` hits' embeddings, <5ms, no LLM call either way.
+    the top-K ``/v1/rag/query`` hits' embeddings, <5ms, no LLM call either way.
 
     Zero hits (:attr:`~relata.models.RagQueryResponse.hits` empty) scores
     ``0.0`` and decides :attr:`GateDecision.RETRY` — nothing to be
@@ -266,7 +266,7 @@ def grade_hits(query: str, hits: list[RagHit], *, grader_fn: GraderFn) -> Correc
 #: corrective grading's :attr:`CorrectiveGradingResult.needs_requery` trips
 #: and a fallback is configured. Returns a full
 #: :class:`~relata.models.RagQueryResponse`-shaped result (the loop does not
-#: care whether it came from ``/rag/query`` or an external search API).
+#: care whether it came from ``/v1/rag/query`` or an external search API).
 WebSearchFallbackFn = Callable[[str], RagQueryResponse]
 
 
@@ -419,7 +419,7 @@ def run_agentic_loop(
             cannot spin forever regardless of what ``grader_fn``/
             ``embedding_fn`` return.
         **rag_kwargs: Forwarded to :meth:`~relata.rag.RagClient.query` on
-            every ``/rag/query`` call (``top_k``, ``rerank``,
+            every ``/v1/rag/query`` call (``top_k``, ``rerank``,
             ``search_mode``, ``embedding_slot``, ``filters``, ``as_of``,
             ``expand_window``, ``graph_hops``).
 
@@ -458,7 +458,7 @@ async def arun_agentic_loop(
     **rag_kwargs: Any,
 ) -> LoopResult:
     """Async variant of :func:`run_agentic_loop` — issues each iteration's
-    ``/rag/query`` call via :class:`~relata.rag.AsyncRagClient`.
+    ``/v1/rag/query`` call via :class:`~relata.rag.AsyncRagClient`.
     ``embedding_fn``/``grader_fn``/``hypothesis_fn``/``web_search_fallback``
     stay synchronous callables, mirroring
     :func:`relata.rag_understanding.asmart_rag_query`'s treatment of
@@ -549,7 +549,7 @@ MAX_FANOUT_STRATEGIES = 5
 @dataclass(frozen=True)
 class SubAgentStrategy:
     """One parallel retrieval strategy for :func:`run_subagent_fanout` — a
-    distinct ``/rag/query`` parameterization, typically a
+    distinct ``/v1/rag/query`` parameterization, typically a
     ``search_mode``/``embedding_slot`` combination (#4514)."""
 
     #: Human-readable label for this strategy, surfaced on
@@ -609,7 +609,7 @@ def _strategy_confidence(response: RagQueryResponse) -> float:
     """Deterministic per-strategy confidence: the top hit's
     ``relevance_confidence`` (#4520), or ``0.0`` when there are no hits or
     the field is unset (server predates #4520). A pure function of the
-    response already returned by ``/rag/query`` — no LLM/network call."""
+    response already returned by ``/v1/rag/query`` — no LLM/network call."""
     if not response.hits:
         return 0.0
     confidence = response.hits[0].relevance_confidence
@@ -663,7 +663,7 @@ def run_subagent_fanout(
     merge_threshold: float = MERGE_THRESHOLD,
     **rag_kwargs: Any,
 ) -> FanoutResult:
-    """Run ``strategies`` (2-5 parallel ``/rag/query`` parameterizations) and
+    """Run ``strategies`` (2-5 parallel ``/v1/rag/query`` parameterizations) and
     deterministically pick + merge a winner.
 
     Winner selection is a strict ``argmax`` over each strategy's confidence
@@ -681,7 +681,7 @@ def run_subagent_fanout(
         max_workers: Thread-pool size for the parallel fan-out.
         merge_threshold: Confidence floor (default :data:`MERGE_THRESHOLD`)
             for folding a non-winning survivor in as supporting evidence.
-        **rag_kwargs: Forwarded to every strategy's ``/rag/query`` call
+        **rag_kwargs: Forwarded to every strategy's ``/v1/rag/query`` call
             before that strategy's own ``rag_kwargs`` override on top.
 
     Returns:

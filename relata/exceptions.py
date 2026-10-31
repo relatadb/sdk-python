@@ -29,7 +29,7 @@ class RelataError(Exception):
             shape. Two vocabularies exist in real responses (#2555): most
             HTTP errors (auth/ACL/ingest/admin/...) use kebab-case, e.g.
             ``"access-denied"``, ``"parse-error"`` (catalogue:
-            ``docs/api/error-codes.md``); `/query`'s planner/execution
+            ``docs/api/error-codes.md``); `/v1/query`'s planner/execution
             errors use the ``QueryError``-derived ``REL_*`` form, e.g.
             ``"REL_PARSE"``, ``"REL_ACL"`` (catalogue:
             ``docs/src/end-users/error-codes.md``). Match on the literal

@@ -7,7 +7,7 @@ to pivot on. ``pivot`` follows one of those entities into the caller's other
 readable records; the value must come from evidence the caller could read, and
 unreadable types and rows are omitted without a count. ``create_saved_search``
 and friends keep a named SQL query (versioned, per tenant, durable);
-``run_saved_search`` runs it through the governed ``POST /query`` path with the
+``run_saved_search`` runs it through the governed ``POST /v1/query`` path with the
 *caller's* read policy, so saving a query grants nothing.
 """
 
@@ -26,11 +26,11 @@ if TYPE_CHECKING:
 
 
 def _aid(alert_id: str, suffix: str) -> str:
-    return f"/alerts/{quote(alert_id, safe='')}/{suffix}"
+    return f"/v1/alerts/{quote(alert_id, safe='')}/{suffix}"
 
 
 def _sid(search_id: str, suffix: str = "") -> str:
-    path = f"/searches/saved/{quote(search_id, safe='')}"
+    path = f"/v1/search/saved/{quote(search_id, safe='')}"
     return f"{path}/{suffix}" if suffix else path
 
 
@@ -86,11 +86,11 @@ def _search_body(
 
 def _list_path(q: str | None, limit: int | None) -> str:
     query = {k: str(v) for k, v in (("q", q), ("limit", limit)) if v is not None}
-    return "/searches/saved" + (f"?{urlencode(query)}" if query else "")
+    return "/v1/search/saved" + (f"?{urlencode(query)}" if query else "")
 
 
 class InvestigationClient:
-    """Synchronous client for ``/alerts/{id}/{evidence,timeline,pivot}`` and ``/searches/saved``."""
+    """Synchronous client for ``/v1/alerts/{id}/{evidence,timeline,pivot}`` and ``/v1/search/saved``."""
 
     def __init__(
         self,
@@ -117,13 +117,13 @@ class InvestigationClient:
     def alert_evidence(
         self, alert_id: str, *, max_events: int | None = None, deadline_ms: int | None = None
     ) -> dict[str, Any]:
-        """``GET /alerts/{id}/evidence``: events, reproduction query, completeness, SHA-256."""
+        """``GET /v1/alerts/{id}/evidence``: events, reproduction query, completeness, SHA-256."""
         return dict(self._t.get(_aid(alert_id, "evidence") + _bounds(max_events, deadline_ms)))
 
     def alert_timeline(
         self, alert_id: str, *, max_events: int | None = None, deadline_ms: int | None = None
     ) -> dict[str, Any]:
-        """``GET /alerts/{id}/timeline``: ordered entries, unplaced ids and pivot entities."""
+        """``GET /v1/alerts/{id}/timeline``: ordered entries, unplaced ids and pivot entities."""
         return dict(self._t.get(_aid(alert_id, "timeline") + _bounds(max_events, deadline_ms)))
 
     def pivot(
@@ -137,7 +137,7 @@ class InvestigationClient:
         limit: int | None = None,
         deadline_ms: int | None = None,
     ) -> dict[str, Any]:
-        """``POST /alerts/{id}/pivot``: other readable records for one evidence entity."""
+        """``POST /v1/alerts/{id}/pivot``: other readable records for one evidence entity."""
         body = _pivot_body(field, value, target_field, target_types, limit, deadline_ms)
         return dict(self._t.post(_aid(alert_id, "pivot"), body))
 
@@ -150,18 +150,18 @@ class InvestigationClient:
         description: str | None = None,
         params: Sequence[Any] | None = None,
     ) -> dict[str, Any]:
-        """``POST /searches/saved``: ``409 saved-search-exists`` if the name is taken."""
+        """``POST /v1/search/saved``: ``409 saved-search-exists`` if the name is taken."""
         body = _search_body(name, sql, purpose, description, params, None)
-        return dict(self._t.post("/searches/saved", body))
+        return dict(self._t.post("/v1/search/saved", body))
 
     def list_saved_searches(
         self, *, q: str | None = None, limit: int | None = None
     ) -> dict[str, Any]:
-        """``GET /searches/saved``: ``{"items": [...], "total": n}`` ordered by name."""
+        """``GET /v1/search/saved``: ``{"items": [...], "total": n}`` ordered by name."""
         return dict(self._t.get(_list_path(q, limit)))
 
     def get_saved_search(self, search_id: str) -> dict[str, Any]:
-        """``GET /searches/saved/{id}``."""
+        """``GET /v1/search/saved/{id}``."""
         return dict(self._t.get(_sid(search_id)))
 
     def update_saved_search(
@@ -175,18 +175,18 @@ class InvestigationClient:
         params: Sequence[Any] | None = None,
         expected_version: int | None = None,
     ) -> dict[str, Any]:
-        """``PUT /searches/saved/{id}``; ``expected_version`` makes it conditional."""
+        """``PUT /v1/search/saved/{id}``; ``expected_version`` makes it conditional."""
         body = _search_body(name, sql, purpose, description, params, expected_version)
         return dict(self._t.put(_sid(search_id), body))
 
     def delete_saved_search(self, search_id: str) -> dict[str, Any]:
-        """``DELETE /searches/saved/{id}``: leaves listings; history is kept."""
+        """``DELETE /v1/search/saved/{id}``: leaves listings; history is kept."""
         return dict(self._t.delete(_sid(search_id)))
 
     def run_saved_search(
         self, search_id: str, *, params: Sequence[Any] | None = None
     ) -> dict[str, Any]:
-        """``POST /searches/saved/{id}/run``: the ``POST /query`` response for the stored SQL."""
+        """``POST /v1/search/saved/{id}/run``: the ``POST /v1/query`` response for the stored SQL."""
         body: dict[str, Any] = {} if params is None else {"params": list(params)}
         return dict(self._t.post(_sid(search_id, "run"), body))
 
@@ -259,7 +259,7 @@ class AsyncInvestigationClient:
         params: Sequence[Any] | None = None,
     ) -> dict[str, Any]:
         body = _search_body(name, sql, purpose, description, params, None)
-        return dict(await self._t.post("/searches/saved", body))
+        return dict(await self._t.post("/v1/search/saved", body))
 
     async def list_saved_searches(
         self, *, q: str | None = None, limit: int | None = None

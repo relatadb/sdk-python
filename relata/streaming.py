@@ -2,12 +2,12 @@
 
 The server ships streaming surfaces at:
 
-- ``POST /query/arrow`` → Arrow IPC stream (columnar).
-- ``POST /query/stream`` with ``Accept: application/x-ndjson`` → row stream.
-- ``GET /watch/stream`` → finite SSE polls — emits governed query-result
+- ``POST /v1/query/arrow`` → Arrow IPC stream (columnar).
+- ``POST /v1/query/stream`` with ``Accept: application/x-ndjson`` → row stream.
+- ``GET /v1/watch/stream`` → finite SSE polls — emits governed query-result
   notifications from the server's bounded background evaluator.
-- ``GET /alerts/stream`` → SSE — pushes alerts to subscribed principals.
-- ``GET /a2a/tasks/:id/stream`` → SSE — A2A task lifecycle events.
+- ``GET /v1/alerts/stream`` → SSE — pushes alerts to subscribed principals.
+- ``GET /v1/a2a/tasks/:id/stream`` → SSE — A2A task lifecycle events.
 
 This module wraps each as a Python iterator (sync) or async iterator (async),
 with disconnect/reconnect backoff for SSE.
@@ -125,7 +125,7 @@ class StreamingClient:
         sync = self._client._sync  # noqa: SLF001
         with sync._client.stream(  # noqa: SLF001
             "POST",
-            "/query/stream",
+            "/v1/query/stream",
             headers={"Accept": "application/x-ndjson"},
             json={"purpose": eff_purpose, "sql": sql},
         ) as resp:
@@ -152,7 +152,7 @@ class StreamingClient:
         *,
         purpose: str | None = None,
     ) -> Iterator[bytes]:
-        """Stream the raw Arrow IPC byte stream from ``POST /query/arrow``.
+        """Stream the raw Arrow IPC byte stream from ``POST /v1/query/arrow``.
 
         Yields raw bytes chunks. Wrap with ``pyarrow.ipc.open_stream`` for
         typed record-batch consumption::
@@ -165,7 +165,7 @@ class StreamingClient:
         sync = self._client._sync  # noqa: SLF001
         with sync._client.stream(  # noqa: SLF001
             "POST",
-            "/query/arrow",
+            "/v1/query/arrow",
             json={"purpose": eff_purpose, "sql": sql},
         ) as resp:
             if not resp.is_success:
@@ -237,7 +237,7 @@ class StreamingClient:
         purpose: str,
         reconnect: bool = True,
     ) -> Iterator[dict[str, Any]]:
-        """SSE poll consumer for ``GET /watch/stream``.
+        """SSE poll consumer for ``GET /v1/watch/stream``.
 
         The server emits ``result_changed`` hashes, ``gap``, and
         ``evaluation_failed`` notifications; it does not stream changed row
@@ -248,7 +248,7 @@ class StreamingClient:
         from urllib.parse import urlencode
 
         params = urlencode({"sql": sql, "purpose": purpose})
-        yield from self._sse_stream(f"/watch/stream?{params}", reconnect=reconnect)
+        yield from self._sse_stream(f"/v1/watch/stream?{params}", reconnect=reconnect)
 
     def watch_stream(
         self,
@@ -273,12 +273,12 @@ class StreamingClient:
 
         sql = _watch_stream_sql(type, since)
         params = urlencode({"sql": sql, "purpose": "watch"})
-        return self._sse_stream(f"/watch/stream?{params}", reconnect=reconnect)
+        return self._sse_stream(f"/v1/watch/stream?{params}", reconnect=reconnect)
 
     def alerts(self, *, reconnect: bool = True) -> Iterator[dict[str, Any]]:
-        """SSE consumer for ``GET /alerts/stream``. Yields alert events
+        """SSE consumer for ``GET /v1/alerts/stream``. Yields alert events
         addressed to the caller's principal / tenant."""
-        yield from self._sse_stream("/alerts/stream", reconnect=reconnect)
+        yield from self._sse_stream("/v1/alerts/stream", reconnect=reconnect)
 
 
 class AsyncStreamingClient:
@@ -318,7 +318,7 @@ class AsyncStreamingClient:
         async def _gen() -> Any:  # noqa: ANN401
             async with async_transport._client.stream(  # noqa: SLF001
                 "POST",
-                "/query/stream",
+                "/v1/query/stream",
                 headers={"Accept": "application/x-ndjson"},
                 json={"purpose": eff_purpose, "sql": sql},
             ) as resp:
@@ -345,7 +345,7 @@ class AsyncStreamingClient:
         purpose: str | None = None,
     ) -> Any:  # noqa: ANN401
         """Async equivalent of :meth:`StreamingClient.query_arrow_raw` — async
-        iterator over the raw Arrow IPC byte stream from ``POST /query/arrow``.
+        iterator over the raw Arrow IPC byte stream from ``POST /v1/query/arrow``.
 
         Usage::
 
@@ -358,7 +358,7 @@ class AsyncStreamingClient:
         async def _gen() -> Any:  # noqa: ANN401
             async with async_transport._client.stream(  # noqa: SLF001
                 "POST",
-                "/query/arrow",
+                "/v1/query/arrow",
                 json={"purpose": eff_purpose, "sql": sql},
             ) as resp:
                 if not resp.is_success:
@@ -376,7 +376,7 @@ class AsyncStreamingClient:
         purpose: str,
         reconnect: bool = True,
     ) -> Any:  # noqa: ANN401
-        """Async SSE poll consumer for ``GET /watch/stream``.
+        """Async SSE poll consumer for ``GET /v1/watch/stream``.
 
         The server emits ``result_changed`` hashes, ``gap``, and
         ``evaluation_failed`` notifications; it does not stream changed row
@@ -390,7 +390,7 @@ class AsyncStreamingClient:
 
         async def _gen() -> Any:  # noqa: ANN401
             async with async_transport._client.stream(  # noqa: SLF001
-                "GET", f"/watch/stream?{params}"
+                "GET", f"/v1/watch/stream?{params}"
             ) as resp:
                 if not resp.is_success:
                     # The `async with` context closes the response on return;
@@ -439,7 +439,7 @@ class AsyncStreamingClient:
 
         async def _gen() -> Any:  # noqa: ANN401
             async with async_transport._client.stream(  # noqa: SLF001
-                "GET", f"/watch/stream?{params}"
+                "GET", f"/v1/watch/stream?{params}"
             ) as resp:
                 if not resp.is_success:
                     # The `async with` context closes the response on return;
@@ -468,12 +468,12 @@ class AsyncStreamingClient:
         return _gen()
 
     async def alerts(self, *, reconnect: bool = True) -> Any:  # noqa: ANN401
-        """Async SSE consumer for ``GET /alerts/stream``."""
+        """Async SSE consumer for ``GET /v1/alerts/stream``."""
         async_transport = self._client._async  # noqa: SLF001
 
         async def _gen() -> Any:  # noqa: ANN401
             async with async_transport._client.stream(  # noqa: SLF001
-                "GET", "/alerts/stream"
+                "GET", "/v1/alerts/stream"
             ) as resp:
                 if not resp.is_success:
                     # The `async with` context closes the response on return;

@@ -59,12 +59,12 @@ def test_migrate_batch_reembeds_and_preserves_other_fields():
     upserted: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             body = json.loads(req.content)
             assert "old-model:1.0" in body["sql"]
             assert "MigrDoc" in body["sql"]
             return httpx.Response(200, json={"data": rows})
-        if req.url.path == "/ingest":
+        if req.url.path == "/v1/ingest":
             # ObjectClient.upsert posts NDJSON.
             line = req.content.decode().strip()
             upserted.append(json.loads(line))
@@ -111,7 +111,7 @@ def test_migrate_batch_done_false_when_batch_is_full():
     rows = [_row(f"row-{i}", "text", "o", "old-model:1.0") for i in range(3)]
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(200, json={"data": rows})
         return httpx.Response(200, json={"object_id": "ok"})
 
@@ -155,9 +155,9 @@ def test_migrate_batch_records_per_row_failure_without_aborting_batch():
     ]
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(200, json={"data": rows})
-        if req.url.path == "/ingest":
+        if req.url.path == "/v1/ingest":
             line = json.loads(req.content.decode().strip())
             if line["id"] == "row-bad":
                 return httpx.Response(500, json={"error": "boom"})
@@ -203,7 +203,7 @@ def test_migrate_iterates_until_batch_reports_done():
     call_count = {"n": 0}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             call_count["n"] += 1
             if call_count["n"] == 1:
                 rows = [_row(f"row-{i}", "t", "o", "old-model:1.0") for i in range(2)]
@@ -236,7 +236,7 @@ def test_migrate_embedding_model_module_function_delegates_via_from_client(monke
     rows = [_row("row-1", "t", "o", "old-model:1.0")]
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(200, json={"data": rows})
         return httpx.Response(200, json={"object_id": "ok"})
 
@@ -322,7 +322,7 @@ def test_retire_requires_embedding_field_or_force():
 
 def test_retire_refuses_when_rows_still_remain():
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
+        assert req.url.path == "/v1/query"
         return httpx.Response(200, json={"data": [{"n": 3}]})
 
     client = _migration_client(handler)
@@ -335,7 +335,7 @@ def test_retire_succeeds_when_zero_rows_remain():
 
     def handler(req: httpx.Request) -> httpx.Response:
         calls.append(req.url.path)
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(200, json={"data": [{"n": 0}]})
         if req.url.path == "/admin/vector-index/retire-model-tag":
             body = json.loads(req.content)
@@ -346,12 +346,12 @@ def test_retire_succeeds_when_zero_rows_remain():
     client = _migration_client(handler)
     resp = client.retire("MigrDoc", "old-model:1.0", embedding_field="text")
     assert resp == {"buckets_removed": 1}
-    assert calls == ["/query", "/admin/vector-index/retire-model-tag"]
+    assert calls == ["/v1/query", "/admin/vector-index/retire-model-tag"]
 
 
 def test_retire_with_force_skips_remaining_check():
     def handler(req: httpx.Request) -> httpx.Response:
-        # Must go straight to retirement — no /query COUNT call at all.
+        # Must go straight to retirement — no /v1/query COUNT call at all.
         assert req.url.path == "/admin/vector-index/retire-model-tag"
         return httpx.Response(200, json={"buckets_removed": 1})
 
@@ -365,7 +365,7 @@ def test_retire_with_force_skips_remaining_check():
 
 def test_http_embed_batch_embedder_wraps_embed_batch():
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/embed/batch"
+        assert req.url.path == "/v1/embed"
         body = json.loads(req.content)
         assert body["texts"] == ["a", "b"]
         return httpx.Response(

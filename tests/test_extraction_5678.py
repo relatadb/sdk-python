@@ -53,54 +53,54 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
     c.entities_exist([{"type": "Person", "match": {"email": "a@b.c"}}])
     c.entities_exist([], definition="kb")
     assert seen == [
-        ("POST", "/ontology/suggestions", "", {"suggestions": [s]}),
-        ("GET", "/ontology/suggestions", "", None),
+        ("POST", "/v1/ontology/suggestions", "", {"suggestions": [s]}),
+        ("GET", "/v1/ontology/suggestions", "", None),
         (
             "GET",
-            "/ontology/suggestions",
+            "/v1/ontology/suggestions",
             "state=pending&kind=entity&definition=kb&low_confidence=true&stale=false&min_confidence=0.25&limit=5",
             None,
         ),
-        ("GET", "/ontology/suggestions/sug%2F1", "", None),
+        ("GET", "/v1/ontology/suggestions/sug%2F1", "", None),
         (
             "POST",
-            "/ontology/suggestions/sug_1/decision",
+            "/v1/ontology/suggestions/sug_1/decision",
             "",
             {"decision": "accept", "reason": "ok"},
         ),
         (
             "POST",
-            "/ontology/suggestions/sug_1/decision",
+            "/v1/ontology/suggestions/sug_1/decision",
             "",
             {"decision": "accept", "reason": "", "accept_low_confidence": True},
         ),
         (
             "POST",
-            "/ontology/suggestions/sug_1/decision",
+            "/v1/ontology/suggestions/sug_1/decision",
             "",
             {"decision": "reject", "reason": "wrong"},
         ),
         (
             "POST",
-            "/ontology/suggestions/sug_1/decision",
+            "/v1/ontology/suggestions/sug_1/decision",
             "",
             {"decision": "correct", "reason": "typo", "correction": fix},
         ),
-        ("POST", "/ontology/suggestions/sug_1/decision", "", {"decision": "reopen", "reason": ""}),
-        ("POST", "/ontology/suggestions/apply", "", {"definition": "kb"}),
+        ("POST", "/v1/ontology/suggestions/sug_1/decision", "", {"decision": "reopen", "reason": ""}),
+        ("POST", "/v1/ontology/suggestions/apply", "", {"definition": "kb"}),
         (
             "POST",
-            "/ontology/suggestions/apply",
+            "/v1/ontology/suggestions/apply",
             "",
             {"definition": "kb", "suggestion_ids": ["sug_1"]},
         ),
         (
             "POST",
-            "/entities/exists",
+            "/v1/entities/exists",
             "",
             {"candidates": [{"type": "Person", "match": {"email": "a@b.c"}}]},
         ),
-        ("POST", "/entities/exists", "", {"candidates": [], "definition": "kb"}),
+        ("POST", "/v1/entities/exists", "", {"candidates": [], "definition": "kb"}),
     ]
 
 
@@ -130,10 +130,10 @@ async def test_async_client_mirrors_the_sync_surface() -> None:
     await c.entities_exist([], definition="kb")
     await c.close()
     assert [(m, p) for m, p, _, _ in seen] == [
-        ("POST", "/ontology/suggestions"),
-        ("GET", "/ontology/suggestions"),
-        ("GET", "/ontology/suggestions/sug_1"),
-        ("POST", "/ontology/suggestions/sug_1/decision"),
-        ("POST", "/ontology/suggestions/apply"),
-        ("POST", "/entities/exists"),
+        ("POST", "/v1/ontology/suggestions"),
+        ("GET", "/v1/ontology/suggestions"),
+        ("GET", "/v1/ontology/suggestions/sug_1"),
+        ("POST", "/v1/ontology/suggestions/sug_1/decision"),
+        ("POST", "/v1/ontology/suggestions/apply"),
+        ("POST", "/v1/entities/exists"),
     ]

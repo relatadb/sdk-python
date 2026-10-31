@@ -79,7 +79,7 @@ def test_inject_rejects_unknown_matcher() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Wire-level — the hint reaches the outgoing /query body
+# Wire-level — the hint reaches the outgoing /v1/query body
 # ---------------------------------------------------------------------------
 
 

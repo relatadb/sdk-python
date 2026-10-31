@@ -23,7 +23,7 @@ def test_sync_server_error_keeps_header_delay_and_never_replays_post(payload):
         transport=httpx.MockTransport(handler))
     try:
         with pytest.raises(ServerError) as caught:
-            transport.post('/ingest/bulk', {'objects': [], 'queued': True})
+            transport.post('/v1/ingest/bulk', {'objects': [], 'queued': True})
     finally:
         transport.close()
     error = caught.value
@@ -46,7 +46,7 @@ async def test_async_server_error_preserves_delay_without_post_replay(payload):
         transport=httpx.MockTransport(handler))
     try:
         with pytest.raises(ServerError) as caught:
-            await transport.post('/ingest/bulk', {'objects': [], 'queued': True})
+            await transport.post('/v1/ingest/bulk', {'objects': [], 'queued': True})
     finally:
         await transport.aclose()
     assert caught.value.status_code == 503 and caught.value.retry_after == 2

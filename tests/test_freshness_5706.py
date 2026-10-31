@@ -14,7 +14,7 @@ BASE = "http://localhost:9090"
 
 def test_status_reads_the_status_route() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        assert (req.method, req.url.path) == ("GET", "/freshness/status")
+        assert (req.method, req.url.path) == ("GET", "/v1/freshness/status")
         return httpx.Response(200, json={"contract": "relata.freshness/v1", "token": "fv1.x", "indexes": []})
 
     out = FreshnessClient(BASE, transport=httpx.MockTransport(handler)).status()
@@ -25,7 +25,7 @@ def test_barrier_sends_exact_body_and_returns_report() -> None:
     seen: dict[str, object] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert (req.method, req.url.path) == ("POST", "/freshness/barrier")
+        assert (req.method, req.url.path) == ("POST", "/v1/freshness/barrier")
         seen.update(json.loads(req.content))
         return httpx.Response(200, json={"freshness": {"status": "complete"}})
 
@@ -79,7 +79,7 @@ def test_freshness_headers() -> None:
 @pytest.mark.asyncio
 async def test_async_barrier() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/freshness/barrier"
+        assert req.url.path == "/v1/freshness/barrier"
         return httpx.Response(200, json={"freshness": {"status": "complete"}})
 
     c = AsyncFreshnessClient(BASE, transport=httpx.MockTransport(handler))

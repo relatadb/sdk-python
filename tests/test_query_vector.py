@@ -1,4 +1,4 @@
-"""``query_vector`` / ``query_vector_model`` pass-through on ``POST /query`` (ADR-0309)."""
+"""``query_vector`` / ``query_vector_model`` pass-through on ``POST /v1/query`` (ADR-0309)."""
 
 from __future__ import annotations
 

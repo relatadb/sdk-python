@@ -1,6 +1,6 @@
 """Retrieval evidence (``relata.evidence/v1``, #5707).
 
-Send :func:`evidence_headers` with a ``/query``, ``/search``, ``/graphql`` or
+Send :func:`evidence_headers` with a ``/v1/query``, ``/v1/search``, ``/v1/graphql`` or
 MCP read to record version-pinned citations for its result. Fetch the record
 with :meth:`EvidenceClient.get`, and re-read every citation under the
 caller's *current* authorization with :meth:`EvidenceClient.replay`. Replay
@@ -33,7 +33,7 @@ def _replay_body(include_content: bool) -> dict[str, Any]:
 
 
 def _path(evidence_id: str) -> str:
-    return f"/evidence/{quote(evidence_id, safe='')}"
+    return f"/v1/evidence/{quote(evidence_id, safe='')}"
 
 
 class EvidenceClient:
@@ -62,16 +62,16 @@ class EvidenceClient:
         )
 
     def list(self, *, limit: int | None = None) -> dict[str, Any]:
-        """``GET /evidence``: the caller's unexpired records, newest first."""
-        path = "/evidence" if limit is None else f"/evidence?limit={int(limit)}"
+        """``GET /v1/evidence``: the caller's unexpired records, newest first."""
+        path = "/v1/evidence" if limit is None else f"/v1/evidence?limit={int(limit)}"
         return dict(self._t.get(path))
 
     def get(self, evidence_id: str) -> dict[str, Any]:
-        """``GET /evidence/{id}``: 404 when unknown, 410 once expired."""
+        """``GET /v1/evidence/{id}``: 404 when unknown, 410 once expired."""
         return dict(self._t.get(_path(evidence_id)))
 
     def replay(self, evidence_id: str, *, include_content: bool = False) -> dict[str, Any]:
-        """``POST /evidence/{id}/replay``: per-citation verified/hash_mismatch/missing/denied/deleted."""
+        """``POST /v1/evidence/{id}/replay``: per-citation verified/hash_mismatch/missing/denied/deleted."""
         return dict(self._t.post(_path(evidence_id) + "/replay", _replay_body(include_content)))
 
     def close(self) -> None:
@@ -110,7 +110,7 @@ class AsyncEvidenceClient:
         )
 
     async def list(self, *, limit: int | None = None) -> dict[str, Any]:
-        path = "/evidence" if limit is None else f"/evidence?limit={int(limit)}"
+        path = "/v1/evidence" if limit is None else f"/v1/evidence?limit={int(limit)}"
         return dict(await self._t.get(path))
 
     async def get(self, evidence_id: str) -> dict[str, Any]:

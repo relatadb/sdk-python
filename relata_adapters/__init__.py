@@ -1,7 +1,7 @@
 """Agent-framework memory adapters for Relata (#683, epic #669).
 
 Governed semantic-memory backends for the major agent frameworks, each mapping
-the framework's memory/storage interface onto Relata's `/memory/*` verbs via
+the framework's memory/storage interface onto Relata's `/v1/memory/*` verbs via
 :class:`relata.Memory`. None of the adapters import their framework, so they
 install and load with or without it (mirroring `relata_langgraph`).
 

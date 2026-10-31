@@ -1,9 +1,6 @@
 """Audit + provenance SDK (#78).
 
-Wraps ``/audit/count``, ``/audit/entries``, ``/audit/log``.
-The ``prov_export`` helper is a thin wrapper over the server's ``prov export``
-CLI shape; until ADR-117 lands (#59) the server-side ``prov export`` is a stub
-and the SDK call returns a clear error.
+Wraps ``GET /v1/audit/count`` and ``GET /v1/audit/log``.
 """
 
 from __future__ import annotations
@@ -45,43 +42,12 @@ class AuditClient:
         )
 
     # ------------------------------------------------------------------
-    # Audit entries (#78)
+    # Audit count + log (#78)
     # ------------------------------------------------------------------
 
     def count(self) -> dict[str, Any]:
         """Total audit-entry count + chain integrity flag."""
-        return self._t.get("/audit/count")
-
-    def entries(
-        self,
-        *,
-        principal: str | None = None,
-        purpose: str | None = None,
-        decision: str | None = None,
-        request_id: str | None = None,
-        since_ns: int | None = None,
-        until_ns: int | None = None,
-        limit: int = 100,
-        cursor: str | None = None,
-    ) -> dict[str, Any]:
-        """Paginated audit-entry listing with filters. Returns
-        ``{"entries": [...], "next_cursor": str | None, "chain_valid": bool}``."""
-        params: dict[str, str] = {"limit": str(limit)}
-        if principal:
-            params["principal"] = principal
-        if purpose:
-            params["purpose"] = purpose
-        if decision:
-            params["decision"] = decision
-        if request_id:
-            params["request_id"] = request_id
-        if since_ns is not None:
-            params["since"] = str(since_ns)
-        if until_ns is not None:
-            params["until"] = str(until_ns)
-        if cursor:
-            params["cursor"] = cursor
-        return self._t.get("/audit/entries?" + urlencode(params))
+        return self._t.get("/v1/audit/count")
 
     def log(
         self,
@@ -92,7 +58,7 @@ class AuditClient:
         table: str | None = None,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        """Filtered mutation-style audit projections (``GET /audit/log``).
+        """Filtered mutation-style audit projections (``GET /v1/audit/log``).
 
         ``from_``/``to`` are inclusive timestamp bounds, ``table`` a substring of
         the derived resource. ``tenant_id`` only applies to an unscoped admin
@@ -108,25 +74,7 @@ class AuditClient:
             params["table"] = table
         if tenant_id:
             params["tenant_id"] = tenant_id
-        return self._t.get("/audit/log?" + urlencode(params))
-
-    def find_by_request_id(self, request_id: str) -> dict[str, Any] | None:
-        """Look up a single audit entry by its ``request_id``. Returns ``None``
-        when no entry matches (the server returns an empty page)."""
-        page = self.entries(request_id=request_id, limit=1)
-        entries = page.get("entries") if isinstance(page, dict) else None
-        if entries and isinstance(entries, list) and entries:
-            entry = dict(entries[0])
-            # Never hand back a different request's entry (e.g. an older
-            # server that ignores the ``request_id`` filter returns the newest).
-            if entry.get("request_id", request_id) != request_id:
-                return None
-            return entry
-        return None
-
-    # ------------------------------------------------------------------
-    # Reports (#78)
-    # ------------------------------------------------------------------
+        return self._t.get("/v1/audit/log?" + urlencode(params))
 
     def close(self) -> None:
         self._t.close()
@@ -164,36 +112,7 @@ class AsyncAuditClient:
         )
 
     async def count(self) -> dict[str, Any]:
-        return await self._t.get("/audit/count")
-
-    async def entries(
-        self,
-        *,
-        principal: str | None = None,
-        purpose: str | None = None,
-        decision: str | None = None,
-        request_id: str | None = None,
-        since_ns: int | None = None,
-        until_ns: int | None = None,
-        limit: int = 100,
-        cursor: str | None = None,
-    ) -> dict[str, Any]:
-        params: dict[str, str] = {"limit": str(limit)}
-        if principal:
-            params["principal"] = principal
-        if purpose:
-            params["purpose"] = purpose
-        if decision:
-            params["decision"] = decision
-        if request_id:
-            params["request_id"] = request_id
-        if since_ns is not None:
-            params["since"] = str(since_ns)
-        if until_ns is not None:
-            params["until"] = str(until_ns)
-        if cursor:
-            params["cursor"] = cursor
-        return await self._t.get("/audit/entries?" + urlencode(params))
+        return await self._t.get("/v1/audit/count")
 
     async def log(
         self,
@@ -204,7 +123,7 @@ class AsyncAuditClient:
         table: str | None = None,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        """Filtered mutation-style audit projections (``GET /audit/log``).
+        """Filtered mutation-style audit projections (``GET /v1/audit/log``).
 
         ``from_``/``to`` are inclusive timestamp bounds, ``table`` a substring of
         the derived resource. ``tenant_id`` only applies to an unscoped admin
@@ -220,19 +139,7 @@ class AsyncAuditClient:
             params["table"] = table
         if tenant_id:
             params["tenant_id"] = tenant_id
-        return await self._t.get("/audit/log?" + urlencode(params))
-
-    async def find_by_request_id(self, request_id: str) -> dict[str, Any] | None:
-        page = await self.entries(request_id=request_id, limit=1)
-        entries = page.get("entries") if isinstance(page, dict) else None
-        if entries and isinstance(entries, list) and entries:
-            entry = dict(entries[0])
-            # Never hand back a different request's entry (e.g. an older
-            # server that ignores the ``request_id`` filter returns the newest).
-            if entry.get("request_id", request_id) != request_id:
-                return None
-            return entry
-        return None
+        return await self._t.get("/v1/audit/log?" + urlencode(params))
 
     async def close(self) -> None:
         await self._t.aclose()

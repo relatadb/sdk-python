@@ -1,6 +1,6 @@
 """MCP client — Model Context Protocol tool surface (#77 Phase 2).
 
-Wraps ``/mcp/initialize``, ``/mcp/tools``, ``/mcp/tools/call``. The server
+Wraps ``/v1/mcp/initialize``, ``/v1/mcp/tools``, ``/v1/mcp/tools/call``. The server
 responds with the MCP envelope ``{"content": [{"type":"text","text":"..."}],
 "isError": false}``; the :func:`unwrap_mcp` helper extracts the inner JSON.
 """
@@ -67,12 +67,12 @@ class McpClient:
     ) -> dict[str, Any]:
         """Send the MCP initialize handshake."""
         return unwrap_mcp(
-            self._t.post("/mcp/initialize", {"client_id": client_id, "version": version})
+            self._t.post("/v1/mcp/initialize", {"client_id": client_id, "version": version})
         )
 
     def list_tools(self) -> list[dict[str, Any]]:
         """List every MCP tool the server exposes (30+)."""
-        data = unwrap_mcp(self._t.get("/mcp/tools"))
+        data = unwrap_mcp(self._t.get("/v1/mcp/tools"))
         tools = data.get("tools") if isinstance(data, dict) else data
         return tools if isinstance(tools, list) else []
 
@@ -81,7 +81,7 @@ class McpClient:
         payload: dict[str, Any] = {"name": name}
         if arguments:
             payload["arguments"] = arguments
-        return unwrap_mcp(self._t.post("/mcp/tools/call", payload))
+        return unwrap_mcp(self._t.post("/v1/mcp/tools/call", payload))
 
     # ------------------------------------------------------------------
     # Convenience wrappers for the most-used MCP tools.
@@ -407,7 +407,7 @@ class McpClient:
 
     # --- Memory (the 10 cognitive verbs are reachable via MCP too) ---
     # The dedicated Memory client is the typed surface; these MCP wrappers
-    # exist for parity when an agent drives everything through /mcp/tools/call.
+    # exist for parity when an agent drives everything through /v1/mcp/tools/call.
 
     def remember(
         self,
@@ -688,7 +688,7 @@ class McpClient:
     ) -> dict[str, Any]:
         """``create_rule`` — create a detection rule (ADR-162, #2322).
 
-        #4663: ``target_type`` is required — the underlying ``POST /rules``
+        #4663: ``target_type`` is required — the underlying ``POST /v1/rules``
         handler (``rules_create_handler``, ``crates/relata-cli/src/serve/
         rules.rs``) 400s with "missing required field 'target_type'"
         without it. The previous ``description`` keyword was dropped: it is
@@ -857,11 +857,11 @@ class AsyncMcpClient:
         self, *, client_id: str = "relata-python-sdk", version: str = "1.0"
     ) -> dict[str, Any]:
         return unwrap_mcp(
-            await self._t.post("/mcp/initialize", {"client_id": client_id, "version": version})
+            await self._t.post("/v1/mcp/initialize", {"client_id": client_id, "version": version})
         )
 
     async def list_tools(self) -> list[dict[str, Any]]:
-        data = unwrap_mcp(await self._t.get("/mcp/tools"))
+        data = unwrap_mcp(await self._t.get("/v1/mcp/tools"))
         tools = data.get("tools") if isinstance(data, dict) else data
         return tools if isinstance(tools, list) else []
 
@@ -869,7 +869,7 @@ class AsyncMcpClient:
         payload: dict[str, Any] = {"name": name}
         if arguments:
             payload["arguments"] = arguments
-        return unwrap_mcp(await self._t.post("/mcp/tools/call", payload))
+        return unwrap_mcp(await self._t.post("/v1/mcp/tools/call", payload))
 
     # ------------------------------------------------------------------
     # Async mirrors of every McpClient convenience wrapper (#2757).
@@ -1427,7 +1427,7 @@ class AsyncMcpClient:
     ) -> dict[str, Any]:
         """``create_rule`` — create a detection rule (ADR-162, #2322).
 
-        #4663: ``target_type`` is required — the underlying ``POST /rules``
+        #4663: ``target_type`` is required — the underlying ``POST /v1/rules``
         handler (``rules_create_handler``, ``crates/relata-cli/src/serve/
         rules.rs``) 400s with "missing required field 'target_type'"
         without it. The previous ``description`` keyword was dropped: it is

@@ -79,7 +79,7 @@ def test_similar_image_sql_quotes_single_quotes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #2251 — HTTP dispatch through /query
+# #2251 — HTTP dispatch through /v1/query
 # ---------------------------------------------------------------------------
 
 
@@ -87,7 +87,7 @@ def test_similar_image_posts_similar_image_operator() -> None:
     seen: list[dict[str, object]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
+        assert req.url.path == "/v1/query"
         body = json.loads(req.content)
         seen.append(body)
         return httpx.Response(

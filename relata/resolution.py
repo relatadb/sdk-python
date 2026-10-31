@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
     from relata.client import RelataClient
 
-_BASE = "/resolution"
+_BASE = "/v1/resolution"
 
 
 def _ruleset_path(name: str, version: int | None = None, *, suffix: str = "") -> str:
@@ -38,7 +38,7 @@ def _candidate_path(candidate_id: str, suffix: str = "") -> str:
 
 
 class ResolutionClient:
-    """Synchronous client for ``/resolution``."""
+    """Synchronous client for ``/v1/resolution``."""
 
     def __init__(
         self,
@@ -63,17 +63,17 @@ class ResolutionClient:
         )
 
     def list_rulesets(self) -> dict[str, Any]:
-        """``GET /resolution/rulesets``."""
+        """``GET /v1/resolution/rulesets``."""
         return dict(self._t.get(f"{_BASE}/rulesets"))
 
     def get_ruleset(self, name: str, *, version: int | None = None) -> dict[str, Any]:
-        """``GET /resolution/rulesets/{name}`` (latest, or ``version``)."""
+        """``GET /v1/resolution/rulesets/{name}`` (latest, or ``version``)."""
         return dict(self._t.get(_ruleset_path(name, version)))
 
     def publish_ruleset(
         self, name: str, definition: dict[str, Any], *, expected_version: int = 0
     ) -> dict[str, Any]:
-        """``PUT /resolution/rulesets/{name}`` under the ``expected_version`` precondition."""
+        """``PUT /v1/resolution/rulesets/{name}`` under the ``expected_version`` precondition."""
         body = {"expected_version": int(expected_version), "definition": definition}
         return dict(self._t.put(_ruleset_path(name), body))
 
@@ -98,13 +98,13 @@ class ResolutionClient:
     def list_candidates(
         self, *, ruleset: str | None = None, state: str | None = None, limit: int | None = None
     ) -> dict[str, Any]:
-        """``GET /resolution/candidates``."""
+        """``GET /v1/resolution/candidates``."""
         query = {k: str(v) for k, v in (("ruleset", ruleset), ("state", state), ("limit", limit)) if v is not None}
         suffix = f"?{urlencode(query)}" if query else ""
         return dict(self._t.get(f"{_BASE}/candidates{suffix}"))
 
     def get_candidate(self, candidate_id: str) -> dict[str, Any]:
-        """``GET /resolution/candidates/{id}``: evidence, history and live values."""
+        """``GET /v1/resolution/candidates/{id}``: evidence, history and live values."""
         return dict(self._t.get(_candidate_path(candidate_id)))
 
     def decide(self, candidate_id: str, decision: str, reason: str) -> dict[str, Any]:
@@ -125,11 +125,11 @@ class ResolutionClient:
         return self.decide(candidate_id, "unmerge", reason)
 
     def get_entity(self, canonical_id: str) -> dict[str, Any]:
-        """``GET /resolution/entities/{canonical}``: follows merge aliases."""
+        """``GET /v1/resolution/entities/{canonical}``: follows merge aliases."""
         return dict(self._t.get(f"{_BASE}/entities/{quote(canonical_id, safe='')}"))
 
     def lookup(self, type_name: str, source_id: str) -> dict[str, Any]:
-        """``GET /resolution/lookup``: the canonical id of a source record."""
+        """``GET /v1/resolution/lookup``: the canonical id of a source record."""
         query = urlencode({"type": type_name, "id": source_id})
         return dict(self._t.get(f"{_BASE}/lookup?{query}"))
 

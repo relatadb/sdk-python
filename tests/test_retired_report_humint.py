@@ -6,8 +6,9 @@ def test_report_named_methods_are_absent() -> None:
     for cls in [AuditClient,AsyncAuditClient]:
         assert not hasattr(cls,"sign_receipt")
         assert not hasattr(cls,"export_pdf")
-        assert hasattr(cls,"entries")
-        assert hasattr(cls,"find_by_request_id")
+        assert not hasattr(cls,"entries")
+        assert not hasattr(cls,"find_by_request_id")
+        assert hasattr(cls,"log")
 
 def test_humint_named_methods_are_absent() -> None:
     for cls in [GovernanceClient,AsyncGovernanceClient]:

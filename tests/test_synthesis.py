@@ -1,8 +1,8 @@
 """Tests for citation injection + post-synthesis faithfulness scoring —
 RAG epic highest-priority SDK ticket (#4527, wraps #4514's ADR-0299
-citation-grade fields and consumes #4523's typed ``/rag/query`` client).
+citation-grade fields and consumes #4523's typed ``/v1/rag/query`` client).
 
-Built and tested against the frozen ``/rag/query`` contract with a mocked
+Built and tested against the frozen ``/v1/rag/query`` contract with a mocked
 HTTP transport (``httpx.MockTransport``, same approach #4523's fix-agent
 used) — no live server, and no live LLM provider: every LLM call in these
 tests is a plain Python stub, since RelataDB has no server-side agent loop
@@ -289,7 +289,7 @@ def test_uncited_sentence_with_no_evidence_is_unsupported_by_default():
 
 def test_synthesize_end_to_end_from_mocked_rag_client():
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/rag/query"
+        assert req.url.path == "/v1/rag/query"
         json.loads(req.content)  # sanity: valid JSON body
         return httpx.Response(200, json={"hits": [_HIT_SUPPORTED, _HIT_OTHER]})
 

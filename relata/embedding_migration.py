@@ -16,10 +16,10 @@ Three pieces, matching the ticket's two gaps + retirement step:
 
 1. **Re-embed + backfill** (Gap 1) — :meth:`EmbeddingMigrationClient.migrate`
    pages rows still tagged ``old_model_tag``, re-embeds each via a
-   caller-supplied ``embedder`` callable (RelataDB's own ``/embed/batch``,
+   caller-supplied ``embedder`` callable (RelataDB's own ``/v1/embed``,
    wrapped by :func:`http_embed_batch_embedder`, or any external embedder),
    and writes the new vector back tagged ``new_model_tag`` — via the
-   ordinary ``/query``/``/ingest`` data-plane surface, no admin auth needed.
+   ordinary ``/v1/query``/``/v1/ingest`` data-plane surface, no admin auth needed.
 2. **Dual/multi-tag search** (Gap 2, "Option B") —
    :meth:`EmbeddingMigrationClient.search_multi_tag` calls the new
    admin-gated ``POST /admin/vector-index/search-multi-tag`` endpoint, which
@@ -67,7 +67,7 @@ if TYPE_CHECKING:
 #: the same order.
 Embedder = Callable[[list[str]], list[list[float]]]
 
-#: Row fields `ObjectClient.get()`/`POST /query` return that are
+#: Row fields `ObjectClient.get()`/`POST /v1/query` return that are
 #: server-derived, not caller-owned data — re-sending them verbatim as part
 #: of an upsert's `fields` payload would either no-op or conflict with the
 #: server's own bookkeeping. Stripped before every re-embed write-back.
@@ -92,7 +92,7 @@ def _sql_string_literal(value: str) -> str:
 
 
 def http_embed_batch_embedder(client: RelataClient, *, model: str | None = None) -> Embedder:
-    """Wrap RelataDB's own `POST /embed/batch` as an :data:`Embedder`
+    """Wrap RelataDB's own `POST /v1/embed` as an :data:`Embedder`
     callable, for callers who want the server's configured embedder
     (`RELATA_ACCEL_ENDPOINT` sidecar, or the built-in CPU lexical default)
     to drive re-embedding, rather than supplying an external one.
@@ -157,7 +157,7 @@ class EmbeddingMigrationClient:
         # #2321 (ADR-0261): `/admin/vector-index/*` is mounted only on the
         # loopbound admin control-plane listener — `HttpTransport` routes
         # those paths to `admin_base_url` automatically when supplied,
-        # `/query`/`/ingest` (Gap 1) keep going to `base_url` unchanged.
+        # `/v1/query`/`/v1/ingest` (Gap 1) keep going to `base_url` unchanged.
         self._t = HttpTransport(
             base_url,
             bearer_token,
@@ -209,7 +209,7 @@ class EmbeddingMigrationClient:
         eff_purpose = purpose or self._purpose
         if eff_purpose:
             payload["purpose"] = eff_purpose
-        data = self._t.post("/query", payload)
+        data = self._t.post("/v1/query", payload)
         raw = data.get("data") or data.get("rows") or []
         return [dict(r) for r in raw if isinstance(r, dict)]
 
@@ -235,7 +235,7 @@ class EmbeddingMigrationClient:
         eff_purpose = purpose or self._purpose
         if eff_purpose:
             payload["purpose"] = eff_purpose
-        data = self._t.post("/query", payload)
+        data = self._t.post("/v1/query", payload)
         raw = data.get("data") or data.get("rows") or []
         if not raw or not isinstance(raw[0], dict):
             return 0
@@ -266,7 +266,7 @@ class EmbeddingMigrationClient:
         not read or write the old bucket at all).
 
         Every other field on the row is preserved verbatim (fetched via
-        `POST /query`, server-managed fields like `id`/timestamps stripped,
+        `POST /v1/query`, server-managed fields like `id`/timestamps stripped,
         then re-sent alongside the new embedding fields) — a partial upsert
         that dropped unrelated fields would silently corrupt the row.
 

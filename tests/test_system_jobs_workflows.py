@@ -19,7 +19,7 @@ def test_job_status_hits_named_route() -> None:
     from relata.system import SystemClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/jobs/c2_beacon"
+        assert req.url.path == "/v1/jobs/c2_beacon"
         assert req.method == "GET"
         return httpx.Response(200, json={"name": "c2_beacon", "status": "Running"})
 

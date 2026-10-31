@@ -41,7 +41,7 @@ def test_governance_create_rule_posts_to_rules() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
         assert req.method == "POST"
-        assert req.url.path == "/rules"
+        assert req.url.path == "/v1/rules"
         assert dict(req.url.params) == {"purpose": "audit"}
         body = json.loads(req.content)
         assert body == {"name": "r1", "condition_sql": "age > 18", "target_type": "Person"}
@@ -65,7 +65,7 @@ def test_governance_place_legal_hold_posts_payload() -> None:
     from relata.governance import GovernanceClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/retention/holds"
+        assert req.url.path == "/v1/retention/holds"
         body = json.loads(req.content)
         assert body == {
             "case_id": "case-42",
@@ -85,7 +85,7 @@ def test_governance_submit_dsar_uses_query_params() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.method == "GET"
-        assert req.url.path == "/gdpr/dsar"
+        assert req.url.path == "/v1/gdpr/dsar"
         # The query string carries subject_identity + reason.
         qs = str(req.url)
         assert "subject_identity=alice" in qs
@@ -101,7 +101,7 @@ def test_governance_suppress_rule_sends_entity_id() -> None:
     from relata.governance import GovernanceClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/rules/r1/suppress"
+        assert req.url.path == "/v1/rules/r1/suppress"
         body = json.loads(req.content)
         assert body == {"entity_id": "entity-42", "condition": "known FP"}
         return httpx.Response(200, json={"rule_id": "r1"})
@@ -120,7 +120,7 @@ def test_mcp_list_tools_unwraps_envelope() -> None:
     from relata.mcp import McpClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/mcp/tools"
+        assert req.url.path == "/v1/mcp/tools"
         return httpx.Response(
             200,
             json={
@@ -140,7 +140,7 @@ def test_mcp_call_tool_sends_arguments() -> None:
     from relata.mcp import McpClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/mcp/tools/call"
+        assert req.url.path == "/v1/mcp/tools/call"
         body = json.loads(req.content)
         assert body == {"name": "query_knowledge", "arguments": {"sql": "SELECT 1", "purpose": "x"}}
         return httpx.Response(
@@ -167,9 +167,9 @@ def test_a2a_submit_and_get_task() -> None:
     from relata.a2a import A2AClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.method == "POST" and req.url.path == "/a2a/tasks":
+        if req.method == "POST" and req.url.path == "/v1/a2a/tasks":
             return httpx.Response(200, json={"id": "task-1", "status": "pending"})
-        if req.method == "GET" and req.url.path == "/a2a/tasks/task-1":
+        if req.method == "GET" and req.url.path == "/v1/a2a/tasks/task-1":
             return httpx.Response(200, json={"id": "task-1", "status": "completed"})
         return httpx.Response(404)
 
@@ -181,31 +181,11 @@ def test_a2a_submit_and_get_task() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #78 — Audit entries + reports
+# #78 — Audit log
 # ---------------------------------------------------------------------------
 
 
-def test_audit_entries_filters_in_query_string() -> None:
-    from relata.audit import AuditClient
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/audit/entries"
-        qs = str(req.url)
-        assert "principal=alice" in qs
-        assert "decision=Deny" in qs
-        assert "limit=50" in qs
-        return httpx.Response(
-            200,
-            json={"entries": [{"request_id": "r1"}], "next_cursor": None, "chain_valid": True},
-        )
-
-    c = AuditClient(BASE, transport=_wrap(handler))
-    page = c.entries(principal="alice", decision="Deny", limit=50)
-    assert page["entries"][0]["request_id"] == "r1"
-    assert page["chain_valid"] is True
-
-
-def test_audit_log_and_entries_since_until_wire_names() -> None:
+def test_audit_log_wire_names() -> None:
     from relata.audit import AuditClient
 
     seen: list[str] = []
@@ -216,76 +196,24 @@ def test_audit_log_and_entries_since_until_wire_names() -> None:
 
     c = AuditClient(BASE, transport=_wrap(handler))
     c.log(limit=5, from_="2026-01-01", table="Person", tenant_id="t1")
-    c.entries(since_ns=10, until_ns=20)
-    assert "/audit/log?" in seen[0]
+    assert "/v1/audit/log?" in seen[0]
     assert "limit=5" in seen[0] and "from=2026-01-01" in seen[0]
     assert "table=Person" in seen[0] and "tenant_id=t1" in seen[0]
-    assert "since=10" in seen[1] and "until=20" in seen[1] and "since_ns" not in seen[1]
 
 
-def test_audit_find_by_request_id_returns_first_match() -> None:
-    from relata.audit import AuditClient
+def test_audit_entries_wrappers_are_removed() -> None:
+    from relata.audit import AsyncAuditClient, AuditClient
 
-    def handler(req: httpx.Request) -> httpx.Response:
-        assert "request_id=req-7" in str(req.url)
-        return httpx.Response(
-            200,
-            json={"entries": [{"request_id": "req-7", "principal": "alice"}], "next_cursor": None},
-        )
-
-    c = AuditClient(BASE, transport=_wrap(handler))
-    entry = c.find_by_request_id("req-7")
-    assert entry is not None
-    assert entry["principal"] == "alice"
-
-
-# Recorded behaviour of GET /audit/entries (crates/relata-cli audit_handlers):
-# newest-first, `request_id` / `decision` are exact-match server-side filters,
-# every projection echoes `request_id` and `decision`.
-_AUDIT_LOG = [  # newest first
-    {"request_id": "req-newest", "principal": "carol", "decision": "deny"},
-    {"request_id": "req-other", "principal": "bob", "decision": "allow"},
-    {"request_id": "req-target", "principal": "alice", "decision": "allow"},
-]
-
-
-def _audit_server(req: httpx.Request) -> httpx.Response:
-    qs = req.url.params
-    rows = _AUDIT_LOG
-    if qs.get("request_id"):
-        rows = [r for r in rows if r["request_id"] == qs["request_id"]]
-    if qs.get("decision"):
-        rows = [r for r in rows if r["decision"] == qs["decision"].lower()]
-    rows = rows[: int(qs.get("limit", "100"))]
-    return httpx.Response(200, json={"entries": rows, "chain_valid": True})
-
-
-def test_audit_find_by_request_id_not_the_newest_entry() -> None:
-    from relata.audit import AuditClient
-
-    c = AuditClient(BASE, transport=_wrap(_audit_server))
-    entry = c.find_by_request_id("req-target")
-    assert entry is not None
-    assert entry["principal"] == "alice"  # the match, not the newest (carol)
-    assert c.find_by_request_id("req-missing") is None
-    assert [e["principal"] for e in c.entries(decision="Deny")["entries"]] == ["carol"]
-
-
-def test_audit_find_by_request_id_rejects_mismatched_entry_from_old_server() -> None:
-    from relata.audit import AuditClient
-
-    def ignores_filter(req: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"entries": _AUDIT_LOG[:1], "chain_valid": True})
-
-    c = AuditClient(BASE, transport=_wrap(ignores_filter))
-    assert c.find_by_request_id("req-target") is None
+    for cls in (AuditClient, AsyncAuditClient):
+        assert not hasattr(cls, "entries")
+        assert not hasattr(cls, "find_by_request_id")
 
 
 def test_identity_label_posts_payload() -> None:
     from relata.identity import IdentityClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/identity/label"
+        assert req.url.path == "/v1/identity/label"
         body = json.loads(req.content)
         assert body == {"identity": "alice@example.com", "label": "Alice", "confidence": 0.9}
         return httpx.Response(200, json={"identity": "alice@example.com", "label": "Alice"})
@@ -299,7 +227,7 @@ def test_identity_register_lookup_posts_csv() -> None:
     from relata.identity import IdentityClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/lookup/register"
+        assert req.url.path == "/v1/lookup/register"
         body = json.loads(req.content)
         assert body["name"] == "country_codes"
         assert "KE,Kenya" in body["csv_data"]
@@ -316,7 +244,7 @@ def test_identity_erase_subject_builds_sql() -> None:
     seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
+        assert req.url.path == "/v1/query"
         body = json.loads(req.content)
         seen.append(body)
         return httpx.Response(200, json={"rows": [], "query_id": "q1", "elapsed_ms": 1})
@@ -341,7 +269,7 @@ def test_identity_erase_subject_builds_sql() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #82 — ObjectClient upsert via /ingest
+# #82 — ObjectClient upsert via /v1/ingest
 # ---------------------------------------------------------------------------
 
 
@@ -351,7 +279,7 @@ def test_object_upsert_sends_ndjson_to_ingest() -> None:
     seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/ingest"
+        assert req.url.path == "/v1/ingest"
         assert "object_type=Person" in str(req.url)
         # The body is NDJSON, one row per line.
         body_text = req.content.decode()
@@ -409,7 +337,7 @@ def test_ingest_cdr_normalizes_rows_through_generic_contract() -> None:
     seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/ingest"
+        assert req.url.path == "/v1/ingest"
         assert "purpose=finint" in str(req.url)
         assert req.url.params["object_type"] == "CdrRecord"
         assert req.headers["content-type"] == "application/json"
@@ -583,7 +511,7 @@ def test_vector_knn_search_builds_pgvector_sql() -> None:
     seen_sql: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
+        assert req.url.path == "/v1/query"
         body = json.loads(req.content)
         seen_sql.append(body["sql"])
         return httpx.Response(
@@ -672,7 +600,7 @@ def test_vector_similar_to_builds_sql() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #1172 — VectorClient.embed / embed_batch (direct /embed HTTP door)
+# #1172 — VectorClient.embed / embed_batch (direct /v1/embed HTTP door)
 # ---------------------------------------------------------------------------
 
 
@@ -682,7 +610,7 @@ def test_vector_embed_posts_to_embed_endpoint() -> None:
     seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/embed"
+        assert req.url.path == "/v1/embed"
         seen.append(json.loads(req.content))
         return httpx.Response(200, json={"embedding": [0.1, 0.2], "model": "lexical", "dim": 2})
 
@@ -698,7 +626,7 @@ def test_vector_embed_batch_posts_to_embed_batch_endpoint() -> None:
     seen: list[dict[str, Any]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/embed/batch"
+        assert req.url.path == "/v1/embed"
         seen.append(json.loads(req.content))
         return httpx.Response(
             200,

@@ -1,4 +1,4 @@
-"""Tests for the typed ``/rag/query`` client — RAG epic foundational SDK
+"""Tests for the typed ``/v1/rag/query`` client — RAG epic foundational SDK
 ticket (#4523, wraps #4514's ADR-0299 contract).
 
 Built and tested against the documented request/response contract with
@@ -217,14 +217,14 @@ def test_rag_query_response_total_mirrors_hit_count():
     assert len(resp.hits) == 1
 
 
-# ── RagClient.query → POST /rag/query ───────────────────────────────────────
+# ── RagClient.query → POST /v1/rag/query ───────────────────────────────────────
 
 
 def test_rag_client_posts_full_contract_and_returns_typed_response():
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/rag/query"
+        assert req.url.path == "/v1/rag/query"
         captured.update(json.loads(req.content))
         return httpx.Response(200, json=_RAG_PAYLOAD)
 

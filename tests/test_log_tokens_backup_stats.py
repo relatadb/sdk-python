@@ -1,9 +1,8 @@
-"""Tests for the final 4 SDK modules: log (#83), tokens (#84), backup (#88),
+"""Tests for the tenant self-service token client, backup (#88),
 and the partner-exact stats verification (#86)."""
 
 from __future__ import annotations
 
-import base64
 import json
 from collections.abc import Callable
 
@@ -19,146 +18,78 @@ def _wrap(handler: Handler) -> httpx.MockTransport:
 
 
 # ---------------------------------------------------------------------------
-# #83 — Ordered integrity log
+# Tenant self-service tokens (/v1/auth/tokens/self)
 # ---------------------------------------------------------------------------
 
 
-def test_log_append_returns_index() -> None:
-    from relata.log import LogClient
+def test_token_list_self() -> None:
+    from relata.tokens import TokenClient
 
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
-        assert req.url.path == "/log/leaf"
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.method == "GET"
+        assert req.url.path == "/v1/auth/tokens/self"
+        return httpx.Response(200, json={"tokens": [{"id": "tok-1"}]})
+
+    c = TokenClient(BASE, transport=_wrap(handler))
+    assert c.list_self()["tokens"][0]["id"] == "tok-1"
+
+
+def test_token_self_audit() -> None:
+    from relata.tokens import TokenClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.method == "GET"
+        assert req.url.path == "/v1/auth/tokens/self/audit"
+        return httpx.Response(200, json={"events": []})
+
+    c = TokenClient(BASE, transport=_wrap(handler))
+    assert c.self_audit() == {"events": []}
+
+
+def test_token_rotate_self() -> None:
+    from relata.tokens import TokenClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
         assert req.method == "POST"
-        body = json.loads(req.content)
-        decoded = base64.b64decode(body["data_b64"])
-        assert decoded == b"hello-log"
-        return httpx.Response(201, json={"index": 42, "commit_ns": 1760000000})
-
-    c = LogClient(BASE, transport=_wrap(handler))
-    idx, commit_ns = c.append(b"hello-log")
-    assert idx == 42
-    assert commit_ns == 1760000000
-
-
-def test_log_head() -> None:
-    from relata.log import LogClient
-
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
-        assert req.url.path == "/log/head"
-        return httpx.Response(200, json={"head": 999})
-
-    c = LogClient(BASE, transport=_wrap(handler))
-    assert c.head() == 999
-
-
-def test_log_load_leaves_decodes_base64() -> None:
-    from relata.log import LogClient
-
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
-        assert "since=5" in str(req.url)
-        assert "limit=10" in str(req.url)
-        return httpx.Response(
-            200,
-            json={
-                "leaves": [
-                    {"index": 5, "data_b64": base64.b64encode(b"aaa").decode(), "commit_ns": 1},
-                    {"index": 6, "data_b64": base64.b64encode(b"bbb").decode(), "commit_ns": 2},
-                ],
-                "count": 2,
-            },
-        )
-
-    c = LogClient(BASE, transport=_wrap(handler))
-    leaves = c.load_leaves(since=5, limit=10)
-    assert len(leaves) == 2
-    assert leaves[0].index == 5
-    assert leaves[0].data == b"aaa"
-    assert leaves[1].data == b"bbb"
-
-
-# ---------------------------------------------------------------------------
-# #84 — Dedup / uniqueness tokens
-# ---------------------------------------------------------------------------
-
-
-def test_token_remember_new_returns_true() -> None:
-    from relata.tokens import TokenClient
-
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
-        assert req.url.path == "/tokens"
-        body = json.loads(req.content)
-        assert body == {"id": "replay-defence-1"}
-        return httpx.Response(201, json={"newly_inserted": True, "token_id": "tok-1"})
+        assert req.url.path == "/v1/auth/tokens/self/rotate"
+        return httpx.Response(200, json={"secret": "new-secret"})
 
     c = TokenClient(BASE, transport=_wrap(handler))
-    assert c.remember("replay-defence-1") is True
+    assert c.rotate_self()["secret"] == "new-secret"
 
 
-def test_token_remember_duplicate_returns_false() -> None:
+def test_token_revoke_self() -> None:
     from relata.tokens import TokenClient
 
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
-        return httpx.Response(200, json={"newly_inserted": False, "token_id": "tok-1"})
-
-    c = TokenClient(BASE, transport=_wrap(handler))
-    assert c.remember("replay-defence-1") is False
-
-
-def test_token_check_present() -> None:
-    from relata.tokens import TokenClient
-
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
-        assert req.url.path == "/tokens/tok-1"
-        return httpx.Response(
-            200,
-            json={"present": True, "inserted_at_ns": 1760000000, "ttl_secs": 86400},
-        )
-
-    c = TokenClient(BASE, transport=_wrap(handler))
-    result = c.check("tok-1")
-    assert result["present"] is True
-    assert result["inserted_at_ns"] == 1760000000
-
-
-def test_token_check_absent() -> None:
-    from relata.tokens import TokenClient
-
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
-        return httpx.Response(200, json={"present": False})
-
-    c = TokenClient(BASE, transport=_wrap(handler))
-    result = c.check("missing-tok")
-    assert result["present"] is False
-
-
-def test_token_revoke() -> None:
-    from relata.tokens import TokenClient
-
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
+    def handler(req: httpx.Request) -> httpx.Response:
         assert req.method == "DELETE"
-        assert req.url.path == "/tokens/tok-1"
+        assert req.url.path == "/v1/auth/tokens/self/tok-1"
         return httpx.Response(200, json={"revoked": True})
 
     c = TokenClient(BASE, transport=_wrap(handler))
-    assert c.revoke("tok-1") is True
+    assert c.revoke_self("tok-1") == {"revoked": True}
 
 
-def test_token_stats() -> None:
-    from relata.tokens import TokenClient, TokenStats
+async def test_async_token_self_service_mirrors_sync() -> None:
+    from relata.tokens import AsyncTokenClient
 
-    def handler(req: httpx.Request) -> httpx.Response:  # noqa: E501
-        assert req.url.path == "/tokens/stats"
-        return httpx.Response(
-            200,
-            json={"count": 42, "oldest_ns": 1759000000, "eviction_policy": "min_age_secs=86400"},
-        )
+    seen: list[tuple[str, str]] = []
 
-    c = TokenClient(BASE, transport=_wrap(handler))
-    stats = c.stats()
-    assert isinstance(stats, TokenStats)
-    assert stats.count == 42
-    assert stats.oldest_ns == 1759000000
-    assert "86400" in stats.eviction_policy
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append((req.method, req.url.path))
+        return httpx.Response(200, json={})
+
+    c = AsyncTokenClient(BASE, transport=httpx.MockTransport(handler))
+    await c.list_self()
+    await c.self_audit()
+    await c.rotate_self()
+    await c.revoke_self("tok-1")
+    assert seen == [
+        ("GET", "/v1/auth/tokens/self"),
+        ("GET", "/v1/auth/tokens/self/audit"),
+        ("POST", "/v1/auth/tokens/self/rotate"),
+        ("DELETE", "/v1/auth/tokens/self/tok-1"),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +211,7 @@ def test_backup_incremental_create() -> None:
 
 
 def test_stats_populates_log_leaves_and_tokens() -> None:
-    """Now that #83 + #84 server primitives shipped, the /debug/stats
+    """Now that #83 + #84 server primitives shipped, the /v1/system/stats
     endpoint should emit non-None log_leaves and tokens counts."""
     from relata import RelataClient
     from relata._http import HttpTransport

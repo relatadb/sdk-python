@@ -50,7 +50,7 @@ def test_every_server_mcp_tool_is_reachable_via_call_tool() -> None:
     seen: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/mcp/tools/call":
+        if req.url.path == "/v1/mcp/tools/call":
             body = json.loads(req.content)
             seen.append(body["name"])
         return httpx.Response(
@@ -76,7 +76,7 @@ def test_mcp_typed_wrappers_match_server_names() -> None:
     seen: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/mcp/tools/call":
+        if req.url.path == "/v1/mcp/tools/call":
             body = json.loads(req.content)
             seen.append(body["name"])
         return httpx.Response(
@@ -119,11 +119,11 @@ def test_a2a_checkpoint_save_load_round_trip() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append((req.method, req.url.path))
-        if req.method == "PUT" and "/a2a/checkpoints/t-1/c-1" in req.url.path:
+        if req.method == "PUT" and "/v1/a2a/checkpoints/t-1/c-1" in req.url.path:
             body = json.loads(req.content)
             assert body == {"checkpoint": {"x": 1}}
             return httpx.Response(200, json={"saved": True, "checkpoint_id": "c-1"})
-        if req.method == "GET" and "/a2a/checkpoints/t-1/c-1" in req.url.path:
+        if req.method == "GET" and "/v1/a2a/checkpoints/t-1/c-1" in req.url.path:
             return httpx.Response(200, json={"checkpoint": {"x": 1}})
         return httpx.Response(404)
 
@@ -133,8 +133,8 @@ def test_a2a_checkpoint_save_load_round_trip() -> None:
     loaded = c.load_checkpoint("t-1", "c-1")
     assert loaded["checkpoint"] == {"x": 1}
     # PUT then GET — verify the path/method order.
-    assert ("PUT", "/a2a/checkpoints/t-1/c-1") in seen
-    assert ("GET", "/a2a/checkpoints/t-1/c-1") in seen
+    assert ("PUT", "/v1/a2a/checkpoints/t-1/c-1") in seen
+    assert ("GET", "/v1/a2a/checkpoints/t-1/c-1") in seen
 
 
 def test_a2a_agent_card_fetches_well_known() -> None:
@@ -157,7 +157,7 @@ def test_a2a_agent_card_fetches_well_known() -> None:
 
 def test_system_client_jobs_status() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/jobs"
+        assert req.url.path == "/v1/jobs"
         return httpx.Response(
             200,
             json={"jobs": [{"name": "orphan_sweep", "status": "ok"}]},

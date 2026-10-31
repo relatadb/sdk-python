@@ -1,9 +1,9 @@
 """
-GraphQL example — governed `/graphql` door (ADR-020's 2026-08-01 update, #1173).
+GraphQL example — governed `/v1/graphql` door (ADR-020's 2026-08-01 update, #1173).
 
 Note: ADR-220 originally named a dedicated GraphQL protocol-door decision;
 that file was deleted and the number later recycled for an unrelated
-decision. This shipped `/graphql` door is documented instead by the
+decision. This shipped `/v1/graphql` door is documented instead by the
 ADR-020 update (2026-08-01) and issue #1173. See #2101.
 
 Demonstrates the four supported query shapes plus error handling:
@@ -14,7 +14,7 @@ Demonstrates the four supported query shapes plus error handling:
 5. Error envelope from an unsupported operation (mutation)
 
 The server translates a GraphQL subset to SQL and runs it through the same
-governed query path (auth, purpose, ACL, audit) as a normal `POST /query`.
+governed query path (auth, purpose, ACL, audit) as a normal `POST /v1/query`.
 Mutations, subscriptions, fragments, and unions are not supported — the server
 returns a non-empty `errors` envelope which the SDK raises as `RelataError`.
 

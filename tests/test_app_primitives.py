@@ -18,7 +18,7 @@ def _client(handler):  # type: ignore[no-untyped-def]
 
 def test_sequence_next_sends_camel_case_body() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.method == "POST" and req.url.path == "/sequences/inv/next"
+        assert req.method == "POST" and req.url.path == "/v1/sequences/inv/next"
         assert json.loads(req.content) == {"count": 5, "idempotencyKey": "k"}
         return httpx.Response(200, json={"start": 1, "end": 5, "next": 6, "duplicate": False})
 
@@ -38,8 +38,8 @@ def test_claim_returns_jobs_and_complete_sends_fence() -> None:
     jobs = c.claim("q", "w1", lease_ms=1000, max=2)
     assert jobs[0]["fencingToken"] == 7
     c.complete("j1", 7, result={"ok": True})
-    assert seen[0] == ("/queues/q/claim", {"workerId": "w1", "leaseMs": 1000, "max": 2})
-    assert seen[1] == ("/jobs/j1/complete", {"fencingToken": 7, "result": {"ok": True}})
+    assert seen[0] == ("/v1/queues/q/claim", {"workerId": "w1", "leaseMs": 1000, "max": 2})
+    assert seen[1] == ("/v1/jobs/j1/complete", {"fencingToken": 7, "result": {"ok": True}})
 
 
 def test_stale_token_surfaces_as_an_error() -> None:
@@ -57,7 +57,7 @@ def test_stale_token_surfaces_as_an_error() -> None:
 
 def test_list_jobs_builds_query_string() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/queues/q/jobs"
+        assert req.url.path == "/v1/queues/q/jobs"
         assert dict(req.url.params) == {"state": "dead", "limit": "5"}
         return httpx.Response(200, json={"queue": "q", "counts": {}, "jobs": []})
 

@@ -26,9 +26,9 @@ async def test_async_add_search_forget_roundtrip() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         path = request.url.path
-        if path == "/memory/remember":
+        if path == "/v1/memory/remember":
             return httpx.Response(200, json=_mcp({"id": "mem-9"}))
-        if path == "/memory/recall":
+        if path == "/v1/memory/recall":
             return httpx.Response(200, json=_mcp({"rows": [{"id": "mem-9", "content": "x"}]}))
         return httpx.Response(200, json=_mcp({"memory_item_id": path.rsplit("/", 1)[-1]}))
 
@@ -40,8 +40,8 @@ async def test_async_add_search_forget_roundtrip() -> None:
         assert out["memory_item_id"] == "mem-9"
 
     paths = [r.url.path for r in seen]
-    assert paths == ["/memory/remember", "/memory/recall", "/memory/forget/mem-9"]
-    assert "purpose=agent" in str(seen[1].url)
+    assert paths == ["/v1/memory/remember", "/v1/memory/recall", "/v1/memory/forget/mem-9"]
+    assert json.loads(seen[1].content)["purpose"] == "agent"
 
 
 async def test_async_search_sends_adr145_params_and_detailed_surfaces_metadata() -> None:
@@ -66,9 +66,9 @@ async def test_async_search_sends_adr145_params_and_detailed_surfaces_metadata()
         assert hits[0]["id"] == "mem-9"
         detailed = await m.search_detailed("hello", stability_days=3.0, cancel_threshold=0.8)
 
-    url = str(seen[0].url)
-    assert "min_confidence=0.4" in url
-    assert "budget_tokens=100" in url
+    body = json.loads(seen[0].content)
+    assert body["min_confidence"] == 0.4
+    assert body["budget_tokens"] == 100
     assert detailed["recall_cost_tokens"] == 17
     assert detailed["cancelled"] is False
 
@@ -76,7 +76,7 @@ async def test_async_search_sends_adr145_params_and_detailed_surfaces_metadata()
 async def test_async_get_and_update() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
-        if path.startswith("/memory/recognize/"):
+        if path.startswith("/v1/memory/recognize/"):
             return httpx.Response(200, json=_mcp({"memory": {"id": "m1", "content": "hi"}}))
         return httpx.Response(200, json=_mcp({"new_id": "new-2"}))
 

@@ -64,7 +64,7 @@ def test_sync_stream_error_invalid_retry_header_uses_body_once(retry_header: str
             headers={"Content-Type": "application/problem+json", "Retry-After": retry_header,
                      "X-Request-ID": "request-8"})))
     try:
-        with transport._client.stream("POST", "/query/stream") as response:
+        with transport._client.stream("POST", "/v1/query/stream") as response:
             with pytest.raises(RateLimitedError) as caught:
                 _classify_capped_error(transport, response)
             assert_metadata(caught.value, 9)
@@ -88,7 +88,7 @@ async def test_async_stream_error_preserves_http_date_and_metadata_once(monkeypa
                      "Retry-After": "Tue, 01 Jan 2030 00:00:30 GMT",
                      "X-Request-ID": "request-8"})))
     try:
-        async with transport._client.stream("POST", "/query/arrow") as response:
+        async with transport._client.stream("POST", "/v1/query/arrow") as response:
             with pytest.raises(RateLimitedError) as caught:
                 await _aclassify_capped_error(transport, response)
             assert_metadata(caught.value, 30)
@@ -106,7 +106,7 @@ async def test_stream_error_body_cap_closes_response(asynchronous: bool) -> None
     if asynchronous:
         transport = AsyncHttpTransport("http://test", None, 1, transport=mock, max_response_bytes=64)
         try:
-            async with transport._client.stream("POST", "/query/stream") as response:
+            async with transport._client.stream("POST", "/v1/query/stream") as response:
                 with pytest.raises(ResponseTooLargeError):
                     await _aclassify_capped_error(transport, response)
         finally:
@@ -114,7 +114,7 @@ async def test_stream_error_body_cap_closes_response(asynchronous: bool) -> None
     else:
         sync = HttpTransport("http://test", None, 1, transport=mock, max_response_bytes=64)
         try:
-            with sync._client.stream("POST", "/query/stream") as response:
+            with sync._client.stream("POST", "/v1/query/stream") as response:
                 with pytest.raises(ResponseTooLargeError):
                     _classify_capped_error(sync, response)
         finally:
@@ -130,7 +130,7 @@ def test_purpose_error_retains_problem_metadata() -> None:
         transport=httpx.MockTransport(lambda request: httpx.Response(400, json=payload,
             headers={"X-Request-ID": "purpose-request"})))
     try:
-        with transport._client.stream("POST", "/query/stream") as response:
+        with transport._client.stream("POST", "/v1/query/stream") as response:
             with pytest.raises(PurposeError) as caught:
                 _classify_capped_error(transport, response)
             error = caught.value
@@ -151,7 +151,7 @@ def test_nonobject_or_malformed_problem_keeps_http_status(payload) -> None:
         transport=httpx.MockTransport(lambda request: httpx.Response(503, json=payload)))
     try:
         # The real buffered transport path, not only the streaming wrapper.
-        response = transport._client.get("/query")
+        response = transport._client.get("/v1/query")
         with pytest.raises(ServerError) as caught:
             transport._handle(response)
         assert caught.value.status_code == 503

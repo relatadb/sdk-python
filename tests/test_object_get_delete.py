@@ -25,7 +25,7 @@ def test_get_returns_row_when_found() -> None:
     from relata.objects import ObjectClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
+        assert req.url.path == "/v1/query"
         body = json.loads(req.content)
         assert "SELECT * FROM HmSkill WHERE id = 'biosec.ioc'" in body["sql"]
         assert body["purpose"] == "hm_ledger"

@@ -32,7 +32,7 @@ def freshness_headers(
     require_durable: bool = False,
     partial: bool = False,
 ) -> dict[str, str]:
-    """Headers that gate ``/query``, ``/search``, ``/graphql`` or MCP reads on ``token``."""
+    """Headers that gate ``/v1/query``, ``/v1/search``, ``/v1/graphql`` or MCP reads on ``token``."""
     headers = {"X-Relata-Min-Version": token}
     if indexes is not None:
         headers["X-Relata-Require-Index"] = ",".join(indexes) or "none"
@@ -84,8 +84,8 @@ class FreshnessClient:
         )
 
     def status(self) -> dict[str, Any]:
-        """``GET /freshness/status``: per-index state plus a token for the latest write."""
-        return dict(self._t.get("/freshness/status"))
+        """``GET /v1/freshness/status``: per-index state plus a token for the latest write."""
+        return dict(self._t.get("/v1/freshness/status"))
 
     def barrier(
         self,
@@ -95,14 +95,14 @@ class FreshnessClient:
         wait_ms: int | None = None,
         require_durable: bool = False,
     ) -> dict[str, Any]:
-        """``POST /freshness/barrier``: wait until ``token`` is visible in ``indexes``.
+        """``POST /v1/freshness/barrier``: wait until ``token`` is visible in ``indexes``.
 
         Returns the freshness report on success. A write that is not yet visible
         within ``wait_ms`` (max 30000) raises with the server's ``freshness-not-ready``
         problem, whose body names the lagging index and its pending count.
         """
         return dict(
-            self._t.post("/freshness/barrier", _barrier_payload(token, indexes, wait_ms, require_durable))
+            self._t.post("/v1/freshness/barrier", _barrier_payload(token, indexes, wait_ms, require_durable))
         )
 
     def close(self) -> None:
@@ -141,7 +141,7 @@ class AsyncFreshnessClient:
         )
 
     async def status(self) -> dict[str, Any]:
-        return dict(await self._t.get("/freshness/status"))
+        return dict(await self._t.get("/v1/freshness/status"))
 
     async def barrier(
         self,
@@ -153,7 +153,7 @@ class AsyncFreshnessClient:
     ) -> dict[str, Any]:
         return dict(
             await self._t.post(
-                "/freshness/barrier", _barrier_payload(token, indexes, wait_ms, require_durable)
+                "/v1/freshness/barrier", _barrier_payload(token, indexes, wait_ms, require_durable)
             )
         )
 

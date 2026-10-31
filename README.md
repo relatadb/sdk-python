@@ -15,7 +15,7 @@ The v3 SDK accepts prepared detection rules through `GovernanceClient.create_rul
 or MCP `create_rule`. Raw Sigma YAML parsing/import is no longer an SDK or MCP
 server method. Convert YAML in OpenETL (the former `relata-connectors import-sigma`
 was removed), or convert externally and submit the prepared
-`name`, `condition_sql`, and `target_type` JSON fields through `/rules`.
+`name`, `condition_sql`, and `target_type` JSON fields through `/v1/rules`.
 
 Relata DB is a Rust-native, ontology-driven engine built for bi-temporal, governed knowledge workloads: link analysis, identity resolution, full-text and vector search, access-scoped restricted data, and provenance-tracked analytics.
 
@@ -49,7 +49,7 @@ with RelataClient("http://localhost:9090", purpose="analytics") as client:
 For the search / RAG persona, the SDK ships a typed JSON door that compiles to
 a governed SQL plan — **no SQL on the client side**. `text` compiles to a BM25
 `rank_by` directive; `filters` narrow the set server-side; and `.write()` is
-schemaless (auto-creates the type with inferred fields via `POST /ingest/auto`
+schemaless (auto-creates the type with inferred fields via `POST /v1/ingest/auto`
 — no DDL).
 
 ```python
@@ -77,7 +77,7 @@ links); one connection pool is reused across every namespace.
 
 ## Streaming query completion
 
-`StreamingClient.from_client(client).query_rows(sql)` uses `POST /query/stream`
+`StreamingClient.from_client(client).query_rows(sql)` uses `POST /v1/query/stream`
 and yields data rows without the protocol metadata. Exhaust the iterator before
 treating the result as complete: a missing completion frame, truncation,
 transport failure, or mismatched row count raises `IncompleteQueryStreamError`.
@@ -166,7 +166,7 @@ control over `embedding_slot` and both legs at once.
 ## Agent memory in three lines
 
 For agent-memory workloads, `Memory` is a Mem0-style one-liner surface over the
-governed `/memory/*` verbs — governance (purpose + ACL) stays on by default:
+governed `/v1/memory/*` verbs — governance (purpose + ACL) stays on by default:
 
 ```python
 from relata import Memory
@@ -181,8 +181,18 @@ with Memory("http://localhost:9090", purpose="agent-notes") as m:
     # `cancelled` response fields.
     detailed = m.search_detailed("ui preferences", min_confidence=0.5, budget_tokens=200)
 
+    for frame in m.recall_stream("ui preferences"):   # SSE: one memory per frame
+        print(frame)
+
+    # Versioned agent procedures (kebab-case /v1 routes).
+    m.remember_procedure("agent-1", "onboarding", "Greet, then verify identity")
+    m.recall_procedure("agent-1", name="onboarding")
+
     m.forget(mem_id)                              # governed retract, not a hard delete
 ```
+
+`search` and `search_detailed` call `POST /v1/memory/recall` (the one recall
+route); `recall_stream` is the SSE form (`GET /v1/memory/recall/stream`).
 
 See `examples/memory_quickstart.py`. For async apps, `AsyncMemory` has the same
 surface: `async with AsyncMemory(...) as m: await m.add(...); await m.search(...)`.
@@ -324,7 +334,7 @@ asyncio.run(main())
 ### HTTP Arrow IPC
 
 For columnar results, `RelataClient.query_arrow()` returns a `pyarrow.Table`
-from the HTTP `POST /query/arrow` endpoint. Install `pyarrow` to use this
+from the HTTP `POST /v1/query/arrow` endpoint. Install `pyarrow` to use this
 helper. `StreamingClient.query_arrow_raw()` exposes the same HTTP response as
 byte chunks when the application wants to provide its own Arrow reader. The
 raw chunks can be joined before passing them to an Arrow IPC stream reader.
@@ -396,9 +406,8 @@ RelataClient(
 | `version()` | `VersionInfo` | Build info (version, commit, profile, schema_version) |
 | `ready()` | `ReadyReport` | 9-condition readiness report |
 | `audit_count()` | `AuditCountResponse` | Audit log entry count + chain validity |
-| `cluster_nodes()` | `list[ClusterNode]` | List cluster nodes |
-| `ingest_document(objects, *, purpose=None)` / `aingest_document(...)` | `IngestDocumentResponse` | Queue prepared mixed-type rows with `POST /ingest/bulk` (`queued: true`) and return one process-local receipt |
-| `ingest_document_status(task_id)` / `aingest_document_status(...)` | `IngestDocumentTaskStatus` | Poll `GET /ingest/tasks/:task_id` for terminal complete/partial/failed/uncertain/incomplete state and confirmed written/dropped row counts |
+| `ingest_document(objects, *, purpose=None)` / `aingest_document(...)` | `IngestDocumentResponse` | Queue prepared mixed-type rows with `POST /v1/ingest/bulk` (`queued: true`) and return one process-local receipt |
+| `ingest_document_status(task_id)` / `aingest_document_status(...)` | `IngestDocumentTaskStatus` | Poll `GET /v1/ingest/tasks/:task_id` for terminal complete/partial/failed/uncertain/incomplete state and confirmed written/dropped row counts |
 | `select(*cols)` | `QueryBuilder` | Start a fluent query |
 | `close()` | — | Close sync connections |
 | `aquery(...)` | `QueryResult` | Async query |
@@ -424,19 +433,20 @@ Each module inherits the parent client's auth, tenant, and purpose context:
 
 | Module | Class | Surface |
 |---|---|---|
-| `relata.governance` | `GovernanceClient` | Rules, retention (holds + WORM), breakglass, alerts, DSAR |
+| `relata.governance` | `GovernanceClient` | Rules, retention (holds + WORM), breakglass, alerts, DSAR, GDPR `erase`/`deletion_status`/`verify_receipt` |
 | `relata.mcp` | `McpClient` | 22 typed MCP tool wrappers + generic `call_tool` |
 | `relata.a2a` | `A2AClient` | A2A tasks + LangGraph checkpoints + agent card |
-| `relata.audit` | `AuditClient` | Audit entries (filtered/paginated) + signed receipts + PDF export |
+| `relata.audit` | `AuditClient` | Audit `count` + filtered `log` (`/v1/audit/count`, `/v1/audit/log`) |
 | `relata.identity` | `IdentityClient` | Identity label/uncertainty + lookup tables + ERASE SUBJECT |
-| `relata.objects` | `ObjectClient` | Typed upsert + batch + point-lookup (`get`) + delete via `/ingest?object_type=` |
+| `relata.objects` | `ObjectClient` | Typed upsert + batch + point-lookup (`get`) + delete via `/v1/ingest?object_type=` |
 | `relata.ingest` | `IngestClient` | Bulk NDJSON + CSV + media task status; it does not upload raw media bytes |
-| `relata.files` | `FilesClient` / `AsyncFilesClient` | Buffered governed Files `put`/`get`/`delete` for opaque bytes and representation metadata, plus resumable chunked `upload` (one chunk in memory, offset-based resume, SHA-256 verified; #5690) |
+| `relata.files` | `FilesClient` / `AsyncFilesClient` | Buffered governed Files `put`/`get`/`head`/`list`/`delete` for opaque bytes, plus `media_content` (`GET /v1/media/{row_id}/content`) and representation metadata, plus resumable chunked `upload` (one chunk in memory, offset-based resume, SHA-256 verified; #5690) |
 | `relata.vectors` | `VectorClient` | KNN + hybrid search + similar-to (SQL-backed) |
-| `relata.system` | `SystemClient` | Generic jobs and operator surfaces; no feed broker routing |
+| `relata.system` | `SystemClient` | Generic jobs and notification rules (webhooks are a rule channel: set `webhook_url`/`webhook_headers` on the rule); no feed broker routing |
 | `relata.feed_broker` | `FeedBrokerClient` / `AsyncFeedBrokerClient` | Optional RIFN broker health, channels, signed-entry publishing at an explicit broker URL |
 | `relata.streaming` | `StreamingClient` | NDJSON row streams + SSE consumers (watch/alerts) + Arrow IPC |
-| `relata.tenants` | `TenantAdminClient` | Tenant CRUD + quota + sharing agreements + platform admin |
+| `relata.tenants` | `TenantAdminClient` | Caller's own tenant record (`me`); tenant admin is Enterprise-only |
+| `relata.tokens` | `TokenClient` | Tenant self-service tokens: `list_self`, `self_audit`, `rotate_self`, `revoke_self` (`/v1/auth/tokens/self`) |
 
 Each has an async mirror (`Async*`).
 
@@ -463,10 +473,10 @@ caller-signed feed entry and the matching `X-Publisher-Did`; the SDK does not
 create or sign entries. `SystemClient.from_client()` does not configure a
 broker client.
 
-`POST /ingest/media` was removed (#5942), together with
+`POST /v1/ingest/media` was removed (#5942), together with
 `IngestClient.media_status()` and `McpClient.ingest_media()`; poll OpenETL work
 items with `MediaWorkClient.get()`. The separate new `FilesClient` and
-`AsyncFilesClient` wrap `/files/content` for opaque file bytes; they do not
+`AsyncFilesClient` wrap `/v1/files/content` for opaque file bytes (including `HEAD` and `GET /v1/files` listing); they do not
 start media processing or document extraction.
 
 ### Governed Files clients — v3.0 candidate, SDK 2.7.1
@@ -503,20 +513,20 @@ Cancelling an async call or expiring the HTTP timeout closes/cancels the client
 request where supported; it does not promise that server work already accepted
 by the engine is aborted or rolled back. See
 the [HTTP Files contract](../../docs/src/specs/files-api.md) for server
-behavior. These clients wrap `/files/content` and the resumable `/files/uploads`
+behavior. These clients wrap `/v1/files/content` and the resumable `/v1/files/uploads`
 session (`start_upload`, `upload_chunk`, `upload_status`, `complete_upload`,
-`abort_upload`, and the resuming `upload` helper), not the Files list or
-folder operations.
+`abort_upload`, and the resuming `upload` helper), plus `head`, `list` and
+`media_content`.
 
 **Admin-listener reachability (`admin_base_url`, #2321):** on a hardened
-`server`/`cluster` deployment, `/admin/*` and `/platform/*` are mounted only
+deployment, `/admin/*` is mounted only
 on the loopbound admin control-plane listener (`RELATA_ADMIN_BIND`, default
 `127.0.0.1:9091` — ADR-0261), never the main data-plane `base_url`. Pass
 `admin_base_url=` to `RelataClient` (inherited automatically by
-`BackupClient`/`TenantAdminClient.from_client(...)`) or directly to
-`BackupClient`/`TenantAdminClient` to reach those routes. Leave it unset (the
+`BackupClient.from_client(...)`) or directly to
+`BackupClient` to reach those routes. Leave it unset (the
 default) on the free profile, where the admin listener isn't split from the
-data plane. A bare 404 from an admin/platform-only route with no error
+data plane. A bare 404 from an admin-only route with no error
 detail is rewritten into a hint pointing at this option instead of a
 confusing plain 404.
 
@@ -530,7 +540,7 @@ confusing plain 404.
 ### Custom object types
 
 RelataDB is ontology-governed — unknown types are rejected on both ingest and
-read. Register custom types at runtime via `POST /types` (persisted across
+read. Register custom types at runtime via `POST /v1/types` (persisted across
 restart):
 
 ```python
@@ -548,7 +558,7 @@ client.register_type(
 )
 
 # Now ingest + query work
-client._sync.post("/ingest?object_type=AgentTask", {"task_id": "t-1", "status": "done"})
+client._sync.post("/v1/ingest?object_type=AgentTask", {"task_id": "t-1", "status": "done"})
 ```
 
 `register_type()` also accepts `graph_triggers`, `computed_columns`, and `bm25_params` — see its docstring for the full shape of each.
@@ -616,7 +626,6 @@ with safely-typed literals (str → single-quoted + escaped, int/float → numer
 | `HealthResponse` | `status`, `profile`, `node_id` |
 | `StatusResponse` | `profile`, `role`, `query_quota` |
 | `AuditCountResponse` | `entries`, `chain_valid` |
-| `ClusterNode` | `node_id`, `role`, `url` |
 | `VersionInfo` | `version`, `commit`, `profile`, `schema_version`, `features` |
 | `Stats` | `records`, `states`, `snapshot_rows`, `log_leaves`, `tokens` |
 | `ReadyReport` | `is_ready`, `status`, `reason`, `detail` |

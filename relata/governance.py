@@ -153,7 +153,7 @@ class GovernanceClient(_BaseGovernance):
         """List detection rules. Optional ``object_type`` filter."""
         from urllib.parse import urlencode
 
-        path = "/rules"
+        path = "/v1/rules"
         if object_type:
             path += "?" + urlencode({"object_type": object_type})
         data = self._t.get(path)
@@ -168,20 +168,20 @@ class GovernanceClient(_BaseGovernance):
         ``severity``, ``mitre_technique``, ``trigger``, and ``action`` fields.
         Returns the created rule record including its server-assigned ``id``.
 
-        ``purpose`` is mandatory server-side (``POST /rules?purpose=<p>``) —
+        ``purpose`` is mandatory server-side (``POST /v1/rules?purpose=<p>``) —
         pass it here or set a default on the parent ``RelataClient``.
         """
         eff = self._effective_purpose(purpose)
-        return self._t.post(f"/rules?purpose={path_segment(eff)}", rule)
+        return self._t.post(f"/v1/rules?purpose={path_segment(eff)}", rule)
 
     def disable_rule(self, rule_id: str) -> dict[str, Any]:
         """Disable (logically delete) a rule by id."""
-        return self._t.delete(f"/rules/{path_segment(rule_id)}")
+        return self._t.delete(f"/v1/rules/{path_segment(rule_id)}")
 
     def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
         """Temporarily disable a rule for ``duration_secs`` (#967)."""
         return self._t.post(
-            f"/rules/{path_segment(rule_id)}/snooze", {"duration_secs": duration_secs}
+            f"/v1/rules/{path_segment(rule_id)}/snooze", {"duration_secs": duration_secs}
         )
 
     def suppress_rule(
@@ -192,15 +192,15 @@ class GovernanceClient(_BaseGovernance):
         payload: dict[str, Any] = {"entity_id": entity_id}
         if condition is not None:
             payload["condition"] = condition
-        return self._t.post(f"/rules/{path_segment(rule_id)}/suppress", payload)
+        return self._t.post(f"/v1/rules/{path_segment(rule_id)}/suppress", payload)
 
     def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
         """Add an exception entry so specific matches are ignored (#967)."""
-        return self._t.post(f"/rules/{path_segment(rule_id)}/exceptions", exception)
+        return self._t.post(f"/v1/rules/{path_segment(rule_id)}/exceptions", exception)
 
     def get_rule_tuning(self, rule_id: str) -> dict[str, Any]:
         """Retrieve the tuning state (snoozes, suppressions, exceptions) (#967)."""
-        return self._t.get(f"/rules/{path_segment(rule_id)}/tuning")
+        return self._t.get(f"/v1/rules/{path_segment(rule_id)}/tuning")
 
     # ------------------------------------------------------------------
     # Retention (#74)
@@ -208,13 +208,13 @@ class GovernanceClient(_BaseGovernance):
 
     def list_retention_policies(self) -> list[dict[str, Any]]:
         """List configured retention policies."""
-        data = self._t.get("/retention/policies")
+        data = self._t.get("/v1/retention/policies")
         policies = data.get("policies") if isinstance(data, dict) else data
         return policies if isinstance(policies, list) else []
 
     def list_legal_holds(self) -> list[dict[str, Any]]:
         """List active legal holds."""
-        data = self._t.get("/retention/holds")
+        data = self._t.get("/v1/retention/holds")
         holds = data.get("holds") if isinstance(data, dict) else data
         return holds if isinstance(holds, list) else []
 
@@ -234,7 +234,7 @@ class GovernanceClient(_BaseGovernance):
             object_type: Type to hold.
             field: Optional column name to scope the hold to; pass both
                 ``field`` and ``value`` together, or omit both for a
-                type-wide hold. The server's ``POST /retention/holds`` only
+                type-wide hold. The server's ``POST /v1/retention/holds`` only
                 reads ``case_id``/``object_type``/``field``/``value`` — any
                 other key is silently ignored (#2465), so ``field``/``value``
                 is the only supported row-scoping mechanism.
@@ -248,15 +248,15 @@ class GovernanceClient(_BaseGovernance):
             payload["field"] = field
         if value is not None:
             payload["value"] = value
-        return self._t.post("/retention/holds", payload)
+        return self._t.post("/v1/retention/holds", payload)
 
     def lift_legal_hold(self, case_id: str) -> dict[str, Any]:
         """Lift (remove) a legal hold by case id."""
-        return self._t.delete(f"/retention/holds/{path_segment(case_id)}")
+        return self._t.delete(f"/v1/retention/holds/{path_segment(case_id)}")
 
     def list_worm_policies(self) -> list[dict[str, Any]]:
         """List WORM (write-once-read-many) retention policies."""
-        data = self._t.get("/retention/worm")
+        data = self._t.get("/v1/retention/worm")
         policies = data.get("policies") if isinstance(data, dict) else data
         return policies if isinstance(policies, list) else []
 
@@ -269,7 +269,7 @@ class GovernanceClient(_BaseGovernance):
         """Set WORM retention for ``object_type``. Rows cannot be mutated or
         purged until ``retention_secs`` elapses from their ``system_from``."""
         return self._t.post(
-            f"/retention/worm/{path_segment(object_type)}",
+            f"/v1/retention/worm/{path_segment(object_type)}",
             {"retention_secs": retention_secs},
         )
 
@@ -292,7 +292,7 @@ class GovernanceClient(_BaseGovernance):
             params["since_ns"] = str(since_ns)
         from urllib.parse import urlencode
 
-        data = self._t.get("/alerts/list?" + urlencode(params))
+        data = self._t.get("/v1/alerts?" + urlencode(params))
         alerts = data.get("alerts") if isinstance(data, dict) else data
         return alerts if isinstance(alerts, list) else []
 
@@ -312,7 +312,7 @@ class GovernanceClient(_BaseGovernance):
             payload["assignee"] = assignee
         if note is not None:
             payload["note"] = note
-        return self._t.patch(f"/alerts/update/{path_segment(alert_id)}", payload)
+        return self._t.patch(f"/v1/alerts/{path_segment(alert_id)}", payload)
 
     # ------------------------------------------------------------------
     # DSAR (#74, #79)
@@ -341,11 +341,52 @@ class GovernanceClient(_BaseGovernance):
         }
         if scope is not None:
             params["scope"] = scope
-        return self._t.get("/gdpr/dsar?" + urlencode(params))
+        return self._t.get("/v1/gdpr/dsar?" + urlencode(params))
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # GDPR erasure (POST /v1/gdpr/erase, deletions, verify-receipt)
+    # ------------------------------------------------------------------
+
+    def erase(
+        self,
+        subject_id: str,
+        *,
+        reason: str | None = None,
+        tenant_id: str | None = None,
+        physical: bool = False,
+    ) -> dict[str, Any]:
+        """File a GDPR erasure for ``subject_id`` (``POST /v1/gdpr/erase``).
+
+        ``reason`` is recorded on the erasure receipt; ``tenant_id`` only applies
+        to unscoped admin callers; ``physical`` requests physical erasure in
+        addition to the logical tombstone. Returns the receipt / operation
+        response -- inspect its ``receipt_scope`` and per-copy states.
+        """
+        payload: dict[str, Any] = {"subject_id": subject_id}
+        if reason:
+            payload["reason"] = reason
+        if tenant_id:
+            payload["tenant_id"] = tenant_id
+        if physical:
+            payload["physical"] = True
+        return self._t.post("/v1/gdpr/erase", payload)
+
+    def deletion_status(self, operation_id: str) -> dict[str, Any]:
+        """Progress of a deletion operation (``GET /v1/gdpr/deletions/{operation_id}``)."""
+        return self._t.get(f"/v1/gdpr/deletions/{path_segment(operation_id)}")
+
+    def verify_receipt(self, receipt: dict[str, Any]) -> dict[str, Any]:
+        """Verify a signed erasure receipt (``POST /v1/gdpr/verify-receipt``).
+
+        ``receipt`` carries ``receipt_id``, ``subject``, ``erased_at``,
+        ``rows_shredded`` and ``receipt_signature`` exactly as returned by
+        :meth:`erase`.
+        """
+        return self._t.post("/v1/gdpr/verify-receipt", receipt)
 
     def close(self) -> None:
         """Close the underlying HTTP connection pool and drop the bearer
@@ -393,7 +434,7 @@ class AsyncGovernanceClient(_BaseGovernance):
     async def list_rules(self, *, object_type: str | None = None) -> list[dict[str, Any]]:
         from urllib.parse import urlencode
 
-        path = "/rules"
+        path = "/v1/rules"
         if object_type:
             path += "?" + urlencode({"object_type": object_type})
         data = await self._t.get(path)
@@ -404,14 +445,14 @@ class AsyncGovernanceClient(_BaseGovernance):
         self, rule: dict[str, Any], *, purpose: str | None = None
     ) -> dict[str, Any]:
         eff = self._effective_purpose(purpose)
-        return await self._t.post(f"/rules?purpose={path_segment(eff)}", rule)
+        return await self._t.post(f"/v1/rules?purpose={path_segment(eff)}", rule)
 
     async def disable_rule(self, rule_id: str) -> dict[str, Any]:
-        return await self._t.delete(f"/rules/{path_segment(rule_id)}")
+        return await self._t.delete(f"/v1/rules/{path_segment(rule_id)}")
 
     async def snooze_rule(self, rule_id: str, duration_secs: int) -> dict[str, Any]:
         return await self._t.post(
-            f"/rules/{path_segment(rule_id)}/snooze", {"duration_secs": duration_secs}
+            f"/v1/rules/{path_segment(rule_id)}/snooze", {"duration_secs": duration_secs}
         )
 
     async def suppress_rule(
@@ -420,21 +461,21 @@ class AsyncGovernanceClient(_BaseGovernance):
         payload: dict[str, Any] = {"entity_id": entity_id}
         if condition is not None:
             payload["condition"] = condition
-        return await self._t.post(f"/rules/{path_segment(rule_id)}/suppress", payload)
+        return await self._t.post(f"/v1/rules/{path_segment(rule_id)}/suppress", payload)
 
     async def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
-        return await self._t.post(f"/rules/{path_segment(rule_id)}/exceptions", exception)
+        return await self._t.post(f"/v1/rules/{path_segment(rule_id)}/exceptions", exception)
 
     async def get_rule_tuning(self, rule_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/rules/{path_segment(rule_id)}/tuning")
+        return await self._t.get(f"/v1/rules/{path_segment(rule_id)}/tuning")
 
     async def list_retention_policies(self) -> list[dict[str, Any]]:
-        data = await self._t.get("/retention/policies")
+        data = await self._t.get("/v1/retention/policies")
         policies = data.get("policies") if isinstance(data, dict) else data
         return policies if isinstance(policies, list) else []
 
     async def list_legal_holds(self) -> list[dict[str, Any]]:
-        data = await self._t.get("/retention/holds")
+        data = await self._t.get("/v1/retention/holds")
         holds = data.get("holds") if isinstance(data, dict) else data
         return holds if isinstance(holds, list) else []
 
@@ -451,19 +492,19 @@ class AsyncGovernanceClient(_BaseGovernance):
             payload["field"] = field
         if value is not None:
             payload["value"] = value
-        return await self._t.post("/retention/holds", payload)
+        return await self._t.post("/v1/retention/holds", payload)
 
     async def lift_legal_hold(self, case_id: str) -> dict[str, Any]:
-        return await self._t.delete(f"/retention/holds/{path_segment(case_id)}")
+        return await self._t.delete(f"/v1/retention/holds/{path_segment(case_id)}")
 
     async def list_worm_policies(self) -> list[dict[str, Any]]:
-        data = await self._t.get("/retention/worm")
+        data = await self._t.get("/v1/retention/worm")
         policies = data.get("policies") if isinstance(data, dict) else data
         return policies if isinstance(policies, list) else []
 
     async def set_worm_policy(self, object_type: str, *, retention_secs: int) -> dict[str, Any]:
         return await self._t.post(
-            f"/retention/worm/{path_segment(object_type)}",
+            f"/v1/retention/worm/{path_segment(object_type)}",
             {"retention_secs": retention_secs},
         )
 
@@ -481,7 +522,7 @@ class AsyncGovernanceClient(_BaseGovernance):
             params["severity"] = severity
         if since_ns is not None:
             params["since_ns"] = str(since_ns)
-        data = await self._t.get("/alerts/list?" + urlencode(params))
+        data = await self._t.get("/v1/alerts?" + urlencode(params))
         alerts = data.get("alerts") if isinstance(data, dict) else data
         return alerts if isinstance(alerts, list) else []
 
@@ -500,7 +541,33 @@ class AsyncGovernanceClient(_BaseGovernance):
         }
         if scope is not None:
             params["scope"] = scope
-        return await self._t.get("/gdpr/dsar?" + urlencode(params))
+        return await self._t.get("/v1/gdpr/dsar?" + urlencode(params))
+
+    async def erase(
+        self,
+        subject_id: str,
+        *,
+        reason: str | None = None,
+        tenant_id: str | None = None,
+        physical: bool = False,
+    ) -> dict[str, Any]:
+        """Async variant of :meth:`GovernanceClient.erase`."""
+        payload: dict[str, Any] = {"subject_id": subject_id}
+        if reason:
+            payload["reason"] = reason
+        if tenant_id:
+            payload["tenant_id"] = tenant_id
+        if physical:
+            payload["physical"] = True
+        return await self._t.post("/v1/gdpr/erase", payload)
+
+    async def deletion_status(self, operation_id: str) -> dict[str, Any]:
+        """Async variant of :meth:`GovernanceClient.deletion_status`."""
+        return await self._t.get(f"/v1/gdpr/deletions/{path_segment(operation_id)}")
+
+    async def verify_receipt(self, receipt: dict[str, Any]) -> dict[str, Any]:
+        """Async variant of :meth:`GovernanceClient.verify_receipt`."""
+        return await self._t.post("/v1/gdpr/verify-receipt", receipt)
 
     async def close(self) -> None:
         await self._t.aclose()

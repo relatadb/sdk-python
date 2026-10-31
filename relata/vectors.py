@@ -58,7 +58,7 @@ def _hybrid_search_sql(
     returned as a bind parameter (``$1``) for the server-side parameterized
     path instead of being interpolated. Returns ``(sql, params)``.
 
-    Caller-supplied query embeddings are **not** supported by the ``/query``
+    Caller-supplied query embeddings are **not** supported by the ``/v1/query``
     SQL surface (there is no vector-literal grammar; the server embeds
     ``query_text`` server-side). Use :meth:`VectorClient.embed` for
     text→vector instead.
@@ -163,10 +163,10 @@ class VectorClient:
         """Hybrid BM25 + vector search via the ``HYBRID_SEARCH`` operator.
 
         Executes ``HYBRID_SEARCH FROM <type> QUERY '<text>' LIMIT <k>`` through
-        the governed ``/query`` door so PURPOSE / ACL / cell-masking / tenant
+        the governed ``/v1/query`` door so PURPOSE / ACL / cell-masking / tenant
         isolation apply identically to a hand-written query. The server embeds
         ``query_text`` server-side; caller-supplied embeddings are **not**
-        accepted by the ``/query`` SQL surface (there is no vector-literal
+        accepted by the ``/v1/query`` SQL surface (there is no vector-literal
         grammar — use :meth:`embed` for text→vector instead).
 
         Args:
@@ -188,7 +188,7 @@ class VectorClient:
         if query_text is None:
             raise ValueError(
                 "hybrid_search requires query_text; caller-supplied embeddings "
-                "are not supported by the /query SQL surface"
+                "are not supported by the /v1/query SQL surface"
             )
         sql, params = _hybrid_search_sql(
             object_type, query_text, k=k, rerank=rerank, metric=metric, weights=weights
@@ -220,7 +220,7 @@ class VectorClient:
         return result.rows
 
     def embed(self, text: str, *, model: str | None = None) -> dict[str, Any]:
-        """Embed a single text string via ``POST /embed`` (#1172).
+        """Embed a single text string via ``POST /v1/embed`` (#1172).
 
         Uses the server's built-in CPU lexical embedder when no sidecar is
         configured, or the external embedding sidecar (``RELATA_EMBED_URL``) when set.
@@ -229,69 +229,21 @@ class VectorClient:
         payload: dict[str, Any] = {"text": text}
         if model is not None:
             payload["model"] = model
-        return self._client._sync.post("/embed", payload)  # noqa: SLF001
+        return self._client._sync.post("/v1/embed", payload)  # noqa: SLF001
 
     def embed_batch(
         self, texts: list[str], *, model: str | None = None
     ) -> dict[str, Any]:
-        """Embed multiple texts in one call via ``POST /embed/batch`` (#1172).
+        """Embed multiple texts in one call via ``POST /v1/embed`` (#1172).
+
+        Sends ``{"texts": [...]}`` to the same route as :meth:`embed`.
 
         Returns ``{"embeddings": [[...], ...], "model": ..., "dim": ..., "count": ...}``.
         """
         payload: dict[str, Any] = {"texts": texts}
         if model is not None:
             payload["model"] = model
-        return self._client._sync.post("/embed/batch", payload)  # noqa: SLF001
-
-    def _embed_media(
-        self, modality: str, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"bytes_b64": bytes_b64}
-        if model is not None:
-            payload["model"] = model
-        return self._client._sync.post(f"/embed/{modality}", payload)  # noqa: SLF001
-
-    def embed_image(
-        self, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        """Embed a single image via ``POST /embed/image`` (#2444, ADR-0276).
-
-        ``bytes_b64`` is the base64-encoded image. Uses the server's
-        configured embedder's sidecar (``RELATA_ACCEL_ENDPOINT``, ADR-177);
-        raises :class:`~relata.exceptions.RelataError` (503) when the active
-        embedder does not support media. Returns
-        ``{"embedding": [...], "model": ..., "dim": ...}``.
-        """
-        return self._embed_media("image", bytes_b64, model=model)
-
-    def embed_face(
-        self, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        """Embed a single face crop via ``POST /embed/face`` (#2444, ADR-0276).
-
-        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
-        """
-        return self._embed_media("face", bytes_b64, model=model)
-
-    def embed_audio(
-        self, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        """Embed a single audio clip via ``POST /embed/audio`` (#2444, ADR-0276).
-
-        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
-        """
-        return self._embed_media("audio", bytes_b64, model=model)
-
-    def embed_video(
-        self, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        """Embed a single video clip/keyframe via ``POST /embed/video``
-        (#2444, ADR-0276).
-
-        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
-        """
-        return self._embed_media("video", bytes_b64, model=model)
-
+        return self._client._sync.post("/v1/embed", payload)  # noqa: SLF001
 
 class AsyncVectorClient:
     """Asynchronous typed vector client — see :class:`VectorClient`."""
@@ -355,7 +307,7 @@ class AsyncVectorClient:
         if query_text is None:
             raise ValueError(
                 "hybrid_search requires query_text; caller-supplied embeddings "
-                "are not supported by the /query SQL surface"
+                "are not supported by the /v1/query SQL surface"
             )
         sql, params = _hybrid_search_sql(
             object_type, query_text, k=k, rerank=rerank, metric=metric, weights=weights
@@ -380,68 +332,25 @@ class AsyncVectorClient:
         return result.rows
 
     async def embed(self, text: str, *, model: str | None = None) -> dict[str, Any]:
-        """Embed a single text string via ``POST /embed`` (#1172).
+        """Embed a single text string via ``POST /v1/embed`` (#1172).
 
         Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
         """
         payload: dict[str, Any] = {"text": text}
         if model is not None:
             payload["model"] = model
-        return await self._client._async.post("/embed", payload)  # noqa: SLF001
+        return await self._client._async.post("/v1/embed", payload)  # noqa: SLF001
 
     async def embed_batch(
         self, texts: list[str], *, model: str | None = None
     ) -> dict[str, Any]:
-        """Embed multiple texts in one call via ``POST /embed/batch`` (#1172).
+        """Embed multiple texts in one call via ``POST /v1/embed`` (#1172).
+
+        Sends ``{"texts": [...]}`` to the same route as :meth:`embed`.
 
         Returns ``{"embeddings": [[...], ...], "model": ..., "dim": ..., "count": ...}``.
         """
         payload: dict[str, Any] = {"texts": texts}
         if model is not None:
             payload["model"] = model
-        return await self._client._async.post("/embed/batch", payload)  # noqa: SLF001
-
-    async def _embed_media(
-        self, modality: str, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"bytes_b64": bytes_b64}
-        if model is not None:
-            payload["model"] = model
-        return await self._client._async.post(f"/embed/{modality}", payload)  # noqa: SLF001
-
-    async def embed_image(
-        self, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        """Embed a single image via ``POST /embed/image`` (#2444, ADR-0276).
-
-        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
-        """
-        return await self._embed_media("image", bytes_b64, model=model)
-
-    async def embed_face(
-        self, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        """Embed a single face crop via ``POST /embed/face`` (#2444, ADR-0276).
-
-        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
-        """
-        return await self._embed_media("face", bytes_b64, model=model)
-
-    async def embed_audio(
-        self, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        """Embed a single audio clip via ``POST /embed/audio`` (#2444, ADR-0276).
-
-        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
-        """
-        return await self._embed_media("audio", bytes_b64, model=model)
-
-    async def embed_video(
-        self, bytes_b64: str, *, model: str | None = None
-    ) -> dict[str, Any]:
-        """Embed a single video clip/keyframe via ``POST /embed/video``
-        (#2444, ADR-0276).
-
-        Returns ``{"embedding": [...], "model": ..., "dim": ...}``.
-        """
-        return await self._embed_media("video", bytes_b64, model=model)
+        return await self._client._async.post("/v1/embed", payload)  # noqa: SLF001

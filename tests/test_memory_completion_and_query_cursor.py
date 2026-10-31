@@ -49,7 +49,7 @@ def test_associate_round_trip() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
-        assert req.url.path == "/memory/associate"
+        assert req.url.path == "/v1/memory/associate"
         body = json.loads(req.content)
         # Server schema uses from_id / to_id (not source_id/target_id).
         assert body["from_id"] == "mem-1"
@@ -83,7 +83,7 @@ def test_episodes_filters_by_session() -> None:
 
 def test_justify_returns_assertion_chain() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/memory/justify/mem-9"
+        assert req.url.path == "/v1/memory/justify/mem-9"
         return httpx.Response(
             200,
             json=_mcp({"chain": [{"assertion": "wasGeneratedBy", "actor": "tool-1"}]}),
@@ -99,9 +99,9 @@ def test_resolve_round_trip() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
-        # Server route is GET /memory/resolve/:id (supersession-chain resolve).
+        # Server route is GET /v1/memory/resolve/:id (supersession-chain resolve).
         assert req.method == "GET"
-        assert req.url.path == "/memory/resolve/mem-9"
+        assert req.url.path == "/v1/memory/resolve/mem-9"
         return httpx.Response(200, json=_mcp({"resolved_id": "mem-10"}))
 
     m = _memory(handler)
@@ -147,11 +147,11 @@ async def test_async_episodes_round_trip() -> None:
 
 async def test_async_justify_resolve_summarise() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path.startswith("/memory/justify/"):
+        if req.url.path.startswith("/v1/memory/justify/"):
             return httpx.Response(200, json=_mcp({"chain": []}))
-        if req.url.path.startswith("/memory/resolve/"):
+        if req.url.path.startswith("/v1/memory/resolve/"):
             return httpx.Response(200, json=_mcp({"resolved_id": "r1"}))
-        if req.url.path == "/memory/summarise":
+        if req.url.path == "/v1/memory/summarise":
             return httpx.Response(200, json=_mcp({"summary_id": "s1"}))
         return httpx.Response(404)
 

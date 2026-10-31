@@ -1,12 +1,12 @@
 """Object store SDK (#82) — general state-object upsert / get / delete surface.
 
-The server's universal upsert path is ``POST /ingest?object_type=<Type>``;
+The server's universal upsert path is ``POST /v1/ingest?object_type=<Type>``;
 this module wraps it as a typed ``ObjectClient`` so Python callers don't
-have to know the ingest envelope shape. A future server-side ``POST /objects``
-route would be a strict improvement; this module targets ``/ingest`` today
+have to know the ingest envelope shape. A future server-side ``POST /v1/objects``
+route would be a strict improvement; this module targets ``/v1/ingest`` today
 because that's what ships.
 
-:meth:`ObjectClient.get` uses ``POST /query`` with a safe point-lookup SQL
+:meth:`ObjectClient.get` uses ``POST /v1/query`` with a safe point-lookup SQL
 statement. :meth:`ObjectClient.delete` tombstones the row via the ingest
 path (``_deleted: true``) — the same WAL mechanism the server uses internally.
 """
@@ -46,7 +46,7 @@ def _row_to_ndjson(rows: list[dict[str, Any]]) -> str:
 
 
 def _object_path(object_type: str, object_id: str, purpose: str | None = None) -> str:
-    path = f"/objects/{path_segment(_validate_object_type(object_type))}/{path_segment(object_id)}"
+    path = f"/v1/objects/{path_segment(_validate_object_type(object_type))}/{path_segment(object_id)}"
     return f"{path}?{urlencode({'purpose': purpose})}" if purpose else path
 
 
@@ -64,7 +64,7 @@ def _precondition_headers(expected_version: int | None, if_absent: bool) -> dict
 def _commit_payload(
     operations: list[dict[str, Any]], idempotency_key: str | None, purpose: str | None
 ) -> dict[str, Any]:
-    """Wire body of ``POST /commit`` (#5767). Operations may use either
+    """Wire body of ``POST /v1/commit`` (#5767). Operations may use either
     ``expected_version`` or ``expectedVersion``."""
     wire: list[dict[str, Any]] = []
     for operation in operations:
@@ -92,7 +92,7 @@ def _changes_path(
         params["type"] = _validate_object_type(object_type)
     if start is not None:
         params["start"] = start
-    return "/object-changes" + ("?" + urlencode(params) if params else "")
+    return "/v1/changes" + ("?" + urlencode(params) if params else "")
 
 
 class ObjectClient:
@@ -143,7 +143,7 @@ class ObjectClient:
         expected_version: int | None = None,
         if_absent: bool = False,
     ) -> dict[str, Any]:
-        """Upsert a single state object via ``POST /ingest``. The ``object_id``
+        """Upsert a single state object via ``POST /v1/ingest``. The ``object_id``
         becomes the row's primary key; re-upserting with the same id
         supersedes bi-temporally.
 
@@ -153,7 +153,7 @@ class ObjectClient:
             expected_version: #5766 — replace only if the object is at this
                 version (``If-Match``); a different version raises
                 :class:`~relata.exceptions.PreconditionFailedError`. Switches
-                this call to the atomic ``PUT /objects/{type}/{id}`` door, which
+                this call to the atomic ``PUT /v1/objects/{type}/{id}`` door, which
                 is durable before it returns and returns the new ``version``
                 instead of a queue acknowledgement.
             if_absent: #5766 — create only if the object does not exist
@@ -165,12 +165,12 @@ class ObjectClient:
         minCount 1 not met"]}``). "No exception" does not mean "stored" —
         always check ``rows_rejected`` / ``errors`` on the returned ack.
 
-        ``POST /ingest`` is **asynchronous**: this method returns a queue
+        ``POST /v1/ingest`` is **asynchronous**: this method returns a queue
         acknowledgement, not a confirmed-write receipt. A successful HTTP
         response confirms admission only; it returns an async task-queue-ack shaped like
         ``{"rows_queued": 1, "rows_rejected": 0, "task_id": "itsk_...",
         "connector": "...", "errors": [...], "queue_depth": N,
-        "embed_queue_depth": N}``. Poll ``GET /ingest/tasks/{task_id}`` and
+        "embed_queue_depth": N}``. Poll ``GET /v1/ingest/tasks/{task_id}`` and
         inspect its terminal status and aggregate ``rows_written``,
         ``rows_dropped``, and error/drop-reason accounting. For a particular
         row needed by a dependent operation, read that row after task completion
@@ -206,7 +206,7 @@ class ObjectClient:
         if on_conflict != "upsert":
             params["on_conflict"] = on_conflict
         return self._t.post_raw(
-            "/ingest?" + urlencode(params),
+            "/v1/ingest?" + urlencode(params),
             body,
             content_type="application/x-ndjson",
         )
@@ -242,7 +242,7 @@ class ObjectClient:
         source: str | None = None,
         on_conflict: str = "upsert",
     ) -> dict[str, Any]:
-        """Bulk upsert via ``POST /ingest/bulk``. Each row must carry its own
+        """Bulk upsert via ``POST /v1/ingest/bulk``. Each row must carry its own
         ``id`` key. Returns the bulk receipt with per-row error detail (#1760):
         ``{"inserted", "updated", "skipped", "errors": [...], "by_type": {...}}``.
 
@@ -251,7 +251,7 @@ class ObjectClient:
                 ignores rows whose ``id`` already exists; ``"error"`` raises on
                 the first conflict (HTTP 409).
         """
-        # Tag each row with _type so /ingest/bulk can route them.
+        # Tag each row with _type so /v1/ingest/bulk can route them.
         objects = [
             {**({**r, "_source": source} if source is not None else r), "_type": object_type}
             for r in rows
@@ -259,7 +259,7 @@ class ObjectClient:
         payload: dict[str, Any] = {"objects": objects, "on_conflict": on_conflict}
         if (eff_purpose := purpose or self._purpose):
             payload["purpose"] = eff_purpose
-        return dict(self._t.post("/ingest/bulk", payload))
+        return dict(self._t.post("/v1/ingest/bulk", payload))
 
     def get(
         self,
@@ -270,7 +270,7 @@ class ObjectClient:
     ) -> dict[str, Any] | None:
         """Fetch a single object by primary key.
 
-        Uses ``POST /query`` with a safe point-lookup SQL statement.
+        Uses ``POST /v1/query`` with a safe point-lookup SQL statement.
 
         Args:
             object_type: Object type name (e.g. ``"HmSkill"``).
@@ -292,7 +292,7 @@ class ObjectClient:
         if eff_purpose:
             payload["purpose"] = eff_purpose
         try:
-            data = self._t.post("/query", payload)
+            data = self._t.post("/v1/query", payload)
         except NotFoundError:
             return None
         # Wire shape: server sends {"data": [...], "rows": <int count>}.
@@ -338,7 +338,7 @@ class ObjectClient:
             params["purpose"] = eff_purpose
         body = _row_to_ndjson([{"id": object_id, "_deleted": True}])
         self._t.post_raw(
-            "/ingest?" + urlencode(params),
+            "/v1/ingest?" + urlencode(params),
             body,
             content_type="application/x-ndjson",
         )
@@ -348,7 +348,7 @@ class ObjectClient:
         object_type: str,
         object_id: str,
     ) -> dict[str, Any] | None:
-        """Fetch one object with its monotonic ``_version`` (``GET /objects/{type}/{id}``).
+        """Fetch one object with its monotonic ``_version`` (``GET /v1/objects/{type}/{id}``).
 
         The version is what ``expected_version`` in :meth:`upsert`,
         :meth:`delete` and :meth:`commit` names. Returns ``None`` when the
@@ -366,7 +366,7 @@ class ObjectClient:
         idempotency_key: str | None = None,
         purpose: str | None = None,
     ) -> dict[str, Any]:
-        """Atomically apply up to 64 operations (``POST /commit``, #5767).
+        """Atomically apply up to 64 operations (``POST /v1/commit``, #5767).
 
         Each operation is ``{"op": "create"|"update"|"delete", "type": ...,
         "id": ..., "expected_version"?: int, "data"?: {...}}``. All of them
@@ -376,7 +376,7 @@ class ObjectClient:
         ``idempotency_key`` returns the original result (``replayed: true``).
         """
         return dict(self._t.post(
-            "/commit", _commit_payload(operations, idempotency_key, purpose or self._purpose)
+            "/v1/commit", _commit_payload(operations, idempotency_key, purpose or self._purpose)
         ))
 
     def changes(
@@ -387,7 +387,7 @@ class ObjectClient:
         object_type: str | None = None,
         start: str | None = None,
     ) -> dict[str, Any]:
-        """Read one page of the object change feed (``GET /object-changes``, #5716).
+        """Read one page of the object change feed (``GET /v1/changes``, #5716).
 
         Pass the previous page's ``nextCursor`` as ``cursor`` and persist the new
         one only after every event in the page is processed. Delivery is
@@ -485,7 +485,7 @@ class AsyncObjectClient:
     ) -> dict[str, Any]:
         """Async equivalent of :meth:`ObjectClient.upsert`; see that
         docstring for its queue-admission, task-status, and publication-order
-        contract. ``POST /ingest`` returns an acknowledgement, not a
+        contract. ``POST /v1/ingest`` returns an acknowledgement, not a
         confirmed-write receipt. Poll task status and inspect aggregate outcome
         before depending on the write; verify a particular row with a read when
         necessary. Uncertain outcomes are not a safe basis for automatic retry.
@@ -512,7 +512,7 @@ class AsyncObjectClient:
         if on_conflict != "upsert":
             params["on_conflict"] = on_conflict
         return await self._t.post_raw(
-            "/ingest?" + urlencode(params),
+            "/v1/ingest?" + urlencode(params),
             body,
             content_type="application/x-ndjson",
         )
@@ -549,7 +549,7 @@ class AsyncObjectClient:
         payload: dict[str, Any] = {"objects": objects, "on_conflict": on_conflict}
         if (eff_purpose := purpose or self._purpose):
             payload["purpose"] = eff_purpose
-        return dict(await self._t.post("/ingest/bulk", payload))
+        return dict(await self._t.post("/v1/ingest/bulk", payload))
 
     async def get(
         self,
@@ -567,7 +567,7 @@ class AsyncObjectClient:
         if eff_purpose:
             payload["purpose"] = eff_purpose
         try:
-            data = await self._t.post("/query", payload)
+            data = await self._t.post("/v1/query", payload)
         except NotFoundError:
             return None
         raw = data.get("data") or []
@@ -597,7 +597,7 @@ class AsyncObjectClient:
             params["purpose"] = eff_purpose
         body = _row_to_ndjson([{"id": object_id, "_deleted": True}])
         await self._t.post_raw(
-            "/ingest?" + urlencode(params),
+            "/v1/ingest?" + urlencode(params),
             body,
             content_type="application/x-ndjson",
         )
@@ -607,7 +607,7 @@ class AsyncObjectClient:
         object_type: str,
         object_id: str,
     ) -> dict[str, Any] | None:
-        """Fetch one object with its monotonic ``_version`` (``GET /objects/{type}/{id}``).
+        """Fetch one object with its monotonic ``_version`` (``GET /v1/objects/{type}/{id}``).
 
         The version is what ``expected_version`` in :meth:`upsert`,
         :meth:`delete` and :meth:`commit` names. Returns ``None`` when the
@@ -625,7 +625,7 @@ class AsyncObjectClient:
         idempotency_key: str | None = None,
         purpose: str | None = None,
     ) -> dict[str, Any]:
-        """Atomically apply up to 64 operations (``POST /commit``, #5767).
+        """Atomically apply up to 64 operations (``POST /v1/commit``, #5767).
 
         Each operation is ``{"op": "create"|"update"|"delete", "type": ...,
         "id": ..., "expected_version"?: int, "data"?: {...}}``. All of them
@@ -635,7 +635,7 @@ class AsyncObjectClient:
         ``idempotency_key`` returns the original result (``replayed: true``).
         """
         return dict(await self._t.post(
-            "/commit", _commit_payload(operations, idempotency_key, purpose or self._purpose)
+            "/v1/commit", _commit_payload(operations, idempotency_key, purpose or self._purpose)
         ))
 
     async def changes(
@@ -646,7 +646,7 @@ class AsyncObjectClient:
         object_type: str | None = None,
         start: str | None = None,
     ) -> dict[str, Any]:
-        """Read one page of the object change feed (``GET /object-changes``, #5716).
+        """Read one page of the object change feed (``GET /v1/changes``, #5716).
 
         Pass the previous page's ``nextCursor`` as ``cursor`` and persist the new
         one only after every event in the page is processed. Delivery is

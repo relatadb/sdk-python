@@ -64,7 +64,7 @@ class _AsyncBody(httpx.AsyncByteStream):
 def _sync_client(body: _SyncBody, *, cap: int = 64 * 1024 * 1024) -> RelataClient:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
-        assert request.url.path == "/query/stream"
+        assert request.url.path == "/v1/query/stream"
         assert request.headers["accept"] == "application/x-ndjson"
         assert request.headers["x-tenant-id"] == "acme"
         assert request.headers["authorization"] == "Bearer token"
@@ -82,7 +82,7 @@ def _sync_client(body: _SyncBody, *, cap: int = 64 * 1024 * 1024) -> RelataClien
 
 def _async_client(body: _AsyncBody, *, cap: int = 64 * 1024 * 1024) -> RelataClient:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/query/stream"
+        assert request.url.path == "/v1/query/stream"
         assert request.headers["accept"] == "application/x-ndjson"
         assert request.headers["x-tenant-id"] == "acme"
         assert json.loads(request.content) == {"sql": SQL, "purpose": "analytics"}

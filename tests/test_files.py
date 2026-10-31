@@ -16,7 +16,7 @@ ETAG = '"fixture-etag"'
 def metadata():
     return dict(bucket='tenant-a', key=KEY, row_id='physical-row', size=len(PAYLOAD),
         etag=ETAG, content_type='application/x-fixture', modified_ns=123,
-        is_folder=False, download_url='/files/content?key=encoded')
+        is_folder=False, download_url='/v1/files/content?key=encoded')
 
 
 class SyncChunks(httpx.SyncByteStream):
@@ -51,7 +51,7 @@ def test_sync_files_round_trip_preserves_exact_bytes_headers_and_query_encoding(
     before = dict(extra)
     def handler(request):
         seen.append(request.method)
-        assert request.url.path == '/files/content'
+        assert request.url.path == '/v1/files/content'
         assert request.url.params['key'] == KEY and request.url.params['bucket'] == 'tenant-a'
         assert request.headers['Authorization'] == 'Bearer secret'
         assert request.headers.get_list('X-Relata-Tenant-Id') == ['tenant-a']
@@ -258,7 +258,7 @@ class FakeUploads:
 
     def __call__(self, request):
         self.calls.append((request.method, request.url.path))
-        if request.method == 'POST' and request.url.path == '/files/uploads':
+        if request.method == 'POST' and request.url.path == '/v1/files/uploads':
             body = json.loads(request.content)
             self.size, self.sha = body['size'], body.get('sha256')
             return httpx.Response(201, json=self.session())
@@ -289,7 +289,7 @@ def test_sync_resumable_upload_resumes_after_transient_failure_with_exact_bytes(
     assert meta.size == len(PAYLOAD)
     assert server.completed == payload and server.sha == hashlib.sha256(payload).hexdigest()
     assert server.digests == [hashlib.sha256(payload[i:i+4]).hexdigest() for i in (0, 4, 8)]
-    assert ('GET', '/files/uploads/u1') in server.calls  # offset re-read after the 503
+    assert ('GET', '/v1/files/uploads/u1') in server.calls  # offset re-read after the 503
 
 
 def test_sync_resumable_upload_gives_up_after_max_attempts_and_keeps_session():
@@ -301,7 +301,7 @@ def test_sync_resumable_upload_gives_up_after_max_attempts_and_keeps_session():
     with FilesClient('http://test', transport=httpx.MockTransport(handler)) as client:
         with pytest.raises(ServerError):
             client.upload(KEY, b'0123456789', chunk_size=4, max_attempts=2)
-    assert ('DELETE', '/files/uploads/u1') not in server.calls and server.completed is None
+    assert ('DELETE', '/v1/files/uploads/u1') not in server.calls and server.completed is None
 
 
 @pytest.mark.asyncio

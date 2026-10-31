@@ -44,7 +44,7 @@ def test_add_returns_id_and_sends_governed_payload() -> None:
     assert sent["purpose"] == "agent-notes"  # governance: purpose always sent
     assert sent["confidence"] == 0.8
     assert sent["memory_class"] == "episodic"
-    assert str(seen["request"].url).endswith("/memory/remember")
+    assert str(seen["request"].url).endswith("/v1/memory/remember")
 
 
 def test_add_batch_sends_items_and_returns_ids() -> None:
@@ -78,7 +78,7 @@ def test_add_batch_sends_items_and_returns_ids() -> None:
     assert ids == ["m1", "", "m3"]
     sent = json.loads(seen["request"].content)
     assert sent["purpose"] == "agent-notes"  # governance: purpose always sent
-    assert str(seen["request"].url).endswith("/memory/remember/batch")
+    assert str(seen["request"].url).endswith("/v1/memory/remember/batch")
     assert sent["items"][0] == {"content": "alpha", "session_id": "default-sess"}
     assert sent["items"][1]["confidence"] == 0.7
     # A str item and a dict without session_id both inherit the default session.
@@ -106,25 +106,27 @@ def test_search_unwraps_rows() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
+        seen["method"] = request.method
+        seen["body"] = json.loads(request.content)
         return httpx.Response(200, json=_mcp({"rows": rows, "count": 2, "query": "ui"}))
 
     with _memory(handler) as m:
         hits = m.search("ui preferences", top_k=2)
 
     assert [h["id"] for h in hits] == ["a", "b"]
-    assert "/memory/recall" in seen["url"]
-    assert "q=ui+preferences" in seen["url"]
-    assert "purpose=agent-notes" in seen["url"]
-    assert "top_k=2" in seen["url"]
+    assert seen["method"] == "POST"
+    assert seen["url"].endswith("/v1/memory/recall")
+    assert seen["body"] == {"q": "ui preferences", "purpose": "agent-notes", "top_k": 2}
 
 
 def test_search_sends_adr145_retrieval_quality_params() -> None:
     """#2674: CONFIDENCE/RECENCY/BUDGET/FORGETTING_CURVE/CANCEL_WHEN must be
-    reachable from ``Memory.search`` as query params on ``GET /memory/recall``."""
+    reachable from ``Memory.search`` as body fields on ``POST /v1/memory/recall``."""
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
         return httpx.Response(200, json=_mcp({"rows": [], "count": 0}))
 
     with _memory(handler) as m:
@@ -137,27 +139,28 @@ def test_search_sends_adr145_retrieval_quality_params() -> None:
             cancel_threshold=0.95,
         )
 
-    url = seen["url"]
-    assert "min_confidence=0.6" in url
-    assert "recency_half_life_secs=3600" in url
-    assert "budget_tokens=500" in url
-    assert "stability_days=7" in url
-    assert "cancel_threshold=0.95" in url
+    body = seen["body"]
+    assert body["min_confidence"] == 0.6
+    assert body["recency_half_life_secs"] == 3600.0
+    assert body["budget_tokens"] == 500
+    assert body["stability_days"] == 7.0
+    assert body["cancel_threshold"] == 0.95
 
 
 def test_search_omits_adr145_params_when_unset() -> None:
-    """Omitted knobs must not appear in the query string at all (so the
+    """Omitted knobs must not appear in the request body at all (so the
     server applies its own defaults rather than an SDK-invented sentinel)."""
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
         return httpx.Response(200, json=_mcp({"rows": [], "count": 0}))
 
     with _memory(handler) as m:
         m.search("ui preferences")
 
-    url = seen["url"]
+    body = seen["body"]
     for key in (
         "min_confidence",
         "recency_half_life_secs",
@@ -165,7 +168,7 @@ def test_search_omits_adr145_params_when_unset() -> None:
         "stability_days",
         "cancel_threshold",
     ):
-        assert key not in url
+        assert key not in body
 
 
 def test_search_detailed_surfaces_recall_cost_tokens_and_cancelled() -> None:
@@ -218,7 +221,7 @@ def test_forget_is_governed_retract() -> None:
     assert out["forget_at_ns"] == 42
     assert seen["request"].method == "DELETE"
     url = str(seen["request"].url)
-    assert "/memory/forget/mem-123" in url
+    assert "/v1/memory/forget/mem-123" in url
     assert "purpose=agent-notes" in url
 
 
@@ -237,7 +240,7 @@ def test_review_posts_decision_to_review_route() -> None:
 
     assert out["review_status"] == "approved"
     assert seen["request"].method == "POST"
-    assert str(seen["request"].url).endswith("/memory/review/mem-1")
+    assert str(seen["request"].url).endswith("/v1/memory/review/mem-1")
     body = json.loads(seen["request"].content)
     assert body["decision"] == "approve"
     assert body["reason"] == "checked source"
@@ -273,7 +276,7 @@ def test_update_returns_new_id_and_sends_supersede() -> None:
     assert new_id == "new-7"
     sent = json.loads(seen["request"].content)
     assert sent == {"id": "old", "content": "revised content", "purpose": "agent-notes"}
-    assert str(seen["request"].url).endswith("/memory/consolidate")
+    assert str(seen["request"].url).endswith("/v1/memory/consolidate")
 
 
 def test_purpose_required() -> None:

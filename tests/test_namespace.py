@@ -1,6 +1,6 @@
 """Tests for the flagship namespace() handle — T9 (#1991, epic #1982).
 
-Covers client.namespace("Doc").query/.write/.get/.delete_all/.branch_from and
+Covers client.namespace("Doc").query/.write/.get/.delete_all and
 namespace-name validation. Uses httpx.MockTransport — no live server required.
 """
 
@@ -60,7 +60,7 @@ def test_namespace_rejects_unsafe_name():
         client.namespace("Doc; DROP TABLE")
 
 
-# ── query() → /search (typed) ────────────────────────────────────────────────
+# ── query() → /v1/search (typed) ────────────────────────────────────────────────
 
 
 def test_namespace_query_posts_typed_search():
@@ -84,14 +84,14 @@ def test_namespace_query_posts_typed_search():
     assert res.rows[0]["title"] == "Graphs 101"
 
 
-# ── write() → /ingest/auto (schemaless, T6) ──────────────────────────────────
+# ── write() → /v1/ingest/auto (schemaless, T6) ──────────────────────────────────
 
 
 def test_namespace_write_posts_to_ingest_auto():
     seen: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/ingest/auto"
+        assert req.url.path == "/v1/ingest/auto"
         seen["body"] = json.loads(req.content)
         return httpx.Response(200, json=_SCHEMALESS_RESP)
 
@@ -124,7 +124,7 @@ def test_namespace_write_passes_schema_overrides():
 
 def test_namespace_get_point_lookup():
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
+        assert req.url.path == "/v1/query"
         body = json.loads(req.content)
         assert "SELECT * FROM Document WHERE id = 'd42'" in body["sql"]
         return httpx.Response(
@@ -149,7 +149,7 @@ def test_namespace_delete_all_tombstones_every_row():
 
     def handler(req: httpx.Request) -> httpx.Response:
         calls.append(req.url.path)
-        if req.url.path == "/query":
+        if req.url.path == "/v1/query":
             return httpx.Response(200, json={"rows": [{"id": "d1"}, {"id": "d2"}], "columns": ["id"]})
         body = json.loads(req.content)
         assert all(r.get("_deleted") is True for r in body["rows"])
@@ -158,34 +158,16 @@ def test_namespace_delete_all_tombstones_every_row():
     client = _mock_client(handler)
     out = client.namespace("Document").delete_all()
     assert out["deleted"] == 2
-    assert calls == ["/query", "/ingest/auto"]
+    assert calls == ["/v1/query", "/v1/ingest/auto"]
 
 
 def test_namespace_delete_all_empty_is_noop():
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query"
+        assert req.url.path == "/v1/query"
         return httpx.Response(200, json={"rows": [], "columns": ["id"]})
 
     client = _mock_client(handler)
     assert client.namespace("Document").delete_all() == {"deleted": 0}
-
-
-# ── branch_from() → /v1/namespaces door ──────────────────────────────────────
-
-
-def test_namespace_branch_from_posts_to_door():
-    seen: dict[str, Any] = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen["path"] = req.url.path
-        seen["body"] = json.loads(req.content)
-        return httpx.Response(200, json={"branched": True, "name": "Draft"})
-
-    client = _mock_client(handler)
-    out = client.namespace("Draft").branch_from("Document")
-    assert seen["path"] == "/v1/namespaces/Draft/branch"
-    assert seen["body"] == {"from": "Document"}
-    assert out["branched"] is True
 
 
 # ── async ────────────────────────────────────────────────────────────────────
@@ -194,9 +176,9 @@ def test_namespace_branch_from_posts_to_door():
 @pytest.mark.asyncio
 async def test_async_namespace_query_and_write():
     def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/search":
+        if req.url.path == "/v1/search":
             return httpx.Response(200, json=_QUERY_PAYLOAD)
-        if req.url.path == "/ingest/auto":
+        if req.url.path == "/v1/ingest/auto":
             return httpx.Response(200, json=_SCHEMALESS_RESP)
         return httpx.Response(404)
 

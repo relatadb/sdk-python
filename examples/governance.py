@@ -38,7 +38,7 @@ def main() -> None:
         print("\n=== Audit log ===")
         count = audit.count()
         print(f"  Audit entries: {count}")
-        entries = audit.entries(limit=5)
+        entries = audit.log(limit=5)
         print(f"  Recent entries: {entries}")
 
         # ── 4. List registered object types ────────────────────────────────

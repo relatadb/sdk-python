@@ -52,14 +52,14 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
     c.run_saved_search("ss-1")
     c.run_saved_search("ss-1", params=[1, None])
     assert seen == [
-        ("GET", "/alerts/a%2F1/evidence", "", None),
-        ("GET", "/alerts/a1/evidence", "max_events=5&deadline_ms=900", None),
-        ("GET", "/alerts/a1/timeline", "", None),
-        ("GET", "/alerts/a1/timeline", "deadline_ms=10", None),
-        ("POST", "/alerts/a1/pivot", "", {}),
+        ("GET", "/v1/alerts/a%2F1/evidence", "", None),
+        ("GET", "/v1/alerts/a1/evidence", "max_events=5&deadline_ms=900", None),
+        ("GET", "/v1/alerts/a1/timeline", "", None),
+        ("GET", "/v1/alerts/a1/timeline", "deadline_ms=10", None),
+        ("POST", "/v1/alerts/a1/pivot", "", {}),
         (
             "POST",
-            "/alerts/a1/pivot",
+            "/v1/alerts/a1/pivot",
             "",
             {
                 "field": "user",
@@ -72,7 +72,7 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
         ),
         (
             "POST",
-            "/searches/saved",
+            "/v1/search/saved",
             "",
             {
                 "name": "n",
@@ -82,18 +82,18 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
                 "params": ["x"],
             },
         ),
-        ("GET", "/searches/saved", "", None),
-        ("GET", "/searches/saved", "q=fail&limit=7", None),
-        ("GET", "/searches/saved/ss%2F1", "", None),
+        ("GET", "/v1/search/saved", "", None),
+        ("GET", "/v1/search/saved", "q=fail&limit=7", None),
+        ("GET", "/v1/search/saved/ss%2F1", "", None),
         (
             "PUT",
-            "/searches/saved/ss-1",
+            "/v1/search/saved/ss-1",
             "",
             {"name": "n", "sql": "SELECT 2", "expected_version": 3},
         ),
-        ("DELETE", "/searches/saved/ss-1", "", None),
-        ("POST", "/searches/saved/ss-1/run", "", {}),
-        ("POST", "/searches/saved/ss-1/run", "", {"params": [1, None]}),
+        ("DELETE", "/v1/search/saved/ss-1", "", None),
+        ("POST", "/v1/search/saved/ss-1/run", "", {}),
+        ("POST", "/v1/search/saved/ss-1/run", "", {"params": [1, None]}),
     ]
 
 
@@ -122,13 +122,13 @@ async def test_async_client_mirrors_the_sync_surface() -> None:
     await c.run_saved_search("ss-1")
     await c.close()
     assert [(m, p) for m, p, _, _ in seen] == [
-        ("GET", "/alerts/a1/evidence"),
-        ("GET", "/alerts/a1/timeline"),
-        ("POST", "/alerts/a1/pivot"),
-        ("POST", "/searches/saved"),
-        ("GET", "/searches/saved"),
-        ("GET", "/searches/saved/ss-1"),
-        ("PUT", "/searches/saved/ss-1"),
-        ("DELETE", "/searches/saved/ss-1"),
-        ("POST", "/searches/saved/ss-1/run"),
+        ("GET", "/v1/alerts/a1/evidence"),
+        ("GET", "/v1/alerts/a1/timeline"),
+        ("POST", "/v1/alerts/a1/pivot"),
+        ("POST", "/v1/search/saved"),
+        ("GET", "/v1/search/saved"),
+        ("GET", "/v1/search/saved/ss-1"),
+        ("PUT", "/v1/search/saved/ss-1"),
+        ("DELETE", "/v1/search/saved/ss-1"),
+        ("POST", "/v1/search/saved/ss-1/run"),
     ]

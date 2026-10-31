@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 def _sid(suggestion_id: str, suffix: str = "") -> str:
-    path = f"/ontology/suggestions/{quote(suggestion_id, safe='')}"
+    path = f"/v1/ontology/suggestions/{quote(suggestion_id, safe='')}"
     return f"{path}/{suffix}" if suffix else path
 
 
@@ -51,7 +51,7 @@ def _list_path(
         ("limit", limit),
     )
     query = {k: str(v) for k, v in pairs if v is not None}
-    return "/ontology/suggestions" + (f"?{urlencode(query)}" if query else "")
+    return "/v1/ontology/suggestions" + (f"?{urlencode(query)}" if query else "")
 
 
 def _decision(
@@ -83,7 +83,7 @@ def _exist_body(candidates: Sequence[dict[str, Any]], definition: str | None) ->
 
 
 class ExtractionClient:
-    """Synchronous client for ``/ontology/suggestions`` and ``/entities/exists``."""
+    """Synchronous client for ``/v1/ontology/suggestions`` and ``/v1/entities/exists``."""
 
     def __init__(
         self,
@@ -108,9 +108,9 @@ class ExtractionClient:
         )
 
     def submit(self, suggestions: Sequence[dict[str, Any]]) -> dict[str, Any]:
-        """``POST /ontology/suggestions``: store 1 to 200 suggestions; each result is
+        """``POST /v1/ontology/suggestions``: store 1 to 200 suggestions; each result is
         ``created``, ``existing`` (an exact retry) or ``invalid`` with ``issues``."""
-        return dict(self._t.post("/ontology/suggestions", {"suggestions": list(suggestions)}))
+        return dict(self._t.post("/v1/ontology/suggestions", {"suggestions": list(suggestions)}))
 
     def list(
         self,
@@ -123,12 +123,12 @@ class ExtractionClient:
         min_confidence: float | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        """``GET /ontology/suggestions``: the review queue, oldest first."""
+        """``GET /v1/ontology/suggestions``: the review queue, oldest first."""
         path = _list_path(state, kind, definition, low_confidence, stale, min_confidence, limit)
         return dict(self._t.get(path))
 
     def get(self, suggestion_id: str) -> dict[str, Any]:
-        """``GET /ontology/suggestions/{id}``: with its correction and decision history."""
+        """``GET /v1/ontology/suggestions/{id}``: with its correction and decision history."""
         return dict(self._t.get(_sid(suggestion_id)))
 
     def decide(
@@ -169,18 +169,18 @@ class ExtractionClient:
     def apply(
         self, definition: str, *, suggestion_ids: Sequence[str] | None = None
     ) -> dict[str, Any]:
-        """``POST /ontology/suggestions/apply``: fold accepted schema suggestions into
+        """``POST /v1/ontology/suggestions/apply``: fold accepted schema suggestions into
         the definition's draft; publish it with the ontology-definitions client."""
         return dict(
-            self._t.post("/ontology/suggestions/apply", _apply_body(definition, suggestion_ids))
+            self._t.post("/v1/ontology/suggestions/apply", _apply_body(definition, suggestion_ids))
         )
 
     def entities_exist(
         self, candidates: Sequence[dict[str, Any]], *, definition: str | None = None
     ) -> dict[str, Any]:
-        """``POST /entities/exists``: for up to 500 ``{"type", "match": {field: value}}``
+        """``POST /v1/entities/exists``: for up to 500 ``{"type", "match": {field: value}}``
         candidates, whether a live record matches exactly and with which ids."""
-        return dict(self._t.post("/entities/exists", _exist_body(candidates, definition)))
+        return dict(self._t.post("/v1/entities/exists", _exist_body(candidates, definition)))
 
     def close(self) -> None:
         self._t.close()
@@ -218,7 +218,7 @@ class AsyncExtractionClient:
         )
 
     async def submit(self, suggestions: Sequence[dict[str, Any]]) -> dict[str, Any]:
-        return dict(await self._t.post("/ontology/suggestions", {"suggestions": list(suggestions)}))
+        return dict(await self._t.post("/v1/ontology/suggestions", {"suggestions": list(suggestions)}))
 
     async def list(
         self,
@@ -271,12 +271,12 @@ class AsyncExtractionClient:
         self, definition: str, *, suggestion_ids: Sequence[str] | None = None
     ) -> dict[str, Any]:
         body = _apply_body(definition, suggestion_ids)
-        return dict(await self._t.post("/ontology/suggestions/apply", body))
+        return dict(await self._t.post("/v1/ontology/suggestions/apply", body))
 
     async def entities_exist(
         self, candidates: Sequence[dict[str, Any]], *, definition: str | None = None
     ) -> dict[str, Any]:
-        return dict(await self._t.post("/entities/exists", _exist_body(candidates, definition)))
+        return dict(await self._t.post("/v1/entities/exists", _exist_body(candidates, definition)))
 
     async def close(self) -> None:
         await self._t.aclose()

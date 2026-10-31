@@ -65,7 +65,7 @@ _STRICT_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 def _validate_sql_identifier(name: str, *, kind: str = "identifier") -> str:
     """Return ``name`` unchanged if it matches the strict identifier allowlist,
     else raise ``ValueError``. Guards every identifier interpolated into SQL
-    sent to ``/query`` (#3211)."""
+    sent to ``/v1/query`` (#3211)."""
     if not name or not _STRICT_IDENTIFIER_RE.match(name):
         raise ValueError(
             f"Invalid {kind}: {name!r}. Must match {_STRICT_IDENTIFIER_RE.pattern}. "

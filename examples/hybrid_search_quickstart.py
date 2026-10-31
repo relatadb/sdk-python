@@ -3,7 +3,7 @@
 Emits ``HYBRID_SEARCH FROM <type> QUERY '<text>' LIMIT <k>`` fused via
 reciprocal rank fusion (graph + BM25 + vector). The server embeds the query
 text server-side; caller-supplied embeddings are not accepted by the
-``/query`` SQL surface (there is no vector-literal grammar).
+``/v1/query`` SQL surface (there is no vector-literal grammar).
 
 Run a local server first:
 

@@ -1,8 +1,8 @@
-"""Typed ``/rag/query`` client — RAG epic foundational SDK ticket (#4523).
+"""Typed ``/v1/rag/query`` client — RAG epic foundational SDK ticket (#4523).
 
-Wraps ``POST /rag/query`` (#4514, the ADR-0299 substrate contract) with a
+Wraps ``POST /v1/rag/query`` (#4514, the ADR-0299 substrate contract) with a
 typed request builder and response model. Per ADR-0298, RelataDB has no
-server-side agent loop — orchestration lives in the SDK — and ``/rag/query``
+server-side agent loop — orchestration lives in the SDK — and ``/v1/rag/query``
 itself is deliberately stateless, idempotent, and LLM-free: this client is a
 thin, honest wrapper around that contract, nothing more.
 
@@ -10,7 +10,7 @@ thin, honest wrapper around that contract, nothing more.
 "Tell me about Ahmad" when the corpus has several distinct Ahmads) may come
 back with :attr:`~relata.models.RagQueryResponse.clarification` set instead
 of (or alongside empty) ``hits`` — see :class:`~relata.models.Clarification`.
-``/rag/query`` itself stays stateless: the caller resumes with an explicit
+``/v1/rag/query`` itself stays stateless: the caller resumes with an explicit
 pick by re-issuing the call with a ``filters`` entry scoping to the chosen
 ``entity_id``. :func:`filters_for_entity_ids` builds that entry, and
 :meth:`RagClient.resume_with_selection`/:meth:`AsyncRagClient.resume_with_selection`
@@ -57,7 +57,7 @@ from relata.search import _normalise_filters
 #: ``crates/relata-cli/src/serve/query/rag_query.rs``'s module doc — that
 #: retrieves via the persisted ``DocumentStructureNode`` table-of-contents
 #: index instead of flat embedding/BM25 ranking; it is still one governed
-#: ``/rag/query`` call, so it needs no new client method, only this extra
+#: ``/v1/rag/query`` call, so it needs no new client method, only this extra
 #: enum value.
 _SEARCH_MODES = frozenset({"lexical", "dense", "hybrid", "structural"})
 
@@ -103,7 +103,7 @@ def _build_rag_payload(
     expand_window: bool,
     graph_hops: int,
 ) -> dict[str, object]:
-    """Assemble the ``POST /rag/query`` JSON body per #4514's exact table.
+    """Assemble the ``POST /v1/rag/query`` JSON body per #4514's exact table.
 
     Every field is sent explicitly (no field is ever silently dropped) even
     when it matches the server default, so a caller inspecting the outgoing
@@ -161,7 +161,7 @@ def filters_for_entity_ids(
 
 
 class RagClient:
-    """Synchronous typed ``/rag/query`` client.
+    """Synchronous typed ``/v1/rag/query`` client.
 
     Construct with :meth:`from_client` so the request executes under the
     parent client's auth/tenant context.
@@ -192,7 +192,7 @@ class RagClient:
         expand_window: bool = False,
         graph_hops: int = 0,
     ) -> RagQueryResponse:
-        """Run a governed retrieval via ``POST /rag/query`` (#4514).
+        """Run a governed retrieval via ``POST /v1/rag/query`` (#4514).
 
         Args:
             query: Query text.
@@ -226,7 +226,7 @@ class RagClient:
             expand_window=expand_window,
             graph_hops=graph_hops,
         )
-        data = self._client._sync.post("/rag/query", payload)  # noqa: SLF001
+        data = self._client._sync.post("/v1/rag/query", payload)  # noqa: SLF001
         return RagQueryResponse.model_validate(data)
 
     async def aquery(
@@ -258,7 +258,7 @@ class RagClient:
             expand_window=expand_window,
             graph_hops=graph_hops,
         )
-        data = await self._client._async.post("/rag/query", payload)  # noqa: SLF001
+        data = await self._client._async.post("/v1/rag/query", payload)  # noqa: SLF001
         return RagQueryResponse.model_validate(data)
 
     def resume_with_selection(
@@ -282,7 +282,7 @@ class RagClient:
         Re-runs :meth:`query` with ``filters`` scoped to
         ``entity_ids`` (typically ``[clarification.candidates[i].entity_id]``
         for a single pick, or several for a "these are all the same"
-        selection) via :func:`filters_for_entity_ids`. ``/rag/query`` stays
+        selection) via :func:`filters_for_entity_ids`. ``/v1/rag/query`` stays
         stateless — this is a client-side convenience over the same request
         shape, not a new server contract.
 
@@ -346,7 +346,7 @@ class RagClient:
 
 
 class AsyncRagClient:
-    """Asynchronous typed ``/rag/query`` client — see :class:`RagClient`."""
+    """Asynchronous typed ``/v1/rag/query`` client — see :class:`RagClient`."""
 
     def __init__(self, client: RelataClient) -> None:
         self._inner = RagClient(client)

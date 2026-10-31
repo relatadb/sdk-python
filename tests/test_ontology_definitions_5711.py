@@ -41,38 +41,38 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
     c.run_migration("crm", 2, max_rows=10, retry_failed=True)
     c.run_migration("crm", 2)
     assert seen == [
-        ("GET", "/ontology/definitions", "", None),
-        ("POST", "/ontology/definitions", "", {"name": "crm", "definition": d}),
-        ("GET", "/ontology/definitions/crm", "", None),
-        ("PUT", "/ontology/definitions/crm/draft", "", {"definition": d}),
-        ("POST", "/ontology/definitions/crm/validate", "", {}),
-        ("POST", "/ontology/definitions/crm/validate", "", {"definition": d}),
-        ("GET", "/ontology/definitions/crm/compare", "from=1&to=draft", None),
-        ("GET", "/ontology/definitions/crm/compare", "", None),
+        ("GET", "/v1/ontology/definitions", "", None),
+        ("POST", "/v1/ontology/definitions", "", {"name": "crm", "definition": d}),
+        ("GET", "/v1/ontology/definitions/crm", "", None),
+        ("PUT", "/v1/ontology/definitions/crm/draft", "", {"definition": d}),
+        ("POST", "/v1/ontology/definitions/crm/validate", "", {}),
+        ("POST", "/v1/ontology/definitions/crm/validate", "", {"definition": d}),
+        ("GET", "/v1/ontology/definitions/crm/compare", "from=1&to=draft", None),
+        ("GET", "/v1/ontology/definitions/crm/compare", "", None),
         (
             "POST",
-            "/ontology/definitions/crm/publish",
+            "/v1/ontology/definitions/crm/publish",
             "",
             {"expected_version": 1, "accept_migration": True, "from_version": 1},
         ),
-        ("POST", "/ontology/definitions/crm/publish", "", {"expected_version": 0}),
-        ("GET", "/ontology/definitions/crm/versions/2", "", None),
-        ("GET", "/ontology/definitions/crm/status", "", None),
-        ("GET", "/ontology/definitions/crm/migrations/2", "", None),
+        ("POST", "/v1/ontology/definitions/crm/publish", "", {"expected_version": 0}),
+        ("GET", "/v1/ontology/definitions/crm/versions/2", "", None),
+        ("GET", "/v1/ontology/definitions/crm/status", "", None),
+        ("GET", "/v1/ontology/definitions/crm/migrations/2", "", None),
         (
             "POST",
-            "/ontology/definitions/crm/migrations/2/run",
+            "/v1/ontology/definitions/crm/migrations/2/run",
             "",
             {"max_rows": 10, "retry_failed": True},
         ),
-        ("POST", "/ontology/definitions/crm/migrations/2/run", "", {}),
+        ("POST", "/v1/ontology/definitions/crm/migrations/2/run", "", {}),
     ]
 
 
 def test_names_are_path_quoted() -> None:
     seen: list[tuple[str, str, str, object]] = []
     _client(seen).get("a/b c")
-    assert seen[0][1] == "/ontology/definitions/a%2Fb%20c"
+    assert seen[0][1] == "/v1/ontology/definitions/a%2Fb%20c"
 
 
 def test_a_precondition_failure_is_raised_not_returned() -> None:

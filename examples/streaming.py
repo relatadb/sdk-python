@@ -1,17 +1,17 @@
 """
-Streaming example — SSE watch + transparency log (#967 Tier 2b).
+Streaming example — SSE watch + audit log (#967 Tier 2b).
 
-Two related real-time surfaces:
-  1. `StreamingClient.watch(sql)` — `/watch/stream` polls for governed
+Two related surfaces:
+  1. `StreamingClient.watch(sql)` — `/v1/watch/stream` polls for governed
      query-result notifications. The server emits hashes and explicit
      gap/failure events, not changed row contents. Reconnects use the same
      in-memory per-principal queue; clients must re-register after restart.
-  2. `LogClient` — `/log/append|leaves|head` is the tamper-evident audit
-     append-log. Every governed write lands here as a leaf.
+  2. `AuditClient.log` — `GET /v1/audit/log` is the tamper-evident audit
+     log. Every governed write lands here as an entry.
 
 The example spawns the watch consumer in a background thread, performs a
-couple of writes, prints any events received, then queries the transparency
-log to verify the writes landed.
+couple of writes, prints any events received, then reads the audit log to
+verify the writes landed.
 
 Run:
     RELATA_TOKEN=secret python -m examples.streaming
@@ -25,7 +25,7 @@ import time
 
 from relata import RelataClient
 from relata.ingest import IngestClient
-from relata.log import LogClient
+from relata.audit import AuditClient
 from relata.streaming import StreamingClient
 
 
@@ -35,7 +35,7 @@ def main() -> None:
 
     relata = RelataClient(url, bearer_token=token, purpose="analytics")
     streaming = StreamingClient.from_client(relata)
-    log = LogClient.from_client(relata)
+    audit = AuditClient.from_client(relata)
     ingest = IngestClient.from_client(relata)
 
     # ── 1. Background thread: consume watch events for 5 seconds ──────────
@@ -58,7 +58,7 @@ def main() -> None:
     time.sleep(0.3)
 
     # ── 2. Issue writes while the watcher runs ────────────────────────────
-    # `/query` is read-only (#782) — writes go through the governed ingest
+    # `/v1/query` is read-only (#782) — writes go through the governed ingest
     # door, not SQL INSERT.
     print("\n=== 2. Issuing writes to trigger watch events ===")
     ingest.bulk("Person", [{"_pk": "watch-1", "name": "Watch Test 1"}])
@@ -71,18 +71,13 @@ def main() -> None:
 
     # ── 3. Alerts stream URL (for an external curl consumer) ──────────────
     print("\n=== 3. Alerts stream URL (for external consumer) ===")
-    print(f"  {url}/alerts/stream")
+    print(f"  {url}/v1/alerts/stream")
 
-    # ── 4. Transparency log: append + read back ───────────────────────────
-    print("\n=== 4. Transparency log (append + head + leaves) ===")
-    leaf = log.append(b'{"action": "example_run", "note": "streaming example"}')
-    print(f"  appended leaf (index, size) = {leaf}")
-
-    head = log.head()
-    print(f"  log head (tree size) = {head}")
-
-    leaves = log.load_leaves()
-    print(f"  {len(leaves) if hasattr(leaves, '__len__') else '?'} leaf/leaves in log")
+    # ── 4. Audit log: read back ───────────────────────────────────────────
+    print("\n=== 4. Audit log (count + recent entries) ===")
+    print(f"  count: {audit.count()}")
+    recent = audit.log(limit=5)
+    print(f"  {len(recent.get('entries', []))} recent entr(ies); chain_valid={recent.get('chain_valid')}")
 
     relata.close()
 

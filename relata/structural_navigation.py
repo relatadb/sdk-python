@@ -6,7 +6,7 @@ The optional application adapter half of #4542 (``the former relata-connectors d
 each document's ``section_path``/``page_start``/``page_end`` — one node per
 distinct heading-breadcrumb prefix, plus a synthetic root, each carrying a
 cheap LLM-free one-line ``summary`` and its direct ``leaf_chunk_ids``.
-``POST /rag/query``'s ``search_mode: structural`` (#4514/#4542,
+``POST /v1/rag/query``'s ``search_mode: structural`` (#4514/#4542,
 ``crates/relata-cli/src/serve/query/rag_query.rs``) is a single-shot,
 one-hop approximation of tree navigation: it lexically matches node
 title/summary, then ranks within the matched node(s)' own leaf chunks.
@@ -17,10 +17,10 @@ repeatedly fetches the current node's children ([`fetch_child_nodes`]),
 asks a ``select_child`` strategy which subtree to descend into, and stops
 either when a level has no children (a leaf) or the strategy declines to
 descend further — then ranks that leaf's own ``leaf_chunk_ids`` via a
-governed ``RAG_RETRIEVE`` call, exactly like every other ``/rag/query``
+governed ``RAG_RETRIEVE`` call, exactly like every other ``/v1/rag/query``
 mode (same ACL/cell-masking enforcement — no bypass, since this still goes
-through :meth:`~relata.client.RelataClient.query`, the same governed `/query`
-surface `/rag/query` itself delegates to server-side).
+through :meth:`~relata.client.RelataClient.query`, the same governed `/v1/query`
+surface `/v1/rag/query` itself delegates to server-side).
 
 Per ADR-0298, RelataDB has no server-side agent loop — the reasoning that
 picks which child to descend into is a caller-supplied ``select_child``
@@ -90,7 +90,7 @@ class StructureNode:
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> StructureNode:
-        """Build a :class:`StructureNode` from one ``/query`` result row.
+        """Build a :class:`StructureNode` from one ``/v1/query`` result row.
 
         ``leaf_chunk_ids`` is stored server-side as a JSON array string
         (``the former relata-connectors document_ingest module (removed, #5932)`` — no native array
@@ -144,7 +144,7 @@ def fetch_child_nodes(
     """Fetch the direct children of `parent_id` (or the synthetic root's
     single row when `parent_id` is `None`) for `report_id`'s
     `DocumentStructureNode` tree, via a plain governed `SELECT` — the same
-    `/query` surface `/rag/query` itself delegates to server-side, so
+    `/v1/query` surface `/v1/rag/query` itself delegates to server-side, so
     ACL/cell-masking apply identically."""
     parent_clause = (
         "parent_id IS NULL"
@@ -287,7 +287,7 @@ def navigate_structural_tree(
     node's own `leaf_chunk_ids` against `question`.
 
     This is the true multi-hop agent loop #4542's design describes,
-    complementing (not replacing) `/rag/query`'s single-shot
+    complementing (not replacing) `/v1/rag/query`'s single-shot
     `search_mode: structural` (#4514) — `select_child` is where an
     application plugs in real reasoning (e.g. an LLM call over the
     candidates' `summary` fields); :func:`lexical_child_selector` is the
@@ -295,7 +295,7 @@ def navigate_structural_tree(
 
     Every fetch (`fetch_root_node`/`fetch_child_nodes`/the final ranked
     `RAG_RETRIEVE`) goes through :meth:`~relata.client.RelataClient.query`
-    — the same governed `/query` surface — so ACL/cell-masking apply
+    — the same governed `/v1/query` surface — so ACL/cell-masking apply
     identically at every level; there is no bypass path.
 
     Returns an empty :class:`~relata.models.RagQueryResponse` when

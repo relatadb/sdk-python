@@ -6,12 +6,12 @@ vector DB" or "yet another BM25 engine": supply a ``query_text`` and the
 server embeds it and fuses the BM25 + vector rankings via reciprocal rank
 fusion (ADR-175, #4491). A caller-supplied query embedding is a *separate*
 capability — ``VectorClient.knn_search()``, the pure-vector, no-BM25-leg
-path (the ``/query`` SQL surface has no vector-literal grammar, so
+path (the ``/v1/query`` SQL surface has no vector-literal grammar, so
 ``hybrid_search()`` itself only ever accepts ``query_text``).
 
 This walkthrough:
 
-1. Embeds a few short texts with the built-in embedder (``POST /embed``,
+1. Embeds a few short texts with the built-in embedder (``POST /v1/embed``,
    #1172) and writes them into a ``Document`` namespace with the embedding
    pre-computed in the ``_emb_text`` slot (the caller-supplied convention,
    see ``docs/src/end-users/search.md``).
@@ -72,7 +72,7 @@ def main() -> None:
             print(f"  score={row.get('_score', 0):.4f}  {row.get('title')}")
 
         # ── 3. Vector-only leg (caller-supplied embedding, no BM25 text) ────
-        # `VectorClient.hybrid_search()` requires `query_text` (the `/query`
+        # `VectorClient.hybrid_search()` requires `query_text` (the `/v1/query`
         # SQL surface has no vector-literal grammar — see its docstring), so
         # a caller-supplied-embedding, vector-only query goes through
         # `knn_search()` instead, not `hybrid_search()`.

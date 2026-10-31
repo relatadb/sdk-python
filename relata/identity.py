@@ -1,7 +1,7 @@
 """Identity + lookup + GDPR SDK (#79).
 
-Wraps ``/identity/label``, ``/identity/uncertainty``, ``/lookup``,
-``/lookup/register``, plus the ``ERASE SUBJECT`` SQL command. The
+Wraps ``/v1/identity/label``, ``/v1/identity/uncertainty``, ``/v1/lookup``,
+``/v1/lookup/register``, plus the ``ERASE SUBJECT`` SQL command. The
 ``ERASE SUBJECT`` path goes through the parent ``RelataClient.query()`` because
 the server exposes it as a SQL statement, not a dedicated HTTP route.
 """
@@ -63,7 +63,7 @@ class IdentityClient:
         }
         if source_id is not None:
             payload["source_id"] = source_id
-        return self._t.post("/identity/label", payload)
+        return self._t.post("/v1/identity/label", payload)
 
     def record_uncertainty(
         self,
@@ -80,7 +80,7 @@ class IdentityClient:
         # Server exposes uncertainty as GET with query params — adapt.
         from urllib.parse import urlencode
 
-        return self._t.get("/identity/uncertainty?" + urlencode(payload))
+        return self._t.get("/v1/identity/uncertainty?" + urlencode(payload))
 
     # ------------------------------------------------------------------
     # Lookup tables (#79) — Splunk `lookup` parity
@@ -102,11 +102,11 @@ class IdentityClient:
         }
         if value_columns is not None:
             payload["value_columns"] = value_columns
-        return self._t.post("/lookup/register", payload)
+        return self._t.post("/v1/lookup/register", payload)
 
     def list_lookups(self) -> list[dict[str, Any]]:
         """List registered lookup tables."""
-        data = self._t.get("/lookup")
+        data = self._t.get("/v1/lookup")
         lookups = data.get("lookups") if isinstance(data, dict) else data
         return lookups if isinstance(lookups, list) else []
 
@@ -114,7 +114,7 @@ class IdentityClient:
         """Invoke a registered lookup. Returns the row(s) matching ``key``."""
         from urllib.parse import urlencode
 
-        return self._t.get("/lookup?" + urlencode({"name": name, "key": key}))
+        return self._t.get("/v1/lookup?" + urlencode({"name": name, "key": key}))
 
     # ------------------------------------------------------------------
     # ERASE SUBJECT (#79, #61) — SQL path
@@ -153,10 +153,10 @@ class IdentityClient:
         # subject/reason are bound as $1/$2 via the server-side parameterized
         # path — never interpolated into the SQL text (#3211).
         sql = f"ERASE SUBJECT $1 REASON $2{certify_kw}"
-        # We send via /query on this client's transport — the caller's purpose
+        # We send via /v1/query on this client's transport — the caller's purpose
         # is required and is forwarded as the body purpose.
         return self._t.post(
-            "/query", {"purpose": purpose, "sql": sql, "params": [subject_identity, reason]}
+            "/v1/query", {"purpose": purpose, "sql": sql, "params": [subject_identity, reason]}
         )
 
     def close(self) -> None:
@@ -209,7 +209,7 @@ class AsyncIdentityClient:
         }
         if source_id is not None:
             payload["source_id"] = source_id
-        return await self._t.post("/identity/label", payload)
+        return await self._t.post("/v1/identity/label", payload)
 
     async def record_uncertainty(
         self,
@@ -223,7 +223,7 @@ class AsyncIdentityClient:
         payload: dict[str, Any] = {"identity": identity, "reason": reason}
         if suggested_alternatives is not None:
             payload["suggested_alternatives"] = suggested_alternatives
-        return await self._t.get("/identity/uncertainty?" + urlencode(payload))
+        return await self._t.get("/v1/identity/uncertainty?" + urlencode(payload))
 
     async def register_lookup(
         self,
@@ -240,17 +240,17 @@ class AsyncIdentityClient:
         }
         if value_columns is not None:
             payload["value_columns"] = value_columns
-        return await self._t.post("/lookup/register", payload)
+        return await self._t.post("/v1/lookup/register", payload)
 
     async def list_lookups(self) -> list[dict[str, Any]]:
-        data = await self._t.get("/lookup")
+        data = await self._t.get("/v1/lookup")
         lookups = data.get("lookups") if isinstance(data, dict) else data
         return lookups if isinstance(lookups, list) else []
 
     async def invoke_lookup(self, name: str, key: str) -> dict[str, Any]:
         from urllib.parse import urlencode
 
-        return await self._t.get("/lookup?" + urlencode({"name": name, "key": key}))
+        return await self._t.get("/v1/lookup?" + urlencode({"name": name, "key": key}))
 
     async def erase_subject(
         self,
@@ -266,7 +266,7 @@ class AsyncIdentityClient:
         certify_kw = " CERTIFY" if certify else ""
         sql = f"ERASE SUBJECT $1 REASON $2{certify_kw}"
         return await self._t.post(
-            "/query", {"purpose": purpose, "sql": sql, "params": [subject_identity, reason]}
+            "/v1/query", {"purpose": purpose, "sql": sql, "params": [subject_identity, reason]}
         )
 
     async def close(self) -> None:

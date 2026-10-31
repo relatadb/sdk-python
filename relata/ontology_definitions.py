@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from relata.client import RelataClient
 
-_BASE = "/ontology/definitions"
+_BASE = "/v1/ontology/definitions"
 
 
 def _p(name: str, *rest: str) -> str:
@@ -58,7 +58,7 @@ def _compare_path(name: str, from_version: int | str | None, to: int | str | Non
 
 
 class OntologyDefinitionsClient:
-    """Synchronous client for ``/ontology/definitions``."""
+    """Synchronous client for ``/v1/ontology/definitions``."""
 
     def __init__(
         self,
@@ -83,19 +83,19 @@ class OntologyDefinitionsClient:
         )
 
     def list(self) -> dict[str, Any]:
-        """``GET /ontology/definitions``."""
+        """``GET /v1/ontology/definitions``."""
         return dict(self._t.get(_BASE))
 
     def create(self, name: str, definition: dict[str, Any]) -> dict[str, Any]:
-        """``POST /ontology/definitions``: a new set with an initial draft."""
+        """``POST /v1/ontology/definitions``: a new set with an initial draft."""
         return dict(self._t.post(_BASE, {"name": name, "definition": definition}))
 
     def get(self, name: str) -> dict[str, Any]:
-        """``GET /ontology/definitions/{name}``: head and current draft."""
+        """``GET /v1/ontology/definitions/{name}``: head and current draft."""
         return dict(self._t.get(_p(name)))
 
     def save_draft(self, name: str, definition: dict[str, Any]) -> dict[str, Any]:
-        """``PUT /ontology/definitions/{name}/draft``."""
+        """``PUT /v1/ontology/definitions/{name}/draft``."""
         return dict(self._t.put(_p(name, "draft"), {"definition": definition}))
 
     def validate(self, name: str, definition: dict[str, Any] | None = None) -> dict[str, Any]:

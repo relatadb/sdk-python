@@ -1,15 +1,14 @@
 """Tests for #2321 (ADR-0261): the admin control-plane listener split.
 
-/admin/* and /platform/* are mounted ONLY on the loopbound admin listener
+/admin/* is mounted ONLY on the loopbound admin listener
 (RELATA_ADMIN_BIND, default 127.0.0.1:9091) on a hardened server/cluster
 deployment -- never the main data-plane listener. These tests pin two
 things:
 
 1. ``admin_base_url``, when configured (on ``RelataClient`` or directly on
-   ``BackupClient``/``TenantAdminClient``), routes admin/platform-only
-   requests to the admin listener instead of ``base_url`` -- spot-checked
+   ``BackupClient``), routes admin-only requests to the admin listener instead of ``base_url`` -- spot-checked
    through the real typed clients (not just the raw transport).
-2. A bare, detail-free 404 against an admin/platform-only path -- the shape
+2. A bare, detail-free 404 against an admin-only path -- the shape
    the server's own RFC 7807 normalisation leaves behind for a request that
    matched no route on the listener that answered -- surfaces a "you're
    probably pointed at the wrong port" hint instead of an uninformative bare
@@ -47,9 +46,9 @@ def _wrap(handler: Handler) -> httpx.MockTransport:
 
 def test_is_admin_only_path() -> None:
     assert _is_admin_only_path("/admin/backup")
-    assert _is_admin_only_path("/platform/tenants")
-    assert not _is_admin_only_path("/query")
-    assert not _is_admin_only_path("/tenants/me")
+    assert not _is_admin_only_path("/platform/tenants")
+    assert not _is_admin_only_path("/v1/query")
+    assert not _is_admin_only_path("/v1/tenants/me")
     assert not _is_admin_only_path("/administer")  # no trailing slash after "admin"
 
 
@@ -103,21 +102,6 @@ def test_backup_client_routes_to_admin_base_url_when_configured() -> None:
     assert c.list() == []
 
 
-def test_tenant_admin_client_splits_tenants_and_platform_across_planes() -> None:
-    seen_hosts: dict[str, str] = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen_hosts[req.url.path] = req.url.host
-        return httpx.Response(200, json={"usage": {}})
-
-    c = TenantAdminClient(BASE, admin_base_url=ADMIN, transport=_wrap(handler))
-    c.usage()  # /tenants/usage -- ordinary data-plane route
-    c.platform_usage()  # /platform/usage -- admin-listener-only route
-
-    assert seen_hosts["/tenants/usage"] == "data-plane.example"
-    assert seen_hosts["/platform/usage"] == "admin-plane.example"
-
-
 def test_backup_client_from_client_inherits_admin_base_url() -> None:
     client = RelataClient(BASE, admin_base_url=ADMIN, purpose="analytics")
     backup = BackupClient.from_client(client)
@@ -161,7 +145,7 @@ def test_bare_404_against_admin_only_path_surfaces_hint() -> None:
     assert "/admin/backups" in msg
 
 
-def test_real_business_404_on_platform_route_does_not_get_hint() -> None:
+def test_real_business_404_on_admin_route_does_not_get_hint() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(
             404,
@@ -176,9 +160,9 @@ def test_real_business_404_on_platform_route_does_not_get_hint() -> None:
             ),
         )
 
-    c = TenantAdminClient(BASE, transport=_wrap(handler))
+    c = BackupClient(BASE, transport=_wrap(handler))
     with pytest.raises(NotFoundError) as exc_info:
-        c.get("acme")
+        c.restore_status("acme")
     msg = str(exc_info.value)
     assert "RELATA_ADMIN_BIND" not in msg
     assert "tenant 'acme' not found" in msg
@@ -196,5 +180,5 @@ def test_bare_404_on_data_plane_path_does_not_get_hint() -> None:
 
     c = TenantAdminClient(BASE, transport=_wrap(handler))
     with pytest.raises(NotFoundError) as exc_info:
-        c.tenant_usage("acme")  # /tenants/:id/usage -- not admin/platform-only
+        c.me()  # /v1/tenants/me -- not admin-only
     assert "RELATA_ADMIN_BIND" not in str(exc_info.value)

@@ -1,9 +1,9 @@
 """Application primitives SDK (#5768, #5783): atomic sequences and a durable job queue.
 
-Wraps ``POST /sequences/{name}/next``, ``GET /sequences/{name}``,
-``POST /queues/{name}/jobs``, ``POST /queues/{name}/claim``,
-``POST /jobs/{id}/{renew,complete,fail}``, ``GET /queues/{name}/jobs`` and
-``GET /queues/{name}/jobs/{id}``.
+Wraps ``POST /v1/sequences/{name}/next``, ``GET /v1/sequences/{name}``,
+``POST /v1/queues/{name}/jobs``, ``POST /v1/queues/{name}/claim``,
+``POST /v1/jobs/{id}/{renew,complete,fail}``, ``GET /v1/queues/{name}/jobs`` and
+``GET /v1/queues/{name}/jobs/{id}``.
 
 A claim returns a fencing token; ``renew``/``complete``/``fail`` must present
 it, and a stale token raises the transport's 409 error.
@@ -59,11 +59,11 @@ class AppPrimitivesClient:
             body["count"] = count
         if idempotency_key is not None:
             body["idempotencyKey"] = idempotency_key
-        return self._t.post(f"/sequences/{path_segment(name)}/next", body)
+        return self._t.post(f"/v1/sequences/{path_segment(name)}/next", body)
 
     def sequence_get(self, name: str) -> dict[str, Any]:
         """Return ``{name, next}`` without allocating."""
-        return self._t.get(f"/sequences/{path_segment(name)}")
+        return self._t.get(f"/v1/sequences/{path_segment(name)}")
 
     # -- queue -------------------------------------------------------------
 
@@ -92,7 +92,7 @@ class AppPrimitivesClient:
         ):
             if value is not None:
                 body[key] = value
-        return self._t.post(f"/queues/{path_segment(queue)}/jobs", body)
+        return self._t.post(f"/v1/queues/{path_segment(queue)}/jobs", body)
 
     def claim(
         self, queue: str, worker_id: str, *, lease_ms: int | None = None, max: int | None = None
@@ -103,7 +103,7 @@ class AppPrimitivesClient:
             body["leaseMs"] = lease_ms
         if max is not None:
             body["max"] = max
-        resp = self._t.post(f"/queues/{path_segment(queue)}/claim", body)
+        resp = self._t.post(f"/v1/queues/{path_segment(queue)}/claim", body)
         return list(resp.get("jobs", []))
 
     def renew(self, job_id: str, fencing_token: int, *, lease_ms: int | None = None) -> dict[str, Any]:
@@ -111,14 +111,14 @@ class AppPrimitivesClient:
         body: dict[str, Any] = {"fencingToken": fencing_token}
         if lease_ms is not None:
             body["leaseMs"] = lease_ms
-        return self._t.post(f"/jobs/{path_segment(job_id)}/renew", body)
+        return self._t.post(f"/v1/jobs/{path_segment(job_id)}/renew", body)
 
     def complete(self, job_id: str, fencing_token: int, *, result: Any = None) -> dict[str, Any]:
         """Mark a held job done. A stale token is rejected with 409."""
         body: dict[str, Any] = {"fencingToken": fencing_token}
         if result is not None:
             body["result"] = result
-        return self._t.post(f"/jobs/{path_segment(job_id)}/complete", body)
+        return self._t.post(f"/v1/jobs/{path_segment(job_id)}/complete", body)
 
     def fail(
         self,
@@ -134,7 +134,7 @@ class AppPrimitivesClient:
         for key, value in (("error", error), ("retryAfterMs", retry_after_ms), ("retryable", retryable)):
             if value is not None:
                 body[key] = value
-        return self._t.post(f"/jobs/{path_segment(job_id)}/fail", body)
+        return self._t.post(f"/v1/jobs/{path_segment(job_id)}/fail", body)
 
     def list_jobs(
         self, queue: str, *, state: str | None = None, limit: int | None = None
@@ -142,11 +142,11 @@ class AppPrimitivesClient:
         """Inspect a queue: ``{queue, counts, jobs}`` (``state="dead"`` lists dead letters)."""
         params = {k: v for k, v in (("state", state), ("limit", limit)) if v is not None}
         suffix = f"?{urlencode(params)}" if params else ""
-        return self._t.get(f"/queues/{path_segment(queue)}/jobs{suffix}")
+        return self._t.get(f"/v1/queues/{path_segment(queue)}/jobs{suffix}")
 
     def get_job(self, queue: str, job_id: str) -> dict[str, Any]:
         """Fetch one job."""
-        return self._t.get(f"/queues/{path_segment(queue)}/jobs/{path_segment(job_id)}")
+        return self._t.get(f"/v1/queues/{path_segment(queue)}/jobs/{path_segment(job_id)}")
 
     def close(self) -> None:
         self._t.close()

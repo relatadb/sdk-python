@@ -2,7 +2,7 @@
 grouped with :mod:`relata.rag_loop`'s sub-agent fan-out because MMR is
 typically applied to the fan-out's merged candidate set
 (:attr:`~relata.rag_loop.FanoutResult.merged_response`), though it works
-over any list of :class:`~relata.models.RagHit` (a single ``/rag/query``
+over any list of :class:`~relata.models.RagHit` (a single ``/v1/rag/query``
 call's hits, a decomposition merge, etc.).
 
 Greedy selection maximizing::
@@ -11,7 +11,7 @@ Greedy selection maximizing::
 
 over the candidate set, verified live in the reference retrieval toolkit
 studied for ADR-0299. Both terms are **pure functions of what
-``POST /rag/query`` already returned** — RelataDB's wire contract carries
+``POST /v1/rag/query`` already returned** — RelataDB's wire contract carries
 per-channel scores (``bm25_score``/``vector_score``, #4514) and the non-LLM
 ``relevance_confidence`` signal (#4520), never raw embedding vectors, so
 :func:`mmr_select` needs no embedding call, no LLM call, and no network I/O:
@@ -33,7 +33,7 @@ zero-LLM-calls-in-the-merge-path property.
 **λ is domain-configurable, not a single global constant** (#4526's AC #3):
 :data:`MMR_LAMBDA_BY_PURPOSE` keys the verified reference-toolkit defaults
 by RelataDB's existing ``purpose`` governance dimension (already threaded
-through every ``/rag/query`` call) via :func:`mmr_lambda_for_purpose`.
+through every ``/v1/rag/query`` call) via :func:`mmr_lambda_for_purpose`.
 """
 
 from __future__ import annotations
@@ -142,7 +142,7 @@ def mmr_select(
     Args:
         hits: Candidate hits — typically
             :attr:`~relata.rag_loop.FanoutResult.merged_response`'s hits, or
-            any other ``/rag/query`` result.
+            any other ``/v1/rag/query`` result.
         lambda_mult: Relevance/diversity trade-off in ``[0.0, 1.0]``. Use
             :func:`mmr_lambda_for_purpose` to key this by ``purpose`` rather
             than hardcoding a single value (#4526's AC #3).

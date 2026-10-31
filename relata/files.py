@@ -1,6 +1,7 @@
 """Buffered binary Files content through the existing governed HTTP transport.
 
-PUT/GET/DELETE ``/files/content`` and the resumable ``/files/uploads`` session
+PUT/GET/HEAD/DELETE ``/v1/files/content``, ``GET /v1/files`` (list),
+``GET /v1/media/{row_id}/content`` and the resumable ``/v1/files/uploads`` session
 (chunked, disk-staged, digest-verified; ``upload`` resumes after a failed chunk)
 are wrapped. Range requests, conditional writes, versions, provider-copy
 completion and physical deletion are not promised. PUT and DELETE are never
@@ -19,7 +20,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from relata._http import DEFAULT_MAX_RESPONSE_BYTES, AsyncHttpTransport, HttpTransport, _RawHttpResponse
-from relata.exceptions import RelataError
+from relata.exceptions import NotFoundError, RelataError
 
 if TYPE_CHECKING:
     from relata.client import RelataClient
@@ -65,13 +66,53 @@ class FileContent:
         return len(self.data)
 
 
+@dataclass(frozen=True)
+class FileHead:
+    """``HEAD /v1/files/content`` view: headers only, no body bytes."""
+    etag: str | None
+    content_type: str | None
+    size: int
+
+
+def _head(response: _RawHttpResponse) -> FileHead:
+    _status(response, 200)
+    length = response.headers.get("content-length")
+    return FileHead(response.headers.get("etag"), response.headers.get("content-type"),
+        int(length) if length is not None and length.isdigit() else 0)
+
+
+def _list_path(bucket: str | None, prefix: str | None, cursor: str | None,
+    limit: int | None) -> str:
+    params: dict[str, str] = {}
+    if bucket is not None:
+        params["bucket"] = bucket
+    if prefix is not None:
+        params["prefix"] = prefix
+    if cursor is not None:
+        params["cursor"] = cursor
+    if limit is not None:
+        params["limit"] = str(limit)
+    return "/v1/files" + ("?" + urlencode(params) if params else "")
+
+
+def _media_path(row_id: str) -> str:
+    if not isinstance(row_id, str) or not row_id:
+        raise TypeError("row_id must be a non-empty string")
+    return f"/v1/media/{quote(row_id, safe='')}/content"
+
+
+def _json_page(response: _RawHttpResponse) -> dict[str, Any]:
+    _status(response, 200)
+    return json.loads(response.content)
+
+
 def _path(key: str, bucket: str | None) -> str:
     if not isinstance(key, str) or (bucket is not None and not isinstance(bucket, str)):
         raise TypeError("file key and optional bucket must be strings")
     params = {"key": key}
     if bucket is not None:
         params["bucket"] = bucket
-    return "/files/content?" + urlencode(params)
+    return "/v1/files/content?" + urlencode(params)
 
 
 _DEFAULT_CHUNK = 8 * 1024 * 1024
@@ -91,7 +132,7 @@ def _upload_path(upload_id: str, suffix: str = "", offset: int | None = None) ->
     if not isinstance(upload_id, str) or not upload_id:
         raise TypeError("upload_id must be a non-empty string")
     query = "" if offset is None else "?" + urlencode({"offset": offset})
-    return f"/files/uploads/{quote(upload_id, safe='')}{suffix}{query}"
+    return f"/v1/files/uploads/{quote(upload_id, safe='')}{suffix}{query}"
 
 
 def _start_body(key: str, size: int, bucket: str | None, content_type: str,
@@ -208,15 +249,33 @@ class FilesClient:
         """Read exact bytes; missing/forbidden content raises the typed HTTP error."""
         return _content(self._t.request_bytes("GET", _path(key, bucket)))
 
+    def head(self, key: str, *, bucket: str | None = None) -> FileHead | None:
+        """Existence/metadata check (``HEAD /v1/files/content``); ``None`` on 404."""
+        try:
+            return _head(self._t.request_bytes("HEAD", _path(key, bucket)))
+        except NotFoundError:
+            return None
+
+    def list(self, *, bucket: str | None = None, prefix: str | None = None,
+        cursor: str | None = None, limit: int | None = None) -> dict[str, Any]:
+        """List objects (``GET /v1/files``), optionally under ``prefix``; paginate with
+        ``cursor``/``limit``. Returns the server's JSON page."""
+        return _json_page(self._t.request_bytes("GET", _list_path(bucket, prefix, cursor, limit),
+            accept="application/json"))
+
+    def media_content(self, row_id: str) -> FileContent:
+        """Offloaded bytes of a stored media row (``GET /v1/media/{row_id}/content``)."""
+        return _content(self._t.request_bytes("GET", _media_path(row_id)))
+
     def delete(self, key: str, *, bucket: str | None = None) -> None:
         """Acknowledge DELETE204; no claim of physical/global copy destruction."""
         _status(self._t.request_bytes("DELETE", _path(key, bucket), accept="application/json"), 204)
 
 
     def create_folder(self, key: str, *, bucket: str | None = None) -> FileMetadata:
-        """Create a folder marker (``POST /files/folders``); returns 201 metadata
+        """Create a folder marker (``POST /v1/files/folders``); returns 201 metadata
         with ``is_folder`` true."""
-        return _meta201(self._t.request_bytes("POST", "/files/folders",
+        return _meta201(self._t.request_bytes("POST", "/v1/files/folders",
             content=_folder_body(key, bucket), content_type="application/json",
             accept="application/json"))
 
@@ -224,7 +283,7 @@ class FilesClient:
         content_type: str = "application/octet-stream",
         sha256: str | None = None) -> UploadSession:
         """Open a resumable upload (``size`` required); nothing is visible until completed."""
-        return _session(self._t.request_bytes("POST", "/files/uploads",
+        return _session(self._t.request_bytes("POST", "/v1/files/uploads",
             content=_start_body(key, size, bucket, content_type, sha256),
             content_type="application/json", accept="application/json"), 201)
 
@@ -328,13 +387,30 @@ class AsyncFilesClient:
     async def get(self, key: str, *, bucket: str | None = None) -> FileContent:
         return _content(await self._t.request_bytes("GET", _path(key, bucket)))
 
+    async def head(self, key: str, *, bucket: str | None = None) -> FileHead | None:
+        """Async variant of :meth:`FilesClient.head`."""
+        try:
+            return _head(await self._t.request_bytes("HEAD", _path(key, bucket)))
+        except NotFoundError:
+            return None
+
+    async def list(self, *, bucket: str | None = None, prefix: str | None = None,
+        cursor: str | None = None, limit: int | None = None) -> dict[str, Any]:
+        """Async variant of :meth:`FilesClient.list`."""
+        return _json_page(await self._t.request_bytes("GET",
+            _list_path(bucket, prefix, cursor, limit), accept="application/json"))
+
+    async def media_content(self, row_id: str) -> FileContent:
+        """Async variant of :meth:`FilesClient.media_content`."""
+        return _content(await self._t.request_bytes("GET", _media_path(row_id)))
+
     async def delete(self, key: str, *, bucket: str | None = None) -> None:
         _status(await self._t.request_bytes("DELETE", _path(key, bucket), accept="application/json"), 204)
 
 
     async def create_folder(self, key: str, *, bucket: str | None = None) -> FileMetadata:
         """Create a folder marker (async) -- see :meth:`FilesClient.create_folder`."""
-        return _meta201(await self._t.request_bytes("POST", "/files/folders",
+        return _meta201(await self._t.request_bytes("POST", "/v1/files/folders",
             content=_folder_body(key, bucket), content_type="application/json",
             accept="application/json"))
 
@@ -342,7 +418,7 @@ class AsyncFilesClient:
         content_type: str = "application/octet-stream",
         sha256: str | None = None) -> UploadSession:
         """Open a resumable upload (``size`` required); nothing is visible until completed."""
-        return _session(await self._t.request_bytes("POST", "/files/uploads",
+        return _session(await self._t.request_bytes("POST", "/v1/files/uploads",
             content=_start_body(key, size, bucket, content_type, sha256),
             content_type="application/json", accept="application/json"), 201)
 

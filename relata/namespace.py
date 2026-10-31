@@ -8,7 +8,7 @@ expects, with no SQL on the client side::
     with RelataClient("http://localhost:9090", purpose="rag") as client:
         docs = client.namespace("Document")
 
-        # Schemaless write — POST /ingest/auto auto-creates the type with
+        # Schemaless write — POST /v1/ingest/auto auto-creates the type with
         # fields inferred from the rows (T6, #1988 — no DDL):
         docs.write([
             {"id": "d1", "title": "Knowledge graphs 101", "body": "..."},
@@ -104,7 +104,7 @@ class Namespace:
         )
 
     # ------------------------------------------------------------------
-    # Write (T6 schemaless ingest, #1988 — POST /ingest/auto)
+    # Write (T6 schemaless ingest, #1988 — POST /v1/ingest/auto)
     # ------------------------------------------------------------------
 
     def write(
@@ -117,7 +117,7 @@ class Namespace:
         """Schemaless upsert — auto-create the type with inferred fields.
 
         POSTs ``{"object_type", "rows", "schema"?, "purpose"?}`` to
-        ``/ingest/auto`` (T6, #1988). If the type does not yet exist the server
+        ``/v1/ingest/auto`` (T6, #1988). If the type does not yet exist the server
         creates it with field types inferred from the rows; the response
         carries ``type_created`` and ``inferred_schema``. Optional ``schema``
         overrides let you pin a field's type (``"text"``/``"int"``/``"float"``
@@ -129,7 +129,7 @@ class Namespace:
         eff_purpose = purpose or self._client._default_purpose  # noqa: SLF001
         if eff_purpose:
             payload["purpose"] = eff_purpose
-        return self._client._sync.post("/ingest/auto", payload)  # noqa: SLF001
+        return self._client._sync.post("/v1/ingest/auto", payload)  # noqa: SLF001
 
     # ------------------------------------------------------------------
     # Point lookup
@@ -164,33 +164,8 @@ class Namespace:
         payload: dict[str, Any] = {"object_type": self.name, "rows": tombstones}
         if eff_purpose:
             payload["purpose"] = eff_purpose
-        self._client._sync.post("/ingest/auto", payload)  # noqa: SLF001
+        self._client._sync.post("/v1/ingest/auto", payload)  # noqa: SLF001
         return {"deleted": len(ids)}
-
-    # ------------------------------------------------------------------
-    # Branching (T10 — client-side; server door pending #1992)
-    # ------------------------------------------------------------------
-
-    def branch_from(
-        self,
-        source_namespace: str,
-        *,
-        purpose: str | None = None,
-    ) -> dict[str, Any]:
-        """Create this namespace as a copy-on-write branch of ``source_namespace``.
-
-        Targets ``POST /v1/namespaces/{name}/branch`` (T10, #1992). The
-        server-side door is pending #1992; this client method is ready for it.
-        """
-        _validate_namespace(source_namespace)
-        payload: dict[str, Any] = {"from": source_namespace}
-        if purpose:
-            payload["purpose"] = purpose
-        return self._client._sync.post(  # noqa: SLF001
-            f"/v1/namespaces/{self.name}/branch",
-            payload,
-        )
-
 
 class AsyncNamespace:
     """Asynchronous namespace handle — see :class:`Namespace`."""
@@ -241,7 +216,7 @@ class AsyncNamespace:
         eff_purpose = purpose or self._client._default_purpose  # noqa: SLF001
         if eff_purpose:
             payload["purpose"] = eff_purpose
-        return await self._client._async.post("/ingest/auto", payload)  # noqa: SLF001
+        return await self._client._async.post("/v1/ingest/auto", payload)  # noqa: SLF001
 
     async def get(self, object_id: str, *, purpose: str | None = None) -> dict[str, Any] | None:
         escaped = str(object_id).replace("'", "''")
@@ -260,20 +235,5 @@ class AsyncNamespace:
         payload: dict[str, Any] = {"object_type": self.name, "rows": tombstones}
         if eff_purpose:
             payload["purpose"] = eff_purpose
-        await self._client._async.post("/ingest/auto", payload)  # noqa: SLF001
+        await self._client._async.post("/v1/ingest/auto", payload)  # noqa: SLF001
         return {"deleted": len(ids)}
-
-    async def branch_from(
-        self,
-        source_namespace: str,
-        *,
-        purpose: str | None = None,
-    ) -> dict[str, Any]:
-        _validate_namespace(source_namespace)
-        payload: dict[str, Any] = {"from": source_namespace}
-        if purpose:
-            payload["purpose"] = purpose
-        return await self._client._async.post(  # noqa: SLF001
-            f"/v1/namespaces/{self.name}/branch",
-            payload,
-        )

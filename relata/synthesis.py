@@ -8,7 +8,7 @@ never referenced or ported here):
 1. **Inline citation injection** — the synthesis LLM call is prompted to
    attach a ``[chunk_id]`` marker to each claim *as it writes it* (not
    appended afterward as a separate pass), grounded in the citation-grade
-   fields ``/rag/query`` (#4514, ADR-0299) already returns on every
+   fields ``/v1/rag/query`` (#4514, ADR-0299) already returns on every
    :class:`~relata.models.RagHit`: ``chunk_id``, ``section_path``,
    ``page_start``/``page_end``. Every marker in the raw completion is
    resolved against the actual hit set the answer was synthesized from —
@@ -210,7 +210,7 @@ def synthesize(
     unsupported_marker: str = DEFAULT_UNSUPPORTED_MARKER,
 ) -> SynthesisResult:
     """Synthesize a governed, citation-injected answer from a
-    ``/rag/query`` response (#4514), then faithfulness-check it (#4527).
+    ``/v1/rag/query`` response (#4514), then faithfulness-check it (#4527).
 
     Args:
         query: The original question being answered.

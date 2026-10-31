@@ -1,21 +1,21 @@
 """
-Dedup-token primitive — replay defence (#84).
+Tenant self-service tokens (``/v1/auth/tokens/self``).
 
-Relata ships a server-side dedup / uniqueness token set accessible via
-`POST /tokens`, `GET /tokens/:id`, `DELETE /tokens/:id`, `GET /tokens/stats`.
-The classic use case is **idempotency for replay-sensitive writes**: an upstream
-system that might re-send the same request (Kafka retry, webhook storm, network
-blip) attaches a unique token ID. The server atomically test-and-sets the
-token; the handler proceeds only when the token was newly inserted.
+A tenant authenticates with its current bearer token and can, without any admin
+involvement, list its own tokens, read their lifecycle audit trail, rotate the
+token in use, and revoke one of its own tokens.
 
 Flow:
-    1. `remember(token_id)` → True on first insert, False on duplicate (atomic)
-    2. `check(token_id)`    → presence probe without mutation
-    3. `stats()`            → dedup-set size, oldest entry, eviction policy
-    4. `revoke(token_id)`   → explicit removal (admin only)
+    1. `list_self()`         -> the caller's own tenant-scoped tokens
+    2. `self_audit()`        -> audit trail of the caller's token lifecycle
+    3. `rotate_self()`       -> fresh secret (the old token stops working)
+    4. `revoke_self(id)`     -> revoke one of the caller's own tokens
+
+Minting tokens is an admin-listener operation (`/admin/tokens`) and is not part
+of this client.
 
 Run:
-    RELATA_TOKEN=secret python -m examples.tokens
+    RELATA_TOKEN=<registry-token> python -m examples.tokens
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 
 from relata import RelataClient
+from relata.exceptions import RelataError
 from relata.tokens import TokenClient
 
 
@@ -33,31 +34,24 @@ def main() -> None:
     with RelataClient(url, bearer_token=token, purpose="admin") as relata:
         tokens = TokenClient.from_client(relata)
 
-        # ── 1. Atomic test-and-set: the replay-defence primitive ──────────
-        token_id = "replay-defence-7QT3"
-        print(f"=== 1. remember('{token_id}') ===")
-        first = tokens.remember(token_id, ttl_secs=3600)
-        print(f"  first call:  newly_inserted={first}  (expected True)")
-        second = tokens.remember(token_id, ttl_secs=3600)
-        print(f"  second call: newly_inserted={second}  (expected False — duplicate)")
+        print("=== 1. list_self() ===")
+        print(f"  {tokens.list_self()}")
 
-        # ── 2. Non-mutating presence check ────────────────────────────────
-        print(f"\n=== 2. check('{token_id}') ===")
-        info = tokens.check(token_id)
-        print(f"  present={info.get('present')}  inserted_at_ns={info.get('inserted_at_ns')}  ttl={info.get('ttl_secs')}")
+        print("\n=== 2. self_audit() ===")
+        print(f"  {tokens.self_audit()}")
 
-        # ── 3. Dedup-set stats ────────────────────────────────────────────
-        print("\n=== 3. stats() ===")
-        s = tokens.stats()
-        print(f"  {s}")
+        # Rotating invalidates the token this client is using, so it is opt-in.
+        if os.getenv("RELATA_ROTATE") == "1":
+            print("\n=== 3. rotate_self() ===")
+            try:
+                print(f"  {tokens.rotate_self()}")
+            except RelataError as exc:
+                print(f"  (rotate requires a per-tenant registry token — {exc})")
 
-        # ── 4. Explicit revoke (admin only) ───────────────────────────────
-        print(f"\n=== 4. revoke('{token_id}') ===")
-        try:
-            revoked = tokens.revoke(token_id)
-            print(f"  revoked={revoked}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"  (revoke requires admin — {exc})")
+        revoke_id = os.getenv("RELATA_REVOKE_TOKEN_ID")
+        if revoke_id:
+            print(f"\n=== 4. revoke_self('{revoke_id}') ===")
+            print(f"  {tokens.revoke_self(revoke_id)}")
 
 
 if __name__ == "__main__":

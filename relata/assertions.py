@@ -24,17 +24,17 @@ if TYPE_CHECKING:
 
 
 def _aid(assertion_id: str, suffix: str = "") -> str:
-    path = f"/assertions/{quote(assertion_id, safe='')}"
+    path = f"/v1/assertions/{quote(assertion_id, safe='')}"
     return f"{path}/{suffix}" if suffix else path
 
 
 def _policy(name: str, version: int | None = None) -> str:
-    path = f"/assertion-policies/{quote(name, safe='')}"
+    path = f"/v1/assertions/policies/{quote(name, safe='')}"
     return path + (f"?version={int(version)}" if version is not None else "")
 
 
 def _rid(relation_id: str) -> str:
-    return f"/assertion-relations/{quote(relation_id, safe='')}/revoke"
+    return f"/v1/assertions/relations/{quote(relation_id, safe='')}/revoke"
 
 
 def _graph_path(  # noqa: ANN001
@@ -58,7 +58,7 @@ def _list_path(subject_type, subject_id, predicate, state, limit) -> str:  # noq
         ("limit", limit),
     )
     query = {k: str(v) for k, v in pairs if v is not None}
-    return "/assertions" + (f"?{urlencode(query)}" if query else "")
+    return "/v1/assertions" + (f"?{urlencode(query)}" if query else "")
 
 
 def _resolve_path(subject_type, subject_id, predicate, valid_at, recorded_as_of, policy, policy_version) -> str:  # noqa: ANN001
@@ -74,11 +74,11 @@ def _resolve_path(subject_type, subject_id, predicate, valid_at, recorded_as_of,
         query["policy"] = policy
         if policy_version is not None:
             query["policy_version"] = str(int(policy_version))
-    return f"/assertion-resolve?{urlencode(query)}"
+    return f"/v1/assertions/resolve?{urlencode(query)}"
 
 
 class AssertionsClient:
-    """Synchronous client for ``/assertions``."""
+    """Synchronous client for ``/v1/assertions``."""
 
     def __init__(
         self,
@@ -103,8 +103,8 @@ class AssertionsClient:
         )
 
     def record(self, assertion: dict[str, Any]) -> dict[str, Any]:
-        """``POST /assertions``: record a claim; idempotent on claim, source version and derivation."""
-        return dict(self._t.post("/assertions", assertion))
+        """``POST /v1/assertions``: record a claim; idempotent on claim, source version and derivation."""
+        return dict(self._t.post("/v1/assertions", assertion))
 
     def list(
         self,
@@ -115,11 +115,11 @@ class AssertionsClient:
         state: str | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        """``GET /assertions``."""
+        """``GET /v1/assertions``."""
         return dict(self._t.get(_list_path(subject_type, subject_id, predicate, state, limit)))
 
     def get(self, assertion_id: str) -> dict[str, Any]:
-        """``GET /assertions/{id}``."""
+        """``GET /v1/assertions/{id}``."""
         return dict(self._t.get(_aid(assertion_id)))
 
     def decide(self, assertion_id: str, decision: str, reason: str) -> dict[str, Any]:
@@ -149,7 +149,7 @@ class AssertionsClient:
         locator: dict[str, Any] | None = None,
         similarity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """``POST /assertion-relations`` (#5721): link two assertions (``supports``,
+        """``POST /v1/assertions/relations`` (#5721): link two assertions (``supports``,
         ``contradicts``, ``derived_from``, ``similar_to`` with
         ``similarity={"score": 0.93, "method": "phash-v1"}``, or a reviewer's
         ``same_group_as`` / ``distinct_from``) with a rationale and optional locator."""
@@ -158,10 +158,10 @@ class AssertionsClient:
             body["locator"] = locator
         if similarity is not None:
             body["similarity"] = similarity
-        return dict(self._t.post("/assertion-relations", body))
+        return dict(self._t.post("/v1/assertions/relations", body))
 
     def unrelate(self, relation_id: str, reason: str) -> dict[str, Any]:
-        """``POST /assertion-relations/{id}/revoke``: withdraw a relation."""
+        """``POST /v1/assertions/relations/{id}/revoke``: withdraw a relation."""
         return dict(self._t.post(_rid(relation_id), {"reason": reason}))
 
     def assess(self, assertion_id: str, judgment: str, reason: str) -> dict[str, Any]:
@@ -190,12 +190,12 @@ class AssertionsClient:
     def publish_policy(
         self, name: str, definition: dict[str, Any], *, expected_version: int = 0
     ) -> dict[str, Any]:
-        """``PUT /assertion-policies/{name}`` under the ``expected_version`` precondition."""
+        """``PUT /v1/assertions/policies/{name}`` under the ``expected_version`` precondition."""
         body = {"expected_version": int(expected_version), "definition": definition}
         return dict(self._t.put(_policy(name), body))
 
     def get_policy(self, name: str, *, version: int | None = None) -> dict[str, Any]:
-        """``GET /assertion-policies/{name}`` (latest, or ``version``)."""
+        """``GET /v1/assertions/policies/{name}`` (latest, or ``version``)."""
         return dict(self._t.get(_policy(name, version)))
 
     def resolve(
@@ -209,7 +209,7 @@ class AssertionsClient:
         policy: str | None = None,
         policy_version: int | None = None,
     ) -> dict[str, Any]:
-        """``GET /assertion-resolve``: the value at ``valid_at`` as known at ``recorded_as_of``, with an explanation."""
+        """``GET /v1/assertions/resolve``: the value at ``valid_at`` as known at ``recorded_as_of``, with an explanation."""
         path = _resolve_path(
             subject_type, subject_id, predicate, valid_at, recorded_as_of, policy, policy_version
         )
@@ -226,7 +226,7 @@ class AssertionsClient:
 
 
 class AsyncAssertionsClient:
-    """Asynchronous client for ``/assertions`` -- see :class:`AssertionsClient`."""
+    """Asynchronous client for ``/v1/assertions`` -- see :class:`AssertionsClient`."""
 
     def __init__(
         self,
@@ -251,7 +251,7 @@ class AsyncAssertionsClient:
         )
 
     async def record(self, assertion: dict[str, Any]) -> dict[str, Any]:
-        return dict(await self._t.post("/assertions", assertion))
+        return dict(await self._t.post("/v1/assertions", assertion))
 
     async def list(
         self,
@@ -295,7 +295,7 @@ class AsyncAssertionsClient:
             body["locator"] = locator
         if similarity is not None:
             body["similarity"] = similarity
-        return dict(await self._t.post("/assertion-relations", body))
+        return dict(await self._t.post("/v1/assertions/relations", body))
 
     async def unrelate(self, relation_id: str, reason: str) -> dict[str, Any]:
         return dict(await self._t.post(_rid(relation_id), {"reason": reason}))

@@ -1,6 +1,6 @@
 """Tests for the typed search surface — T1/T9 (#1983/#1991, epic #1982).
 
-Covers the rank_by/filters normalisation, the typed /search payload shape (no
+Covers the rank_by/filters normalisation, the typed /v1/search payload shape (no
 top-level `query` key — its presence would make the server treat the body as
 the legacy Meilisearch shape), and the QueryResult return. Uses
 httpx.MockTransport — no live server required.
@@ -21,7 +21,7 @@ from relata.search import _build_payload, _normalise_filters, _normalise_rank_by
 
 BASE = "http://localhost:9090"
 
-# Governed /query envelope (what the server's typed /search door dispatches to).
+# Governed /v1/query envelope (what the server's typed /v1/search door dispatches to).
 _QUERY_PAYLOAD = {
     "rows": [{"id": "d1", "title": "Knowledge graphs 101"}],
     "columns": ["id", "title"],
@@ -117,7 +117,7 @@ def test_payload_text_compiles_to_bm25_rank_by():
         consistency=None,
         purpose=None,
     )
-    # Crucially NO top-level "query" key (would trigger legacy /search shape).
+    # Crucially NO top-level "query" key (would trigger legacy /v1/search shape).
     assert "query" not in payload
     assert payload["from"] == "Document"
     assert payload["rank_by"] == ["bm25", "title", "graph retrieval"]
@@ -180,14 +180,14 @@ def test_payload_no_text_no_rank_by_is_filter_only():
     assert payload["filters"] == [{"field": "status", "op": "eq", "value": "published"}]
 
 
-# ── SearchClient.query → POST /search ────────────────────────────────────────
+# ── SearchClient.query → POST /v1/search ────────────────────────────────────────
 
 
 def test_search_client_posts_typed_body_and_returns_query_result():
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/search"
+        assert req.url.path == "/v1/search"
         captured.update(json.loads(req.content))
         return httpx.Response(200, json=_QUERY_PAYLOAD)
 

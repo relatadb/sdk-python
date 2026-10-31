@@ -53,7 +53,7 @@ def test_user_agent_header_matches_canonical_version() -> None:
         return httpx.Response(200, json={"status": "ok"})
 
     t = HttpTransport(BASE, None, 30.0, transport=_wrap(handler))
-    t.get("/status")
+    t.get("/v1/system/status")
     assert seen[0].headers["user-agent"] == f"relata-sdk-python/{relata.__version__}"
 
 
@@ -76,14 +76,12 @@ def test_all_contains_previously_omitted_exception_and_model_symbols() -> None:
         assert hasattr(relata, name)
 
 
-def test_backup_token_log_clients_reexported_from_top_level() -> None:
+def test_backup_token_clients_reexported_from_top_level() -> None:
     for name in (
         "BackupClient",
         "AsyncBackupClient",
         "TokenClient",
         "AsyncTokenClient",
-        "LogClient",
-        "AsyncLogClient",
     ):
         assert name in relata.__all__, f"{name} missing from relata.__all__"
         assert hasattr(relata, name)
@@ -179,7 +177,7 @@ async def test_async_ingest_cdr_uses_json_array_and_preserves_receipt() -> None:
     seen: list[list[dict[str, Any]]] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/ingest"
+        assert req.url.path == "/v1/ingest"
         assert req.url.params["object_type"] == "CdrRecord"
         assert req.url.params["purpose"] == "finint"
         assert req.headers["content-type"] == "application/json"
@@ -233,7 +231,7 @@ async def test_async_memory_batch_search_merges_results() -> None:
     from relata import AsyncMemory
 
     def handler(req: httpx.Request) -> httpx.Response:
-        q = dict(req.url.params)["q"]
+        q = json.loads(req.content)["q"]
         return httpx.Response(200, json=_mcp({"rows": [{"id": q}]}))
 
     async with AsyncMemory(BASE, purpose="agent", transport=_wrap(handler)) as m:
@@ -245,7 +243,7 @@ async def test_async_governance_list_retention_policies() -> None:
     from relata.governance import AsyncGovernanceClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/retention/policies"
+        assert req.url.path == "/v1/retention/policies"
         return httpx.Response(200, json={"policies": [{"object_type": "Person"}]})
 
     async with AsyncGovernanceClient(BASE, transport=_wrap(handler)) as g:
@@ -271,7 +269,7 @@ async def test_async_streaming_query_arrow_raw_yields_chunks() -> None:
     from relata.streaming import AsyncStreamingClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query/arrow"
+        assert req.url.path == "/v1/query/arrow"
         return httpx.Response(200, content=b"arrow-bytes-chunk")
 
     client = RelataClient(BASE, purpose="analytics")

@@ -3,7 +3,7 @@ confidence cost ladder (#4525).
 
 Built against #4523's typed `RagClient`/`AsyncRagClient` (merged, PR #4549)
 and #4524's `rag_understanding` module (merged, PR #4556), via
-`httpx.MockTransport` — no live `/rag/query` server required, mirroring the
+`httpx.MockTransport` — no live `/v1/rag/query` server required, mirroring the
 approach `test_rag_understanding.py` uses.
 """
 
@@ -212,7 +212,7 @@ def test_iter0_heuristic_pass_makes_zero_llm_calls():
 
     assert result.stopped_reason == "heuristic_pass"
     assert result.llm_calls == 0
-    assert query_call_count == 1  # exactly one /rag/query call, nothing more
+    assert query_call_count == 1  # exactly one /v1/rag/query call, nothing more
     assert grader_calls == []  # grader_fn never invoked
     assert hyde_calls == []  # hypothesis_fn never invoked
     assert len(result.iterations) == 1

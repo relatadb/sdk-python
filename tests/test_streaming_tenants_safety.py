@@ -82,7 +82,7 @@ def test_query_rows_streams_ndjson() -> None:
     """The row streamer consumes NDJSON line by line without buffering."""
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/query/stream"
+        assert req.url.path == "/v1/query/stream"
         assert req.headers["accept"] == "application/x-ndjson"
         body = (
             '{"_meta":{"query_id":"q1","started_at":1,"columns":["id"]}}\n'
@@ -115,7 +115,7 @@ def test_watch_sse_parses_events() -> None:
     )
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/watch/stream"
+        assert req.url.path == "/v1/watch/stream"
         return httpx.Response(
             200,
             content=sse_body.encode(),
@@ -133,84 +133,19 @@ def test_watch_sse_parses_events() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #73 — Tenant admin CRUD
+# Tenant self-introspection (admin CRUD is Enterprise-only)
 # ---------------------------------------------------------------------------
 
 
-def test_tenant_admin_create_posts_to_platform() -> None:
-    seen: list[dict[str, object]] = []
-
+def test_tenant_client_me_only() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        seen.append({"method": req.method, "path": req.url.path})
-        if req.method == "POST" and req.url.path == "/platform/tenants":
-            body = json.loads(req.content)
-            assert body == {"id": "acme", "tier": "enterprise"}
-            return httpx.Response(200, json={"tenant_id": "acme", "status": "active"})
-        return httpx.Response(404)
-
-    c = TenantAdminClient(BASE, transport=_wrap(handler))
-    out = c.create("acme", tier="enterprise")
-    assert out["tenant_id"] == "acme"
-
-
-def test_tenant_admin_me_and_usage() -> None:
-    def handler(req: httpx.Request) -> httpx.Response:
-        if req.url.path == "/tenants/me":
+        if req.url.path == "/v1/tenants/me":
             return httpx.Response(200, json={"tenant_id": "acme", "tier": "enterprise"})
-        if req.url.path == "/tenants/usage":
-            return httpx.Response(200, json={"rows": 1000, "cost_used": 42})
         return httpx.Response(404)
 
     c = TenantAdminClient(BASE, transport=_wrap(handler))
     me = c.me()
     assert me["tenant_id"] == "acme"
-    usage = c.usage()
-    assert usage["rows"] == 1000
+    for removed in ("usage", "create", "delete", "set_quota", "suspend", "platform_usage"):
+        assert not hasattr(c, removed)
 
-
-def test_tenant_admin_set_quota() -> None:
-    seen: list[dict[str, object]] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen.append({"method": req.method, "path": req.url.path})
-        if req.method == "PUT" and req.url.path == "/tenants/acme/quota":
-            body = json.loads(req.content)
-            assert body == {"quota": 50000}
-            return httpx.Response(200, json={"quota": 50000})
-        return httpx.Response(404)
-
-    c = TenantAdminClient(BASE, transport=_wrap(handler))
-    out = c.set_quota("acme", 50000)
-    assert out["quota"] == 50000
-
-
-def test_tenant_admin_create_sharing() -> None:
-    def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path == "/tenants/acme/sharing"
-        body = json.loads(req.content)
-        assert body == {
-            "partner_tenant": "partner-org",
-            "object_type": "Person",
-            "action": "read",
-        }
-        return httpx.Response(200, json={"agreement_id": "sa-1"})
-
-    c = TenantAdminClient(BASE, transport=_wrap(handler))
-    out = c.create_sharing("acme", "partner-org", object_type="Person")
-    assert out["agreement_id"] == "sa-1"
-
-
-def test_tenant_admin_suspend_reactivate() -> None:
-    seen: list[str] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        seen.append(req.url.path)
-        if "suspend" in req.url.path:
-            return httpx.Response(200, json={"status": "suspended"})
-        if "reactivate" in req.url.path:
-            return httpx.Response(200, json={"status": "active"})
-        return httpx.Response(404)
-
-    c = TenantAdminClient(BASE, transport=_wrap(handler))
-    assert c.suspend("acme")["status"] == "suspended"
-    assert c.reactivate("acme")["status"] == "active"

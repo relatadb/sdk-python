@@ -86,4 +86,4 @@ def test_schema_alter_hits_patch_types_schema() -> None:
     client.schema_alter("Company", "add", "lei", col_type="text")
 
     assert seen["method"] == "PATCH"
-    assert seen["path"] == "/types/Company/schema"
+    assert seen["path"] == "/v1/types/Company/schema"

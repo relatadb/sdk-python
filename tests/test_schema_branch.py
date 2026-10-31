@@ -1,8 +1,8 @@
 """Tests for schema-BRANCH CRUD + typed edge definitions (#2497).
 
-These are distinct from schema-ALTER (#2476, ``PATCH /types/:name/schema``) —
-this is the schema-BRANCH surface (``POST/DELETE /schema/branches/:name``)
-plus the typed-edge door (``GET/POST /types/edges``), checked against the
+These are distinct from schema-ALTER (#2476, ``PATCH /v1/types/:name/schema``) —
+this is the schema-BRANCH surface (``POST/DELETE /v1/schema/branches/:name``)
+plus the typed-edge door (``GET/POST /v1/types/edges``), checked against the
 shared server route contract.
 
 Uses httpx.MockTransport — no live server required.
@@ -57,7 +57,7 @@ def test_list_edge_types_gets_types_edges() -> None:
     client = _client(handler)
     out = client.list_edge_types()
     assert seen["method"] == "GET"
-    assert seen["path"] == "/types/edges"
+    assert seen["path"] == "/v1/types/edges"
     assert out["edges"][0]["label"] == "DIRECTOR_OF"
 
 
@@ -73,7 +73,7 @@ def test_register_edge_type_posts_correct_body() -> None:
     client = _client(handler)
     out = client.register_edge_type("Person", "Org", "DIRECTOR_OF")
     assert seen["method"] == "POST"
-    assert seen["path"] == "/types/edges"
+    assert seen["path"] == "/v1/types/edges"
     assert seen["body"] == {"from_type": "Person", "to_type": "Org", "label": "DIRECTOR_OF"}
     assert out["created"] is True
 
@@ -93,7 +93,7 @@ def test_create_schema_branch_posts_to_branch_door() -> None:
     client = _client(handler)
     out = client.create_schema_branch("exp-branch", "main")
     assert seen["method"] == "POST"
-    assert seen["path"] == "/schema/branches/exp-branch"
+    assert seen["path"] == "/v1/schema/branches/exp-branch"
     assert seen["body"] == {"from": "main"}
     assert out["name"] == "exp-branch"
     assert out["created"] is True
@@ -110,7 +110,7 @@ def test_delete_schema_branch_deletes_branch_door() -> None:
     client = _client(handler)
     out = client.delete_schema_branch("exp-branch")
     assert seen["method"] == "DELETE"
-    assert seen["path"] == "/schema/branches/exp-branch"
+    assert seen["path"] == "/v1/schema/branches/exp-branch"
     assert out["deleted"] is True
 
 
@@ -124,11 +124,11 @@ def test_async_schema_branch_crud_round_trip() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         captured.append((req.method, req.url.path))
-        if req.method == "POST" and "/schema/branches/" in req.url.path:
+        if req.method == "POST" and "/v1/schema/branches/" in req.url.path:
             return httpx.Response(200, json={"name": "dev", "created": True})
-        if req.method == "DELETE" and "/schema/branches/" in req.url.path:
+        if req.method == "DELETE" and "/v1/schema/branches/" in req.url.path:
             return httpx.Response(200, json={"name": "dev", "deleted": True})
-        if req.url.path == "/types/edges":
+        if req.url.path == "/v1/types/edges":
             if req.method == "GET":
                 return httpx.Response(200, json={"edges": []})
             return httpx.Response(200, json={"created": True})
@@ -143,7 +143,7 @@ def test_async_schema_branch_crud_round_trip() -> None:
         await client.adelete_schema_branch("dev")
 
     asyncio.run(run())
-    assert ("POST", "/schema/branches/dev") in captured
-    assert ("POST", "/types/edges") in captured
-    assert ("GET", "/types/edges") in captured
-    assert ("DELETE", "/schema/branches/dev") in captured
+    assert ("POST", "/v1/schema/branches/dev") in captured
+    assert ("POST", "/v1/types/edges") in captured
+    assert ("GET", "/v1/types/edges") in captured
+    assert ("DELETE", "/v1/schema/branches/dev") in captured

@@ -41,7 +41,6 @@ from relata._http import (
 from relata.exceptions import PurposeError, RelataError
 from relata.models import (
     AuditCountResponse,
-    ClusterNode,
     EventAppendReceipt,
     EventAppendRequest,
     AlertSubmitRequest,
@@ -182,7 +181,7 @@ def _similar_image_sql(
 def _graphql_data(resp: dict[str, object]) -> dict[str, object] | list[dict[str, object]] | None:
     """Return the ``data`` field of a GraphQL envelope, raising on ``errors``.
 
-    The server wraps every ``/graphql`` response in ``{"data": …, "errors": […]}``.
+    The server wraps every ``/v1/graphql`` response in ``{"data": …, "errors": […]}``.
     On a non-empty ``errors`` array, raise :class:`RelataError` carrying the
     first error message; otherwise return ``data``.
     """
@@ -228,11 +227,9 @@ class RelataClient:
             Caller-supplied headers win over the SDK defaults.
         admin_base_url: Base URL of the loopbound admin control-plane
             listener (``RELATA_ADMIN_BIND``, default ``127.0.0.1:9091``).
-            Per ADR-0261, ``/admin/*`` and ``/platform/*`` routes are mounted
-            **only** there on a hardened server/cluster deployment -- set
-            this so :class:`~relata.backup.BackupClient` and
-            :class:`~relata.tenants.TenantAdminClient`'s platform-tenant
-            methods reach them. Leave unset (the default) when the admin
+            Per ADR-0261, ``/admin/*`` routes are mounted **only** there on a
+            hardened deployment -- set this so
+            :class:`~relata.backup.BackupClient` reaches them. Leave unset (the default) when the admin
             listener isn't split from the data plane (e.g. local/free-profile
             dev) -- every request then goes to ``base_url`` unchanged.
         max_response_bytes: Cap on how much of any single response body the
@@ -288,11 +285,10 @@ class RelataClient:
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        # #2321 (ADR-0261): /admin/* and /platform/* are mounted only on the
-        # loopbound admin control-plane listener (RELATA_ADMIN_BIND, default
-        # 127.0.0.1:9091) -- never this client's main base_url on a hardened
-        # server/cluster deployment. Set admin_base_url to point BackupClient/
-        # TenantAdminClient's platform-tenant methods at that listener; leave
+        # #2321 (ADR-0261): /admin/* is mounted only on the loopbound admin
+        # control-plane listener (RELATA_ADMIN_BIND, default 127.0.0.1:9091)
+        # -- never this client's main base_url on a hardened deployment.
+        # Set admin_base_url to point BackupClient at that listener; leave
         # unset (the default) when the admin listener isn't split from the
         # data plane (e.g. local/free-profile dev) -- unchanged behaviour.
         self._admin_base_url = admin_base_url.rstrip("/") if admin_base_url else None
@@ -455,7 +451,7 @@ class RelataClient:
     ) -> QueryResult:
         """Execute a governed SQL query against the Relata engine (synchronous).
 
-        This generic client method sends ``POST /query``; the language-neutral
+        This generic client method sends ``POST /v1/query``; the language-neutral
         HTTP contract is published at ``GET /openapi.json``. The TypeScript
         ``RelataClient.query`` and Go ``Client.Query`` methods expose the same
         generic query path. Use ordinary SELECT statements to retrieve source
@@ -544,7 +540,7 @@ class RelataClient:
         if query_vector_model is not None:
             payload["query_vector_model"] = query_vector_model
         extra_headers = _dialect_headers(dialect)
-        data = self._sync.post("/query", payload, extra_headers=extra_headers)
+        data = self._sync.post("/v1/query", payload, extra_headers=extra_headers)
         return QueryResult.model_validate(data)
 
     def query_params(
@@ -590,7 +586,7 @@ class RelataClient:
             "sql": _inject_matcher_hint(sql, matcher),
             "params": params,
         }
-        data = self._sync.post("/query", payload)
+        data = self._sync.post("/v1/query", payload)
         return QueryResult.model_validate(data)
 
     def query_arrow(
@@ -601,7 +597,7 @@ class RelataClient:
     ) -> "pyarrow.Table":  # type: ignore[name-defined]  # noqa: F821
         """Execute a SQL query and return results as a ``pyarrow.Table`` (#1744).
 
-        Calls ``POST /query/arrow`` which streams Arrow IPC binary.  Requires
+        Calls ``POST /v1/query/arrow`` which streams Arrow IPC binary.  Requires
         ``pyarrow`` to be installed (``pip install pyarrow``).
 
         Args:
@@ -713,7 +709,7 @@ class RelataClient:
             payload["metric"] = metric
         if weights is not None:
             payload["weights"] = weights
-        data = self._sync.post("/search", payload)
+        data = self._sync.post("/v1/search", payload)
         return SearchResponse.model_validate(data)
 
     async def asearch(
@@ -751,7 +747,7 @@ class RelataClient:
             payload["metric"] = metric
         if weights is not None:
             payload["weights"] = weights
-        data = await self._async.post("/search", payload)
+        data = await self._async.post("/v1/search", payload)
         return SearchResponse.model_validate(data)
 
     def multi_search(
@@ -768,14 +764,14 @@ class RelataClient:
             Dict with ``results`` (list of per-query responses) and
             ``processing_time_ms``.
         """
-        return self._sync.post("/multi-search", {"queries": queries})
+        return self._sync.post("/v1/search/multi", {"queries": queries})
 
     async def amulti_search(
         self,
         queries: list[dict[str, object]],
     ) -> dict[str, object]:
         """Async variant of :meth:`multi_search`."""
-        return await self._async.post("/multi-search", {"queries": queries})
+        return await self._async.post("/v1/search/multi", {"queries": queries})
 
 
 
@@ -785,7 +781,7 @@ class RelataClient:
 
     def list_types(self) -> dict[str, object]:
         """List all registered object types with row counts."""
-        return self._sync.get("/types")
+        return self._sync.get("/v1/types")
 
     def query_schema(self, *, purpose: str | None = None) -> dict[str, object]:
         """Return names-only schema visible to this authenticated principal.
@@ -796,10 +792,10 @@ class RelataClient:
         """
         selected = purpose or self._default_purpose
         suffix = f"?{urlencode({'purpose': selected})}" if selected else ""
-        return self._sync.get(f"/query/schema{suffix}")
+        return self._sync.get(f"/v1/query/schema{suffix}")
 
     def register_type(self, name: str, **kwargs: object) -> dict[str, object]:
-        """Register a custom object type at runtime (``POST /types``).
+        """Register a custom object type at runtime (``POST /v1/types``).
 
         ``kwargs`` (all optional) mirrors the server's full ``TypeDef`` body
         (``crates/relata-cli/src/serve/types_routes.rs``):
@@ -827,21 +823,21 @@ class RelataClient:
           retroactively recomputed/revalidated.
         """
         payload: dict[str, object] = {"name": name, **kwargs}
-        return self._sync.post("/types", payload)
+        return self._sync.post("/v1/types", payload)
 
     def deregister_type(self, name: str) -> dict[str, object]:
         """Deregister an empty custom type. Admin token required; types with history or protected data are rejected."""
-        return self._sync.delete(f"/types/{path_segment(name)}")
+        return self._sync.delete(f"/v1/types/{path_segment(name)}")
 
     def type_detail(self, name: str) -> dict[str, object]:
         """Get type detail (properties, owner, row count)."""
-        return self._sync.get(f"/types/{path_segment(name)}")
+        return self._sync.get(f"/v1/types/{path_segment(name)}")
 
     def type_lifecycle(self, name: str) -> dict[str, object]:
         """Lifecycle progress of a type (#5724): the recent register/alter/deregister
         outcomes this server process ran for it (``applied`` / ``refused`` / ``failed``)
         plus per-index derived-index progress and a freshness token."""
-        return self._sync.get(f"/types/{path_segment(name)}/lifecycle")
+        return self._sync.get(f"/v1/types/{path_segment(name)}/lifecycle")
 
     def schema_alter(
         self,
@@ -854,7 +850,7 @@ class RelataClient:
         optional: bool | None = None,
         expected_schema_version: str | None = None,
     ) -> dict[str, object]:
-        """Online schema evolution — ``PATCH /types/:name/schema`` (#1307).
+        """Online schema evolution — ``PATCH /v1/types/:name/schema`` (#1307).
 
         ``action`` is ``"add"`` | ``"drop"`` | ``"rename"`` | ``"retype"``;
         ``column`` is the target column; ``new_column`` / ``col_type`` /
@@ -880,7 +876,7 @@ class RelataClient:
             payload["optional"] = optional
         if expected_schema_version is not None:
             payload["expected_schema_version"] = expected_schema_version
-        return self._sync.patch(f"/types/{path_segment(type_name)}/schema", payload)
+        return self._sync.patch(f"/v1/types/{path_segment(type_name)}/schema", payload)
 
     # ------------------------------------------------------------------
     # Schema-BRANCH CRUD + typed edge definitions (#2497, #2476 ALTER stays
@@ -891,10 +887,10 @@ class RelataClient:
     def list_edge_types(self) -> dict[str, object]:
         """List registered cross-type edge definitions (ADR-007).
 
-        Wraps ``GET /types/edges``. Returns the server's edge-declaration
+        Wraps ``GET /v1/types/edges``. Returns the server's edge-declaration
         table consumed by ``PATHS_BETWEEN`` traversal.
         """
-        return self._sync.get("/types/edges")
+        return self._sync.get("/v1/types/edges")
 
     def register_edge_type(
         self,
@@ -904,10 +900,10 @@ class RelataClient:
     ) -> dict[str, object]:
         """Register a typed named edge for graph traversal (ADR-007).
 
-        Wraps ``POST /types/edges`` with ``{from_type, to_type, label}``.
+        Wraps ``POST /v1/types/edges`` with ``{from_type, to_type, label}``.
         """
         return self._sync.post(
-            "/types/edges",
+            "/v1/types/edges",
             {"from_type": from_type, "to_type": to_type, "label": label},
         )
 
@@ -918,31 +914,31 @@ class RelataClient:
     ) -> dict[str, object]:
         """Create a named schema branch off ``from_branch`` (#207).
 
-        Wraps ``POST /schema/branches/:name`` with ``{"from": from_branch}``.
+        Wraps ``POST /v1/schema/branches/:name`` with ``{"from": from_branch}``.
         The branch carries its own ontology / type set; mutations on it do not
         affect the parent until merged.
         """
         return self._sync.post(
-            f"/schema/branches/{path_segment(name)}",
+            f"/v1/schema/branches/{path_segment(name)}",
             {"from": from_branch},
         )
 
     def delete_schema_branch(self, name: str) -> dict[str, object]:
         """Delete a named schema branch (#207).
 
-        Wraps ``DELETE /schema/branches/:name``.
+        Wraps ``DELETE /v1/schema/branches/:name``.
         """
-        return self._sync.delete(f"/schema/branches/{path_segment(name)}")
+        return self._sync.delete(f"/v1/schema/branches/{path_segment(name)}")
 
     async def alist_edge_types(self) -> dict[str, object]:
         """Async variant of :meth:`list_edge_types`."""
-        return await self._async.get("/types/edges")
+        return await self._async.get("/v1/types/edges")
 
     async def aquery_schema(self, *, purpose: str | None = None) -> dict[str, object]:
         """Async variant of :meth:`query_schema`."""
         selected = purpose or self._default_purpose
         suffix = f"?{urlencode({'purpose': selected})}" if selected else ""
-        return await self._async.get(f"/query/schema{suffix}")
+        return await self._async.get(f"/v1/query/schema{suffix}")
 
     async def aregister_edge_type(
         self,
@@ -952,7 +948,7 @@ class RelataClient:
     ) -> dict[str, object]:
         """Async variant of :meth:`register_edge_type`."""
         return await self._async.post(
-            "/types/edges",
+            "/v1/types/edges",
             {"from_type": from_type, "to_type": to_type, "label": label},
         )
 
@@ -963,26 +959,22 @@ class RelataClient:
     ) -> dict[str, object]:
         """Async variant of :meth:`create_schema_branch`."""
         return await self._async.post(
-            f"/schema/branches/{path_segment(name)}",
+            f"/v1/schema/branches/{path_segment(name)}",
             {"from": from_branch},
         )
 
     async def adelete_schema_branch(self, name: str) -> dict[str, object]:
         """Async variant of :meth:`delete_schema_branch`."""
-        return await self._async.delete(f"/schema/branches/{path_segment(name)}")
+        return await self._async.delete(f"/v1/schema/branches/{path_segment(name)}")
 
     def ontology_migrate(self, schema: dict[str, object]) -> dict[str, object]:
         """SHACL schema migration — register type specs, link types, property
         constraints in one governed call."""
-        return self._sync.post("/ontology/migrate", schema)
+        return self._sync.post("/v1/ontology/migrate", schema)
 
     def enrichment_rules(self, rules: dict[str, object]) -> dict[str, object]:
         """Register identity enrichment rules for SmartIngest."""
-        return self._sync.post("/ontology/enrichment-rules", rules)
-
-    def list_modules(self) -> dict[str, object]:
-        """List installed modules / extensions."""
-        return self._sync.get("/modules")
+        return self._sync.post("/v1/ontology/enrichment-rules", rules)
 
     def create_link(
         self,
@@ -993,7 +985,7 @@ class RelataClient:
         target_type: str,
     ) -> dict[str, object]:
         """Create a typed, governed link (edge) between two objects."""
-        return self._sync.post("/links", {
+        return self._sync.post("/v1/links", {
             "link_name": link_name,
             "source_id": source_id,
             "source_type": source_type,
@@ -1017,14 +1009,14 @@ class RelataClient:
         after a timeout or crash cannot duplicate. ``idempotency_key`` (sent as
         ``Idempotency-Key``) additionally replays the first response.
         ``durability`` is ``"sync"`` (server default when persistent) or
-        ``"async"``. Sends ``POST /links/batch``.
+        ``"async"``. Sends ``POST /v1/links/batch``.
         """
         headers: dict[str, str] = {}
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
         if durability is not None:
             headers["X-Relata-Durability"] = durability
-        return self._sync.post("/links/batch", {"edges": edges}, extra_headers=headers or None)
+        return self._sync.post("/v1/links/batch", {"edges": edges}, extra_headers=headers or None)
 
     # ------------------------------------------------------------------
     # Identity resolution & entity lifecycle (#967)
@@ -1033,7 +1025,7 @@ class RelataClient:
     def delete_link(self, link_name: str, source_id: str, target_id: str) -> dict[str, object]:
         """Close matching current native edges in this tenant, retaining history.
 
-        Sends ``DELETE /links`` with the exact link name and endpoint IDs.
+        Sends ``DELETE /v1/links`` with the exact link name and endpoint IDs.
         All matching parallel edges owned by the authenticated tenant close;
         the response contains ``deleted``, which is zero on a repeated request
         when no current matches remain. Row-backed edge objects are unaffected.
@@ -1046,13 +1038,13 @@ class RelataClient:
         deletion replication is implemented. HTTP 503 with ``retryable: false``
         means the outcome needs reconciliation; mutations are not retried.
         """
-        return self._sync.delete("/links", {
+        return self._sync.delete("/v1/links", {
             "link_name": link_name, "source_id": source_id, "target_id": target_id,
         })
 
     async def adelete_link(self, link_name: str, source_id: str, target_id: str) -> dict[str, object]:
         """Async counterpart of delete_link; mutations are not automatically retried."""
-        return await self._async.delete("/links", {
+        return await self._async.delete("/v1/links", {
             "link_name": link_name, "source_id": source_id, "target_id": target_id,
         })
 
@@ -1064,7 +1056,7 @@ class RelataClient:
         purpose: str | None = None,
     ) -> dict[str, object]:
         """Resolve an identity value to all known objects and clusters.
-        Executes ``RESOLVE_IDENTITY('<value>')`` via ``POST /query``.
+        Executes ``RESOLVE_IDENTITY('<value>')`` via ``POST /v1/query``.
 
         ``mode`` selects the resolution strategy: ``"canonical"`` (single
         best match), ``"cluster"`` (server default — same as
@@ -1082,7 +1074,7 @@ class RelataClient:
         sql = "RESOLVE_IDENTITY($1)"
         if mode is not None:
             sql = f"RESOLVE_IDENTITY($1, MODE => '{mode}')"
-        return self._sync.post("/query", {"purpose": p, "sql": sql, "params": [value]})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": sql, "params": [value]})
 
     def detect_identities(self, text: str, *, purpose: str | None = None) -> dict[str, object]:
         """Detect identities in free text via SmartIngest.
@@ -1090,7 +1082,7 @@ class RelataClient:
         via the server-side parameterized path (#3211)."""
         p = purpose or self._default_purpose or "analytics"
         return self._sync.post(
-            "/query", {"purpose": p, "sql": "DETECT_IDENTITIES($1)", "params": [text]}
+            "/v1/query", {"purpose": p, "sql": "DETECT_IDENTITIES($1)", "params": [text]}
         )
 
     def erase_subject(
@@ -1106,70 +1098,30 @@ class RelataClient:
         """
         p = purpose or self._default_purpose or "gdpr-erasure"
         return self._sync.post(
-            "/query",
+            "/v1/query",
             {"purpose": p, "sql": "ERASE SUBJECT $1 REASON $2 CERTIFY", "params": [subject, reason]},
         )
 
     # ------------------------------------------------------------------
-    # Sessions & cluster (#967 Tier 2d)
+    # Sessions (#967 Tier 2d)
     # ------------------------------------------------------------------
 
     def export_data(self, object_type: str, *, format: str = "json") -> dict[str, object]:
         """Bulk export all rows of a type (#967 Tier 5c)."""
         qs = urlencode({"type": object_type, "format": format, "purpose": "export"})
-        return self._sync.get(f"/export?{qs}")
-
-    def register_webhook(
-        self,
-        url: str,
-        event_types: list[str] | None = None,
-        *,
-        secret: str | None = None,
-    ) -> dict[str, object]:
-        """Register a webhook for push notifications (#967 Tier 5b).
-
-        ``secret``, when supplied, is stored server-side (never echoed back
-        by ``GET /webhooks``) and used to sign every delivered payload with
-        HMAC-SHA256 in the ``X-Webhook-Signature`` header -- the only way to
-        get a *signed* (verifiable) webhook; omitting it registers an
-        unsigned one.
-        """
-        body: dict[str, object] = {"url": url, "event_types": event_types or []}
-        if secret is not None:
-            body["secret"] = secret
-        return self._sync.post("/webhooks", body)
-
-    def list_webhooks(self) -> dict[str, object]:
-        """List registered webhooks."""
-        return self._sync.get("/webhooks")
-
-    def delete_webhook(self, webhook_id: str) -> dict[str, object]:
-        """Delete a webhook."""
-        return self._sync.delete(f"/webhooks/{path_segment(webhook_id)}")
-
-    def cluster_topology(self) -> dict[str, object]:
-        """Get cluster topology (nodes, partitions, roles)."""
-        return self._sync.get("/cluster/topology")
-
-    def cluster_rebalance(self) -> dict[str, object]:
-        """Trigger a cluster rebalance."""
-        return self._sync.post("/cluster/rebalance", {})
-
-    def cluster_drain(self, node_id: str) -> dict[str, object]:
-        """Drain a node for maintenance."""
-        return self._sync.post(f"/cluster/drain/{path_segment(node_id)}", {})
+        return self._sync.get(f"/v1/export?{qs}")
 
     def session_diff(self, session_id: str) -> dict[str, object]:
         """View uncommitted session changes."""
-        return self._sync.get(f"/session/{path_segment(session_id)}/diff")
+        return self._sync.get(f"/v1/sessions/{path_segment(session_id)}/diff")
 
     def session_commit(self, session_id: str) -> dict[str, object]:
         """Commit a session's draft writes."""
-        return self._sync.post(f"/session/{path_segment(session_id)}/commit", {})
+        return self._sync.post(f"/v1/sessions/{path_segment(session_id)}/commit", {})
 
     def session_discard(self, session_id: str) -> dict[str, object]:
         """Discard uncommitted session changes."""
-        return self._sync.delete(f"/session/{path_segment(session_id)}/draft")
+        return self._sync.delete(f"/v1/sessions/{path_segment(session_id)}/draft")
 
     # ------------------------------------------------------------------
     # Entity merge, dedup & identity resolution (#967)
@@ -1183,20 +1135,20 @@ class RelataClient:
         """
         p = purpose or self._default_purpose or "analytics"
         return self._sync.post(
-            "/query",
+            "/v1/query",
             {"purpose": p, "sql": "RESOLVE_IDENTITY($1, MODE => 'cluster')", "params": [value]},
         )
 
     def same_identity(self, a: str, b: str, *, purpose: str | None = None) -> bool:
         """Predicate: do two identifiers resolve to the same entity?
 
-        Executes ``SAME_IDENTITY('<a>', '<b>')`` via ``POST /query`` and
+        Executes ``SAME_IDENTITY('<a>', '<b>')`` via ``POST /v1/query`` and
         returns the ``match`` verdict (#2246). Both values are bound as
         ``$1``/``$2`` via the server-side parameterized path (#3211).
         """
         p = purpose or self._default_purpose or "analytics"
         data = self._sync.post(
-            "/query", {"purpose": p, "sql": "SAME_IDENTITY($1, $2)", "params": [a, b]}
+            "/v1/query", {"purpose": p, "sql": "SAME_IDENTITY($1, $2)", "params": [a, b]}
         )
         rows = data.get("data") or []
         return bool(rows and rows[0].get("match"))
@@ -1207,7 +1159,7 @@ class RelataClient:
         bound as ``$1``/``$2`` (#3211)."""
         p = purpose or self._default_purpose or "analytics"
         return self._sync.post(
-            "/query", {"purpose": p, "sql": "FUSE_IDENTITIES($1, $2)", "params": [id_a, id_b]}
+            "/v1/query", {"purpose": p, "sql": "FUSE_IDENTITIES($1, $2)", "params": [id_a, id_b]}
         )
 
     def split_identities(self, id_a: str, id_b: str, *, purpose: str | None = None) -> dict[str, object]:
@@ -1215,7 +1167,7 @@ class RelataClient:
         bound as ``$1``/``$2`` (#3211)."""
         p = purpose or self._default_purpose or "analytics"
         return self._sync.post(
-            "/query", {"purpose": p, "sql": "SPLIT_IDENTITIES($1, $2)", "params": [id_a, id_b]}
+            "/v1/query", {"purpose": p, "sql": "SPLIT_IDENTITIES($1, $2)", "params": [id_a, id_b]}
         )
 
 
@@ -1230,7 +1182,7 @@ class RelataClient:
             f"GRAPH_DIJKSTRA({_sql_literal(object_type)}, "
             f"FROM => {_sql_literal(from_id)}, TO => {_sql_literal(to_id)})"
         )
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": sql})
 
     def graph_shortest_path(
         self,
@@ -1239,7 +1191,7 @@ class RelataClient:
         *,
         max_hops: int | None = None,
     ) -> dict[str, object]:
-        """Shortest path via the governed ``GET /graph/shortest-path`` door.
+        """Shortest path via the governed ``GET /v1/graph/shortest-path`` door.
 
         Unlike :meth:`graph_dijkstra` (a SQL operator), this exposes the HTTP
         door's ``max_hops`` ceiling (#2344).
@@ -1247,7 +1199,7 @@ class RelataClient:
         params = {"from": from_id, "to": to_id}
         if max_hops is not None:
             params["max_hops"] = max_hops
-        return self._sync.get(f"/graph/shortest-path?{urlencode(params)}")
+        return self._sync.get(f"/v1/graph/shortest-path?{urlencode(params)}")
 
     def graph_traverse(
         self,
@@ -1257,7 +1209,7 @@ class RelataClient:
         max_depth: int | None = None,
         limit: int | None = None,
     ) -> dict[str, object]:
-        """Breadth-first traversal via the governed ``GET /graph/traverse`` door.
+        """Breadth-first traversal via the governed ``GET /v1/graph/traverse`` door.
 
         ``direction`` is ``"out"`` | ``"in"`` | ``"both"`` (server default out).
         """
@@ -1268,7 +1220,7 @@ class RelataClient:
             params["max_depth"] = max_depth
         if limit is not None:
             params["limit"] = limit
-        return self._sync.get(f"/graph/traverse?{urlencode(params)}")
+        return self._sync.get(f"/v1/graph/traverse?{urlencode(params)}")
 
     def graph_pagerank(self, object_type: str, *, damping: float | None = None, max_iter: int | None = None, purpose: str | None = None) -> dict[str, object]:
         """PageRank centrality."""
@@ -1277,28 +1229,28 @@ class RelataClient:
         if damping is not None: parts.append(f", DAMPING => {damping}")
         if max_iter is not None: parts.append(f", MAX_ITER => {max_iter}")
         parts.append(")")
-        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": "".join(parts)})
 
     def graph_scc(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Strongly connected components (fraud-ring detection)."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_SCC({_sql_literal(object_type)})"})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": f"GRAPH_SCC({_sql_literal(object_type)})"})
 
     def graph_cycles(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Cycle detection in the graph."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_CYCLES({_sql_literal(object_type)})"})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": f"GRAPH_CYCLES({_sql_literal(object_type)})"})
 
     def graph_community(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Community detection via label propagation."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"GRAPH_COMMUNITY({_sql_literal(object_type)})"})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": f"GRAPH_COMMUNITY({_sql_literal(object_type)})"})
 
     def graph_node_similarity(self, object_type: str, node: str, *, purpose: str | None = None) -> dict[str, object]:
         """Node similarity — find entities similar to a seed node."""
         p = purpose or self._default_purpose or "analytics"
         sql = f"GRAPH_NODE_SIMILARITY({_sql_literal(object_type)}, NODE => {_sql_literal(node)})"
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": sql})
 
     def graph_link_predict(self, object_type: str, from_id: str, to_id: str, *, purpose: str | None = None) -> dict[str, object]:
         """Link prediction between two nodes (#4633).
@@ -1311,12 +1263,12 @@ class RelataClient:
             f"GRAPH_LINK_PREDICT({_sql_literal(object_type)}, "
             f"FROM => {_sql_literal(from_id)}, TO => {_sql_literal(to_id)})"
         )
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": sql})
 
     def graph_triangle_count(self, object_type: str, *, purpose: str | None = None) -> dict[str, object]:
         """Triangle count — measures graph density / cohesion."""
         p = purpose or self._default_purpose or "analytics"
-        return self._sync.post("/query", {"purpose": p, "sql": f"TRIANGLE_COUNT({_sql_literal(object_type)})"})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": f"TRIANGLE_COUNT({_sql_literal(object_type)})"})
 
     # ------------------------------------------------------------------
     # Intelligence operators (#967)
@@ -1330,7 +1282,7 @@ class RelataClient:
         if time_tol_secs is not None: parts.append(f"TIME_TOL => {time_tol_secs * 1_000_000_000}")
         if min_points is not None: parts.append(f"MIN_POINTS => {min_points}")
         sql = f"CONVOY({', '.join(parts)})" if parts else "CONVOY()"
-        return self._sync.post("/query", {"purpose": p, "sql": sql})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": sql})
 
     def dns_tunnel_detect(
         self,
@@ -1343,7 +1295,7 @@ class RelataClient:
     ) -> dict[str, object]:
         """Triage DNS tunnel candidates over governed, paginated DNS rows.
 
-        Uses the authenticated names-only schema endpoint, then normal `/query`
+        Uses the authenticated names-only schema endpoint, then normal `/v1/query`
         requests for registered `DnsLog`, `DnsQuery`, and `DnsEvent` types. A
         bounded scan returns `complete=False` and a per-type continuation cursor
         when its row budget is reached. The server continues to enforce tenant,
@@ -1531,14 +1483,14 @@ class RelataClient:
         parts = [f"GEOFENCE({_sql_literal(fence)}"]
         if target_type is not None: parts.append(f", TARGET_TYPE => {_sql_literal(target_type)}")
         parts.append(")")
-        return self._sync.post("/query", {"purpose": p, "sql": "".join(parts)})
+        return self._sync.post("/v1/query", {"purpose": p, "sql": "".join(parts)})
 
     # ------------------------------------------------------------------
     # Multimedia operators (#2251, epic #655 — ADR-030)
     # ------------------------------------------------------------------
     #
     # Biometric / perceptual-hash search via the governed SQL operator door.
-    # Both route through ``POST /query`` so PURPOSE / ACL / cell-masking /
+    # Both route through ``POST /v1/query`` so PURPOSE / ACL / cell-masking /
     # tenant isolation apply identically to a hand-written query. The server
     # operators are registered in ``relata_query::parser``:
     #
@@ -1560,7 +1512,7 @@ class RelataClient:
     ) -> QueryResult:
         """Near-duplicate / similar-image search (#2840, PR #2859).
 
-        Executes ``SIMILAR_IMAGE(...)`` through the governed ``/query`` door.
+        Executes ``SIMILAR_IMAGE(...)`` through the governed ``/v1/query`` door.
 
         Args:
             media_ref: Reference media identifier to search from.
@@ -1620,7 +1572,7 @@ class RelataClient:
             :class:`~relata.exceptions.AuthError`: Invalid/missing token.
             :class:`~relata.exceptions.ConnectionError`: Server unreachable.
         """
-        data = self._sync.get("/status")
+        data = self._sync.get("/v1/system/status")
         return StatusResponse.model_validate(data)
 
     def audit_count(self) -> AuditCountResponse:
@@ -1637,21 +1589,8 @@ class RelataClient:
             :class:`~relata.exceptions.AuthError`: Invalid/missing token.
             :class:`~relata.exceptions.ConnectionError`: Server unreachable.
         """
-        data = self._sync.get("/audit/count")
+        data = self._sync.get("/v1/audit/count")
         return AuditCountResponse.model_validate(data)
-
-    def cluster_nodes(self) -> list[ClusterNode]:
-        """List all nodes in the cluster (synchronous).
-
-        Returns:
-            List of :class:`~relata.models.ClusterNode`.
-
-        Raises:
-            :class:`~relata.exceptions.ConnectionError`: Server unreachable.
-        """
-        data = self._sync.get("/cluster/nodes")
-        nodes_raw = data.get("nodes", [])
-        return [ClusterNode.model_validate(n) for n in nodes_raw]
 
     # ------------------------------------------------------------------
     # Introspection (stats / version / ready) — pairs with #86
@@ -1660,12 +1599,12 @@ class RelataClient:
     def stats(self) -> Stats:
         """Return engine-wide counts for health dashboards (synchronous).
 
-        Wraps ``GET /debug/stats``. The shape mirrors the
+        Wraps ``GET /v1/system/stats``. The shape mirrors the
         ``storage-backend-requirements.md`` §9 contract — ``records``,
         ``states``, ``snapshot_rows``, ``log_leaves``, ``tokens`` — to the
         extent the server currently distinguishes them.
         """
-        data = self._sync.get("/debug/stats")
+        data = self._sync.get("/v1/system/stats")
         return Stats.model_validate(data)
 
     def version(self) -> VersionInfo:
@@ -1694,7 +1633,7 @@ class RelataClient:
     # ------------------------------------------------------------------
 
     def observe_stream(self) -> Iterator[dict[str, object]]:
-        """Stream live observability events from ``GET /observe/stream``.
+        """Stream live observability events from ``GET /v1/observe/stream``.
 
         The endpoint is opt-in server-side (``RELATA_OBSERVE_STREAM=on``)
         and emits one structured ``ObservabilityEvent`` JSON object per SSE
@@ -1722,7 +1661,7 @@ class RelataClient:
 
         sync = self._sync
         try:
-            with sync._client.stream("GET", "/observe/stream") as resp:  # noqa: SLF001
+            with sync._client.stream("GET", "/v1/observe/stream") as resp:  # noqa: SLF001
                 if not resp.is_success:
                     _classify_capped_error(sync, resp)
                 for line in resp.iter_lines():
@@ -1790,7 +1729,7 @@ class RelataClient:
         if query_vector_model is not None:
             payload["query_vector_model"] = query_vector_model
         extra_headers = _dialect_headers(dialect)
-        data = await self._async.post("/query", payload, extra_headers=extra_headers)
+        data = await self._async.post("/v1/query", payload, extra_headers=extra_headers)
         return QueryResult.model_validate(data)
 
     async def aquery_params(
@@ -1809,7 +1748,7 @@ class RelataClient:
             "sql": _inject_matcher_hint(sql, matcher),
             "params": params,
         }
-        data = await self._async.post("/query", payload)
+        data = await self._async.post("/v1/query", payload)
         return QueryResult.model_validate(data)
 
     async def ahealth(self) -> HealthResponse:
@@ -1827,7 +1766,7 @@ class RelataClient:
         Returns:
             :class:`~relata.models.StatusResponse`.
         """
-        data = await self._async.get("/status")
+        data = await self._async.get("/v1/system/status")
         return StatusResponse.model_validate(data)
 
     async def aaudit_count(self) -> AuditCountResponse:
@@ -1836,18 +1775,8 @@ class RelataClient:
         Returns:
             :class:`~relata.models.AuditCountResponse`.
         """
-        data = await self._async.get("/audit/count")
+        data = await self._async.get("/v1/audit/count")
         return AuditCountResponse.model_validate(data)
-
-    async def acluster_nodes(self) -> list[ClusterNode]:
-        """List all nodes in the cluster (asynchronous).
-
-        Returns:
-            List of :class:`~relata.models.ClusterNode`.
-        """
-        data = await self._async.get("/cluster/nodes")
-        nodes_raw = data.get("nodes", [])
-        return [ClusterNode.model_validate(n) for n in nodes_raw]
 
     # ------------------------------------------------------------------
     # Introspection — async mirrors
@@ -1855,7 +1784,7 @@ class RelataClient:
 
     async def astats(self) -> Stats:
         """Return engine-wide counts for health dashboards (asynchronous)."""
-        data = await self._async.get("/debug/stats")
+        data = await self._async.get("/v1/system/stats")
         return Stats.model_validate(data)
 
     async def aversion(self) -> VersionInfo:
@@ -1913,8 +1842,8 @@ class RelataClient:
         purpose context::
 
             docs = client.namespace("Document")
-            docs.write([{"id": "d1", "title": "..."}])      # schemaless (T6, /ingest/auto)
-            res = docs.query(                                # typed search (T1, /search)
+            docs.write([{"id": "d1", "title": "..."}])      # schemaless (T6, /v1/ingest/auto)
+            res = docs.query(                                # typed search (T1, /v1/search)
                 text="retrieval",
                 match_column="title",
                 filters=[{"field": "status", "op": "eq", "value": "published"}],
@@ -1967,7 +1896,7 @@ class RelataClient:
         payload: dict[str, Any] = {"objects": objects, "queued": True}
         if effective_purpose:
             payload["purpose"] = effective_purpose
-        data = self._sync.post("/ingest/bulk", payload)
+        data = self._sync.post("/v1/ingest/bulk", payload)
         return IngestDocumentResponse.model_validate(data)
 
     async def aingest_document(
@@ -1984,7 +1913,7 @@ class RelataClient:
         payload: dict[str, Any] = {"objects": objects, "queued": True}
         if effective_purpose:
             payload["purpose"] = effective_purpose
-        data = await self._async.post("/ingest/bulk", payload)
+        data = await self._async.post("/v1/ingest/bulk", payload)
         return IngestDocumentResponse.model_validate(data)
 
     def commit(
@@ -2007,7 +1936,7 @@ class RelataClient:
         from relata.objects import _commit_payload
 
         return dict(self._sync.post(
-            "/commit",
+            "/v1/commit",
             _commit_payload(operations, idempotency_key, purpose or self._default_purpose),
         ))
 
@@ -2022,7 +1951,7 @@ class RelataClient:
         from relata.objects import _commit_payload
 
         return dict(await self._async.post(
-            "/commit",
+            "/v1/commit",
             _commit_payload(operations, idempotency_key, purpose or self._default_purpose),
         ))
 
@@ -2035,12 +1964,12 @@ class RelataClient:
         A task belongs to its originating node and authenticated tenant.
         Confirmed counters do not certify global index or replica completion.
         """
-        data = self._sync.get(f"/ingest/tasks/{path_segment(task_id)}")
+        data = self._sync.get(f"/v1/ingest/tasks/{path_segment(task_id)}")
         return IngestDocumentTaskStatus.model_validate(data)
 
     async def aingest_document_status(self, task_id: str) -> IngestDocumentTaskStatus:
         """Async counterpart to :meth:`ingest_document_status`."""
-        data = await self._async.get(f"/ingest/tasks/{path_segment(task_id)}")
+        data = await self._async.get(f"/v1/ingest/tasks/{path_segment(task_id)}")
         return IngestDocumentTaskStatus.model_validate(data)
 
     def submit_alert(self, request: AlertSubmitRequest) -> AlertSubmitReceipt:
@@ -2049,12 +1978,12 @@ class RelataClient:
         Exact retries return the original identity without replaying notifications.
         Webhook and SSE delivery is best-effort, not a durable delivery receipt.
         """
-        data = self._sync.post("/alerts/submit", request.model_dump(exclude_none=True))
+        data = self._sync.post("/v1/alerts", request.model_dump(exclude_none=True))
         return AlertSubmitReceipt.model_validate(data)
 
     async def asubmit_alert(self, request: AlertSubmitRequest) -> AlertSubmitReceipt:
         """Async counterpart to :meth:`submit_alert`."""
-        data = await self._async.post("/alerts/submit", request.model_dump(exclude_none=True))
+        data = await self._async.post("/v1/alerts", request.model_dump(exclude_none=True))
         return AlertSubmitReceipt.model_validate(data)
 
     def append_event(self, request: EventAppendRequest) -> EventAppendReceipt:
@@ -2064,12 +1993,12 @@ class RelataClient:
         different payload raises the server's conflict error. The endpoint
         requires a local persistent WAL and currently rejects cluster mode.
         """
-        data = self._sync.post("/events/append", request.model_dump(exclude_none=True))
+        data = self._sync.post("/v1/ingest/events", request.model_dump(exclude_none=True))
         return EventAppendReceipt.model_validate(data)
 
     async def aappend_event(self, request: EventAppendRequest) -> EventAppendReceipt:
         """Async counterpart to :meth:`append_event`."""
-        data = await self._async.post("/events/append", request.model_dump(exclude_none=True))
+        data = await self._async.post("/v1/ingest/events", request.model_dump(exclude_none=True))
         return EventAppendReceipt.model_validate(data)
 
     # ------------------------------------------------------------------
@@ -2115,7 +2044,7 @@ class RelataClient:
             body["variables"] = variables
         if operation_name is not None:
             body["operationName"] = operation_name
-        return _graphql_data(self._sync.post("/graphql", body))
+        return _graphql_data(self._sync.post("/v1/graphql", body))
 
 
     async def agraphql(
@@ -2130,4 +2059,4 @@ class RelataClient:
             body["variables"] = variables
         if operation_name is not None:
             body["operationName"] = operation_name
-        return _graphql_data(await self._async.post("/graphql", body))
+        return _graphql_data(await self._async.post("/v1/graphql", body))

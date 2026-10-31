@@ -1,4 +1,4 @@
-"""Media work hand-off for OpenETL (``/media/work``, #5938).
+"""Media work hand-off for OpenETL (``/v1/media/work``, #5938).
 
 Relata keeps a durable queue of media files that need extraction. A worker
 (OpenETL) leases items with :meth:`MediaWorkClient.claim`, keeps the lease alive
@@ -29,12 +29,12 @@ _FAILURE_CLASSES = ("retryable", "permanent")
 
 
 def media_work_claim_headers(claim_id: int) -> dict[str, str]:
-    """``X-Relata-Claim`` header for a raw ``POST /ingest/bulk`` write-back."""
+    """``X-Relata-Claim`` header for a raw ``POST /v1/ingest/bulk`` write-back."""
     return {CLAIM_HEADER: str(int(claim_id))}
 
 
 def _item_path(work_id: str, suffix: str = "") -> str:
-    return f"/media/work/{quote(work_id, safe='')}{suffix}"
+    return f"/v1/media/work/{quote(work_id, safe='')}{suffix}"
 
 
 def _list_path(state: str | None, limit: int | None) -> str:
@@ -45,7 +45,7 @@ def _list_path(state: str | None, limit: int | None) -> str:
         params["state"] = state
     if limit is not None:
         params["limit"] = str(int(limit))
-    return "/media/work" + (f"?{urlencode(params)}" if params else "")
+    return "/v1/media/work" + (f"?{urlencode(params)}" if params else "")
 
 
 def _claim_body(claimant: str, max_items: int | None, lease_ms: int | None) -> dict[str, Any]:
@@ -112,31 +112,31 @@ class MediaWorkClient:
         )
 
     def list(self, *, state: str | None = None, limit: int | None = None) -> dict[str, Any]:
-        """``GET /media/work``: the tenant's work items, optionally filtered by state."""
+        """``GET /v1/media/work``: the tenant's work items, optionally filtered by state."""
         return dict(self._t.get(_list_path(state, limit)))
 
     def get(self, work_id: str) -> dict[str, Any]:
-        """``GET /media/work/{id}``: durable status; 404 when unknown."""
+        """``GET /v1/media/work/{id}``: durable status; 404 when unknown."""
         return dict(self._t.get(_item_path(work_id)))
 
     def claim(
         self, claimant: str, *, max_items: int | None = None, lease_ms: int | None = None
     ) -> dict[str, Any]:
-        """``POST /media/work/claim``: lease up to ``max_items`` items (``{"items": [...]}``).
+        """``POST /v1/media/work/claim``: lease up to ``max_items`` items (``{"items": [...]}``).
 
         An empty ``items`` list means nothing is deliverable now (no long poll).
         Each item carries the ``claim_id`` the other calls must present.
         """
-        return dict(self._t.post("/media/work/claim", _claim_body(claimant, max_items, lease_ms)))
+        return dict(self._t.post("/v1/media/work/claim", _claim_body(claimant, max_items, lease_ms)))
 
     def heartbeat(self, work_id: str, claim_id: int, *, lease_ms: int | None = None) -> dict[str, Any]:
-        """``POST /media/work/{id}/heartbeat``: extend the lease (409 once it lapsed)."""
+        """``POST /v1/media/work/{id}/heartbeat``: extend the lease (409 once it lapsed)."""
         return dict(self._t.post(_item_path(work_id, "/heartbeat"), _heartbeat_body(claim_id, lease_ms)))
 
     def complete(
         self, work_id: str, claim_id: int, *, producer_version: str, batches: int, children: int
     ) -> dict[str, Any]:
-        """``POST /media/work/{id}/complete``: 409 when counts differ from what is stored."""
+        """``POST /v1/media/work/{id}/complete``: 409 when counts differ from what is stored."""
         return dict(
             self._t.post(
                 _item_path(work_id, "/complete"),
@@ -153,10 +153,15 @@ class MediaWorkClient:
         code: str | None = None,
         detail: str | None = None,
     ) -> dict[str, Any]:
-        """``POST /media/work/{id}/fail``: ``retryable`` is redelivered, ``permanent`` dead-letters."""
+        """``POST /v1/media/work/{id}/fail``: ``retryable`` is redelivered, ``permanent`` dead-letters."""
         return dict(
             self._t.post(_item_path(work_id, "/fail"), _fail_body(claim_id, failure_class, code, detail))
         )
+
+    def requeue(self, work_id: str) -> dict[str, Any]:
+        """``POST /v1/media/work/{id}/requeue``: return an item (for example a
+        dead-lettered one) to the queue so it is delivered again."""
+        return dict(self._t.post(_item_path(work_id, "/requeue"), {}))
 
     def close(self) -> None:
         self._t.close()
@@ -202,7 +207,7 @@ class AsyncMediaWorkClient:
     async def claim(
         self, claimant: str, *, max_items: int | None = None, lease_ms: int | None = None
     ) -> dict[str, Any]:
-        return dict(await self._t.post("/media/work/claim", _claim_body(claimant, max_items, lease_ms)))
+        return dict(await self._t.post("/v1/media/work/claim", _claim_body(claimant, max_items, lease_ms)))
 
     async def heartbeat(
         self, work_id: str, claim_id: int, *, lease_ms: int | None = None
@@ -235,6 +240,9 @@ class AsyncMediaWorkClient:
                 _item_path(work_id, "/fail"), _fail_body(claim_id, failure_class, code, detail)
             )
         )
+
+    async def requeue(self, work_id: str) -> dict[str, Any]:
+        return dict(await self._t.post(_item_path(work_id, "/requeue"), {}))
 
     async def close(self) -> None:
         await self._t.aclose()

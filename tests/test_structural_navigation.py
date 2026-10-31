@@ -1,6 +1,6 @@
 """Tests for structural table-of-contents navigation (#4542).
 
-Built against `RelataClient.query()` (the generic governed `/query` surface)
+Built against `RelataClient.query()` (the generic governed `/v1/query` surface)
 via `httpx.MockTransport` — no live server required, same approach
 #4524's `test_rag_understanding.py` uses.
 """
@@ -45,7 +45,7 @@ def _query_result(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _queued_client(responses: list[list[dict[str, Any]]]) -> tuple[RelataClient, list[str]]:
-    """A client whose `/query` calls return `responses` in call order.
+    """A client whose `/v1/query` calls return `responses` in call order.
     Returns the client plus the list of `sql` strings sent, for assertions."""
     sent_sql: list[str] = []
 

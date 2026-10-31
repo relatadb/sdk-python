@@ -1,6 +1,6 @@
 """Tests for the LangGraph RelataCheckpointer / AsyncRelataCheckpointer (#2229).
 
-Drives both savers through a mocked Relata `/a2a/checkpoints/*` surface via
+Drives both savers through a mocked Relata `/v1/a2a/checkpoints/*` surface via
 httpx.MockTransport — no live server needed. Covers:
 
 - Direct `BaseCheckpointSaver` protocol conformance (put/get_tuple/list/put_writes).
@@ -32,7 +32,7 @@ BASE = "http://localhost:9090"
 
 
 class FakeCheckpointStore:
-    """A MockTransport handler emulating the server's `/a2a/checkpoints/*` routes."""
+    """A MockTransport handler emulating the server's `/v1/a2a/checkpoints/*` routes."""
 
     def __init__(self) -> None:
         # (thread_id, checkpoint_id_segment) -> body
@@ -42,14 +42,14 @@ class FakeCheckpointStore:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls.append((request.method, request.url.path))
         parts = request.url.path.strip("/").split("/")
-        # /a2a/checkpoints/<thread>[/<segment>]
-        thread = parts[2]
+        # /v1/a2a/checkpoints/<thread>[/<segment>]
+        thread = parts[3]
         if request.method == "PUT":
-            segment = parts[3]
+            segment = parts[4]
             self.store[(thread, segment)] = json.loads(request.content)
             return httpx.Response(200, json={"saved": True, "checkpoint_id": segment})
-        if request.method == "GET" and len(parts) == 4:
-            segment = parts[3]
+        if request.method == "GET" and len(parts) == 5:
+            segment = parts[4]
             state = self.store.get((thread, segment))
             if state is None:
                 return httpx.Response(404, json={"error": "no such checkpoint"})
@@ -101,7 +101,7 @@ def test_put_and_get_tuple_round_trip() -> None:
 
     saved_config = cp.put(config, checkpoint, metadata, {})
     assert saved_config["configurable"]["checkpoint_id"] == checkpoint["id"]
-    assert ("PUT", f"/a2a/checkpoints/t1/:{checkpoint['id']}") in fake.calls
+    assert ("PUT", f"/v1/a2a/checkpoints/t1/:{checkpoint['id']}") in fake.calls
 
     tup = cp.get_tuple(saved_config)
     assert tup is not None

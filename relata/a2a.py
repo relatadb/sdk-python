@@ -1,8 +1,8 @@
 """A2A client — Agent-to-Agent task surface (#77 Phase 3).
 
-Wraps ``/a2a/tasks`` (create), ``/a2a/tasks/:id`` (status),
-``/a2a/tasks/:id/stream`` (SSE tail — pairs with the streaming ticket), and
-``/a2a/checkpoints/:thread_id`` (process-local LangGraph checkpoint endpoints).
+Wraps ``/v1/a2a/tasks`` (create), ``/v1/a2a/tasks/:id`` (status),
+``/v1/a2a/tasks/:id/stream`` (SSE tail — pairs with the streaming ticket), and
+``/v1/a2a/checkpoints/:thread_id`` (process-local LangGraph checkpoint endpoints).
 """
 
 from __future__ import annotations
@@ -51,22 +51,22 @@ class A2AClient:
         request. The returned record is available only while retained in the
         server's bounded, process-local task history; it is not a durable job
         receipt. Payloads typically contain ``name``, ``input`` and ``skill``."""
-        return self._t.post("/a2a/tasks", payload)
+        return self._t.post("/v1/a2a/tasks", payload)
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         """Poll a task's status. Returns ``{"id", "status", "result", "error", ...}``."""
-        return self._t.get(f"/a2a/tasks/{path_segment(task_id)}")
+        return self._t.get(f"/v1/a2a/tasks/{path_segment(task_id)}")
 
     def list_checkpoints(self, thread_id: str) -> list[dict[str, Any]]:
         """List the LangGraph checkpoints for a thread (used by
         :class:`relata_langgraph.RelataCheckpointer`)."""
-        data = self._t.get(f"/a2a/checkpoints/{path_segment(thread_id)}")
+        data = self._t.get(f"/v1/a2a/checkpoints/{path_segment(thread_id)}")
         checkpoints = data.get("checkpoints") if isinstance(data, dict) else data
         return checkpoints if isinstance(checkpoints, list) else []
 
     def load_checkpoint(self, thread_id: str, checkpoint_id: str) -> dict[str, Any]:
-        """Load a specific checkpoint by id (``GET /a2a/checkpoints/:t/:c``)."""
-        path = f"/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}"
+        """Load a specific checkpoint by id (``GET /v1/a2a/checkpoints/:t/:c``)."""
+        path = f"/v1/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}"
         return self._t.get(path)
 
     def save_checkpoint(
@@ -79,7 +79,7 @@ class A2AClient:
         checkpointer shape (``{"checkpoint": ..., "metadata": ...}``).
         Returns the server's save receipt."""
         return self._t.put(
-            f"/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}",
+            f"/v1/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}",
             payload,
         )
 
@@ -126,18 +126,18 @@ class AsyncA2AClient:
         )
 
     async def submit_task(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self._t.post("/a2a/tasks", payload)
+        return await self._t.post("/v1/a2a/tasks", payload)
 
     async def get_task(self, task_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/a2a/tasks/{path_segment(task_id)}")
+        return await self._t.get(f"/v1/a2a/tasks/{path_segment(task_id)}")
 
     async def list_checkpoints(self, thread_id: str) -> list[dict[str, Any]]:
-        data = await self._t.get(f"/a2a/checkpoints/{path_segment(thread_id)}")
+        data = await self._t.get(f"/v1/a2a/checkpoints/{path_segment(thread_id)}")
         checkpoints = data.get("checkpoints") if isinstance(data, dict) else data
         return checkpoints if isinstance(checkpoints, list) else []
 
     async def load_checkpoint(self, thread_id: str, checkpoint_id: str) -> dict[str, Any]:
-        path = f"/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}"
+        path = f"/v1/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}"
         return await self._t.get(path)
 
     async def save_checkpoint(
@@ -147,7 +147,7 @@ class AsyncA2AClient:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         return await self._t.put(
-            f"/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}",
+            f"/v1/a2a/checkpoints/{path_segment(thread_id)}/{path_segment(checkpoint_id)}",
             payload,
         )
 
