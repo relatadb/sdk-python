@@ -116,7 +116,12 @@ class AuditClient:
         page = self.entries(request_id=request_id, limit=1)
         entries = page.get("entries") if isinstance(page, dict) else None
         if entries and isinstance(entries, list) and entries:
-            return dict(entries[0])
+            entry = dict(entries[0])
+            # Never hand back a different request's entry (e.g. an older
+            # server that ignores the ``request_id`` filter returns the newest).
+            if entry.get("request_id", request_id) != request_id:
+                return None
+            return entry
         return None
 
     # ------------------------------------------------------------------
@@ -221,7 +226,12 @@ class AsyncAuditClient:
         page = await self.entries(request_id=request_id, limit=1)
         entries = page.get("entries") if isinstance(page, dict) else None
         if entries and isinstance(entries, list) and entries:
-            return dict(entries[0])
+            entry = dict(entries[0])
+            # Never hand back a different request's entry (e.g. an older
+            # server that ignores the ``request_id`` filter returns the newest).
+            if entry.get("request_id", request_id) != request_id:
+                return None
+            return entry
         return None
 
     async def close(self) -> None:
