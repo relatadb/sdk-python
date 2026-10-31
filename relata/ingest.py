@@ -412,6 +412,18 @@ class IngestClient:
         """Ingest OTLP/JSON metrics via ``POST /v1/metrics`` (#2252)."""
         return self._t.post(_purpose_path("/v1/metrics", purpose or self._purpose), payload)
 
+    def import_stix(self, bundle: dict[str, Any], *, purpose: str | None = None) -> dict[str, Any]:
+        """Import a STIX 2.1 bundle via ``POST /v1/ingest/import?format=stix``.
+
+        The mirror image of ``GET /v1/export?format=stix``. Per-type guard
+        failures are reported in the response rather than failing the bundle.
+        """
+        params = {"format": "stix"}
+        eff = purpose or self._purpose
+        if eff:
+            params["purpose"] = eff
+        return self._t.post(f"/v1/ingest/import?{urlencode(params)}", bundle)
+
     def ingest_iter(
         self,
         object_type: str,
@@ -601,6 +613,16 @@ class AsyncIngestClient:
     ) -> dict[str, Any]:
         """Async ingest OTLP/JSON metrics via ``POST /v1/metrics`` (#2252)."""
         return await self._t.post(_purpose_path("/v1/metrics", purpose or self._purpose), payload)
+
+    async def import_stix(
+        self, bundle: dict[str, Any], *, purpose: str | None = None
+    ) -> dict[str, Any]:
+        """Async variant of :meth:`IngestClient.import_stix`."""
+        params = {"format": "stix"}
+        eff = purpose or self._purpose
+        if eff:
+            params["purpose"] = eff
+        return await self._t.post(f"/v1/ingest/import?{urlencode(params)}", bundle)
 
     async def ingest_iter(
         self,

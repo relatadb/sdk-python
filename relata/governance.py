@@ -202,9 +202,31 @@ class GovernanceClient(_BaseGovernance):
         """Retrieve the tuning state (snoozes, suppressions, exceptions) (#967)."""
         return self._t.get(f"/v1/rules/{path_segment(rule_id)}/tuning")
 
+    def get_rule(self, rule_id: str) -> dict[str, Any]:
+        """Fetch one detection rule by id (``GET /v1/rules/:id``)."""
+        return self._t.get(f"/v1/rules/{path_segment(rule_id)}")
+
+    def remove_rule_exception(self, rule_id: str, exception_id: str) -> dict[str, Any]:
+        """Remove a tuning exception (``DELETE /v1/rules/:id/exceptions/:eid``)."""
+        return self._t.delete(
+            f"/v1/rules/{path_segment(rule_id)}/exceptions/{path_segment(exception_id)}"
+        )
+
     # ------------------------------------------------------------------
     # Retention (#74)
     # ------------------------------------------------------------------
+
+    def set_retention_policy(
+        self, object_type: str, max_age_days: int, action: str = "delete"
+    ) -> dict[str, Any]:
+        """Set a retention policy for a type (``POST /v1/retention/policies``).
+
+        ``action`` is ``"delete"`` or ``"tier:cold"``.
+        """
+        return self._t.post(
+            "/v1/retention/policies",
+            {"object_type": object_type, "max_age_days": max_age_days, "action": action},
+        )
 
     def list_retention_policies(self) -> list[dict[str, Any]]:
         """List configured retention policies."""
@@ -468,6 +490,22 @@ class AsyncGovernanceClient(_BaseGovernance):
 
     async def get_rule_tuning(self, rule_id: str) -> dict[str, Any]:
         return await self._t.get(f"/v1/rules/{path_segment(rule_id)}/tuning")
+
+    async def get_rule(self, rule_id: str) -> dict[str, Any]:
+        return await self._t.get(f"/v1/rules/{path_segment(rule_id)}")
+
+    async def remove_rule_exception(self, rule_id: str, exception_id: str) -> dict[str, Any]:
+        return await self._t.delete(
+            f"/v1/rules/{path_segment(rule_id)}/exceptions/{path_segment(exception_id)}"
+        )
+
+    async def set_retention_policy(
+        self, object_type: str, max_age_days: int, action: str = "delete"
+    ) -> dict[str, Any]:
+        return await self._t.post(
+            "/v1/retention/policies",
+            {"object_type": object_type, "max_age_days": max_age_days, "action": action},
+        )
 
     async def list_retention_policies(self) -> list[dict[str, Any]]:
         data = await self._t.get("/v1/retention/policies")

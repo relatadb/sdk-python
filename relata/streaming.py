@@ -21,6 +21,7 @@ import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
+from relata._http import path_segment
 from relata.query import _validate_sql_identifier
 from relata._query_stream import QueryRowDecoder
 from relata.exceptions import IncompleteQueryStreamError, ResponseTooLargeError
@@ -60,6 +61,14 @@ def _classify_capped_error(transport: Any, resp: Any) -> None:
     ``max_response_bytes`` instead of the old unbounded ``resp.read()``."""
     raw = transport._read_capped(resp)
     _raise_stream_http_error(resp, raw)
+
+
+def _graph_changes_path(type: str | None, tenant_id: str | None) -> str:  # noqa: A002
+    """Build ``/v1/graph/changes`` with only the supplied filters."""
+    from urllib.parse import urlencode
+
+    params = {k: v for k, v in (("type", type), ("tenant_id", tenant_id)) if v}
+    return "/v1/graph/changes" + (f"?{urlencode(params)}" if params else "")
 
 
 def _raise_stream_http_error(resp: Any, raw: bytes) -> None:  # noqa: ANN401
@@ -280,6 +289,29 @@ class StreamingClient:
         addressed to the caller's principal / tenant."""
         yield from self._sse_stream("/v1/alerts/stream", reconnect=reconnect)
 
+    def graph_changes(
+        self,
+        *,
+        type: str | None = None,  # noqa: A002
+        tenant_id: str | None = None,
+        reconnect: bool = True,
+    ) -> Iterator[dict[str, Any]]:
+        """SSE consumer for ``GET /v1/graph/changes`` (real-time graph change stream).
+
+        ``type`` narrows to one object type; ``tenant_id`` must match the
+        caller's authenticated tenant when supplied.
+        """
+        yield from self._sse_stream(_graph_changes_path(type, tenant_id), reconnect=reconnect)
+
+    def a2a_task_stream(self, task_id: str, *, reconnect: bool = False) -> Iterator[dict[str, Any]]:
+        """SSE consumer for ``GET /v1/a2a/tasks/:id/stream`` (A2A task lifecycle events).
+
+        A task stream is finite, so ``reconnect`` defaults to ``False``.
+        """
+        yield from self._sse_stream(
+            f"/v1/a2a/tasks/{path_segment(task_id)}/stream", reconnect=reconnect
+        )
+
 
 class AsyncStreamingClient:
     """Asynchronous streaming client — async iterators for every surface."""
@@ -486,5 +518,46 @@ class AsyncStreamingClient:
                             yield json.loads(line[5:].strip())
                         except json.JSONDecodeError:
                             yield {"raw": line[5:].strip()}
+
+        return _gen()
+
+    async def graph_changes(
+        self,
+        *,
+        type: str | None = None,  # noqa: A002
+        tenant_id: str | None = None,
+    ) -> Any:  # noqa: ANN401
+        """Async SSE consumer for ``GET /v1/graph/changes``."""
+        return self._sse_events(_graph_changes_path(type, tenant_id))
+
+    async def a2a_task_stream(self, task_id: str) -> Any:  # noqa: ANN401
+        """Async SSE consumer for ``GET /v1/a2a/tasks/:id/stream``."""
+        return self._sse_events(f"/v1/a2a/tasks/{path_segment(task_id)}/stream")
+
+    def _sse_events(self, path: str) -> Any:  # noqa: ANN401
+        async_transport = self._client._async  # noqa: SLF001
+
+        async def _gen() -> Any:  # noqa: ANN401
+            async with async_transport._client.stream("GET", path) as resp:  # noqa: SLF001
+                if not resp.is_success:
+                    return
+                event_type: str | None = None
+                data_lines: list[str] = []
+                async for line in resp.aiter_lines():
+                    if line.startswith("event:"):
+                        event_type = line[6:].strip()
+                    elif line.startswith("data:"):
+                        data_lines.append(line[5:].strip())
+                    elif line == "" and data_lines:
+                        raw = "\n".join(data_lines)
+                        try:
+                            payload = json.loads(raw)
+                        except json.JSONDecodeError:
+                            payload = {"raw": raw}
+                        if event_type:
+                            payload["event"] = event_type
+                        yield payload
+                        event_type = None
+                        data_lines = []
 
         return _gen()

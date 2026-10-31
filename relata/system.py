@@ -6,7 +6,7 @@ Model-provider configuration and completion callbacks belong to applications.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport
 
@@ -14,6 +14,12 @@ if TYPE_CHECKING:
     import httpx
 
     from relata.client import RelataClient
+
+
+def _query(**params: str | int | None) -> str:
+    """Render only the supplied query parameters as a ``?k=v`` suffix."""
+    kept = {k: v for k, v in params.items() if v is not None}
+    return f"?{urlencode(kept)}" if kept else ""
 
 
 class SystemClient:
@@ -78,6 +84,30 @@ class SystemClient:
         """DELETE /v1/notification-rules/:id — delete a notification rule."""
         return self._t.delete(f"/v1/notification-rules/{quote(rule_id, safe='')}")
 
+    def update_notification_rule(self, rule_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH /v1/notification-rules/:id — update fields of a notification rule."""
+        return self._t.patch(f"/v1/notification-rules/{quote(rule_id, safe='')}", patch)
+
+    # ── runtime configuration, specs, MCP sessions ──────────
+
+    def system_config(self) -> dict[str, Any]:
+        """Runtime feature configuration. Wraps ``GET /v1/system/config``."""
+        return self._t.get("/v1/system/config")
+
+    def system_specs(self) -> dict[str, Any]:
+        """Capability specification map. Wraps ``GET /v1/system/specs``."""
+        return self._t.get("/v1/system/specs")
+
+    def mcp_sessions(
+        self, *, session_id: str | None = None, limit: int | None = None
+    ) -> dict[str, Any]:
+        """List MCP agent sessions with their tool-call history.
+
+        Wraps ``GET /v1/mcp/sessions``; ``session_id`` filters to one session,
+        ``limit`` caps the result (server default 20, max 100).
+        """
+        return self._t.get("/v1/mcp/sessions" + _query(session_id=session_id, limit=limit))
+
     def close(self) -> None:
         self._t.close()
 
@@ -128,6 +158,20 @@ class AsyncSystemClient:
 
     async def delete_notification_rule(self, rule_id: str) -> dict[str, Any]:
         return await self._t.delete(f"/v1/notification-rules/{quote(rule_id, safe='')}")
+
+    async def update_notification_rule(self, rule_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        return await self._t.patch(f"/v1/notification-rules/{quote(rule_id, safe='')}", patch)
+
+    async def system_config(self) -> dict[str, Any]:
+        return await self._t.get("/v1/system/config")
+
+    async def system_specs(self) -> dict[str, Any]:
+        return await self._t.get("/v1/system/specs")
+
+    async def mcp_sessions(
+        self, *, session_id: str | None = None, limit: int | None = None
+    ) -> dict[str, Any]:
+        return await self._t.get("/v1/mcp/sessions" + _query(session_id=session_id, limit=limit))
 
     async def close(self) -> None:
         await self._t.aclose()
