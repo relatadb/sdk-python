@@ -205,6 +205,24 @@ def test_audit_entries_filters_in_query_string() -> None:
     assert page["chain_valid"] is True
 
 
+def test_audit_log_and_entries_since_until_wire_names() -> None:
+    from relata.audit import AuditClient
+
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(str(req.url))
+        return httpx.Response(200, json={"entries": [], "chain_valid": True})
+
+    c = AuditClient(BASE, transport=_wrap(handler))
+    c.log(limit=5, from_="2026-01-01", table="Person", tenant_id="t1")
+    c.entries(since_ns=10, until_ns=20)
+    assert "/audit/log?" in seen[0]
+    assert "limit=5" in seen[0] and "from=2026-01-01" in seen[0]
+    assert "table=Person" in seen[0] and "tenant_id=t1" in seen[0]
+    assert "since=10" in seen[1] and "until=20" in seen[1] and "since_ns" not in seen[1]
+
+
 def test_audit_find_by_request_id_returns_first_match() -> None:
     from relata.audit import AuditClient
 
@@ -219,6 +237,48 @@ def test_audit_find_by_request_id_returns_first_match() -> None:
     entry = c.find_by_request_id("req-7")
     assert entry is not None
     assert entry["principal"] == "alice"
+
+
+# Recorded behaviour of GET /audit/entries (crates/relata-cli audit_handlers):
+# newest-first, `request_id` / `decision` are exact-match server-side filters,
+# every projection echoes `request_id` and `decision`.
+_AUDIT_LOG = [  # newest first
+    {"request_id": "req-newest", "principal": "carol", "decision": "deny"},
+    {"request_id": "req-other", "principal": "bob", "decision": "allow"},
+    {"request_id": "req-target", "principal": "alice", "decision": "allow"},
+]
+
+
+def _audit_server(req: httpx.Request) -> httpx.Response:
+    qs = req.url.params
+    rows = _AUDIT_LOG
+    if qs.get("request_id"):
+        rows = [r for r in rows if r["request_id"] == qs["request_id"]]
+    if qs.get("decision"):
+        rows = [r for r in rows if r["decision"] == qs["decision"].lower()]
+    rows = rows[: int(qs.get("limit", "100"))]
+    return httpx.Response(200, json={"entries": rows, "chain_valid": True})
+
+
+def test_audit_find_by_request_id_not_the_newest_entry() -> None:
+    from relata.audit import AuditClient
+
+    c = AuditClient(BASE, transport=_wrap(_audit_server))
+    entry = c.find_by_request_id("req-target")
+    assert entry is not None
+    assert entry["principal"] == "alice"  # the match, not the newest (carol)
+    assert c.find_by_request_id("req-missing") is None
+    assert [e["principal"] for e in c.entries(decision="Deny")["entries"]] == ["carol"]
+
+
+def test_audit_find_by_request_id_rejects_mismatched_entry_from_old_server() -> None:
+    from relata.audit import AuditClient
+
+    def ignores_filter(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"entries": _AUDIT_LOG[:1], "chain_valid": True})
+
+    c = AuditClient(BASE, transport=_wrap(ignores_filter))
+    assert c.find_by_request_id("req-target") is None
 
 
 def test_identity_label_posts_payload() -> None:

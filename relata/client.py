@@ -490,6 +490,8 @@ class RelataClient:
         purpose: str | None = None,
         dialect: str | None = None,
         matcher: Literal["auto", "vf3", "bfs"] | None = None,
+        query_vector: list[float] | None = None,
+        query_vector_model: str | None = None,
     ) -> QueryResult:
         """Execute a governed SQL query against the Relata engine (synchronous).
 
@@ -529,6 +531,12 @@ class RelataClient:
                 ``/*+ matcher=… */`` comment; BFS is also the automatic
                 fallback for patterns VF3 cannot handle (e.g. unbounded
                 ``*`` variable-length paths).
+            query_vector: Ready query embedding (at most 8192 floats) for
+                ``HYBRID_SEARCH`` / ``RAG_RETRIEVE``. When set the server makes
+                no embedding call and needs no embedding endpoint (ADR-0309).
+            query_vector_model: Model tag ``query_vector`` was produced with; a
+                tag matching none of the type's indexed models is HTTP 409
+                ``query-embedding-model-mismatch``.
 
         Returns:
             :class:`~relata.models.QueryResult` — iterable over result rows.
@@ -567,7 +575,14 @@ class RelataClient:
             )
         """
         effective_purpose = self._resolve_purpose(purpose)
-        payload = {"purpose": effective_purpose, "sql": _inject_matcher_hint(sql, matcher)}
+        payload: dict[str, object] = {
+            "purpose": effective_purpose,
+            "sql": _inject_matcher_hint(sql, matcher),
+        }
+        if query_vector is not None:
+            payload["query_vector"] = query_vector
+        if query_vector_model is not None:
+            payload["query_vector_model"] = query_vector_model
         extra_headers = _dialect_headers(dialect)
         data = self._sync.post("/query", payload, extra_headers=extra_headers)
         return QueryResult.model_validate(data)
@@ -871,6 +886,7 @@ class RelataClient:
         new_column: str | None = None,
         col_type: str | None = None,
         optional: bool | None = None,
+        expected_schema_version: str | None = None,
     ) -> dict[str, object]:
         """Online schema evolution — ``PATCH /types/:name/schema`` (#1307).
 
@@ -881,6 +897,10 @@ class RelataClient:
         ``rename_column`` / ``change_type`` on the wire (#4704) — the
         server's own long-form verbs are also accepted unchanged, for
         callers who prefer to pass them directly.
+
+        ``expected_schema_version`` (from ``type_detail(name)["schema_version"]``
+        or a prior alter) makes the call a compare-and-set: a stale value is
+        refused with 412 ``schema-version-conflict`` and nothing changes (#5724).
         """
         payload: dict[str, object] = {
             "action": _SCHEMA_ALTER_ACTIONS.get(action, action),
@@ -892,6 +912,8 @@ class RelataClient:
             payload["col_type"] = col_type
         if optional is not None:
             payload["optional"] = optional
+        if expected_schema_version is not None:
+            payload["expected_schema_version"] = expected_schema_version
         return self._sync.patch(f"/types/{path_segment(type_name)}/schema", payload)
 
     # ------------------------------------------------------------------
@@ -1853,6 +1875,8 @@ class RelataClient:
         purpose: str | None = None,
         dialect: str | None = None,
         matcher: Literal["auto", "vf3", "bfs"] | None = None,
+        query_vector: list[float] | None = None,
+        query_vector_model: str | None = None,
     ) -> QueryResult:
         """Execute a SQL query against the Relata engine (asynchronous).
 
@@ -1867,6 +1891,8 @@ class RelataClient:
                 ``"cypher"``, or ``"gql"`` (#3265). See :meth:`query`.
             matcher: Subgraph-matcher hint for multi-hop Cypher patterns
                 (#1189).  See :meth:`query`.
+            query_vector: Ready query embedding; see :meth:`query`.
+            query_vector_model: Model tag for ``query_vector``; see :meth:`query`.
 
         Returns:
             :class:`~relata.models.QueryResult`.
@@ -1884,7 +1910,14 @@ class RelataClient:
                 print(result.rows)
         """
         effective_purpose = self._resolve_purpose(purpose)
-        payload = {"purpose": effective_purpose, "sql": _inject_matcher_hint(sql, matcher)}
+        payload: dict[str, object] = {
+            "purpose": effective_purpose,
+            "sql": _inject_matcher_hint(sql, matcher),
+        }
+        if query_vector is not None:
+            payload["query_vector"] = query_vector
+        if query_vector_model is not None:
+            payload["query_vector_model"] = query_vector_model
         extra_headers = _dialect_headers(dialect)
         data = await self._async.post("/query", payload, extra_headers=extra_headers)
         return QueryResult.model_validate(data)

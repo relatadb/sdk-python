@@ -512,11 +512,14 @@ class HttpTransport:
     def request_bytes(
         self, method: str, path: str, *, content: bytes | None = None,
         content_type: str | None = None, accept: str = "application/octet-stream",
+        extra_headers: dict[str, str] | None = None,
     ) -> _RawHttpResponse:
         """Use the normal auth/error/retry pipeline with capped byte success bodies."""
         headers = {"Accept": accept}
         if content_type is not None:
             headers["Content-Type"] = content_type
+        if extra_headers:
+            headers.update(extra_headers)
         return self._send_with_retry(method, path, content=content,
             headers=headers, raw_response=True)
 
@@ -791,11 +794,14 @@ class AsyncHttpTransport:
     async def request_bytes(
         self, method: str, path: str, *, content: bytes | None = None,
         content_type: str | None = None, accept: str = "application/octet-stream",
+        extra_headers: dict[str, str] | None = None,
     ) -> _RawHttpResponse:
         """Use the normal auth/error/retry pipeline with capped byte success bodies."""
         headers = {"Accept": accept}
         if content_type is not None:
             headers["Content-Type"] = content_type
+        if extra_headers:
+            headers.update(extra_headers)
         return await self._send_with_retry(method, path, content=content,
             headers=headers, raw_response=True)
 
