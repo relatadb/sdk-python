@@ -64,3 +64,14 @@ async def test_async_relation_calls_mirror_the_sync_surface() -> None:
         ("POST", "/assertions/a/assessment", ""),
         ("GET", "/assertions/a/evidence-graph", "depth=1"),
     ]
+
+
+def test_similarity_relation_and_threshold_wire_shapes() -> None:
+    seen: list = []
+    c = AssertionsClient(BASE, transport=httpx.MockTransport(_handler(seen)))
+    c.relate("a", "similar_to", "b", "same photo", similarity={"score": 0.93, "method": "phash-v1"})
+    c.relate("a", "distinct_from", "c", "different frame")
+    c.evidence_graph("a", min_similarity=0.5)
+    assert seen[0][3]["similarity"] == {"score": 0.93, "method": "phash-v1"}
+    assert "similarity" not in seen[1][3]
+    assert seen[2][2] == "min_similarity=0.5"
