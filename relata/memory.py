@@ -327,6 +327,26 @@ class Memory:
         path = f"/memory/forget/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         return _unwrap(self._t.delete(path))
 
+    def review(
+        self,
+        memory_id: str,
+        decision: str,
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Approve or reject a pending memory (``decision`` is ``"approve"`` or ``"reject"``).
+
+        Wraps ``POST /memory/review/{id}``. Memory stored with an ``external:``
+        origin is ``pending`` and hidden from recall until reviewed. The row is
+        superseded by a reviewed copy (history stays readable with ``as_of``).
+        Returns ``id``, ``review_status``, ``previous_review_status`` and
+        ``changed`` (``False`` when the memory already had that status).
+        """
+        payload: dict[str, Any] = {"decision": decision, "purpose": self._purpose}
+        if reason:
+            payload["reason"] = reason
+        return _unwrap(self._t.post(f"/memory/review/{path_segment(memory_id)}", payload))
+
     # ------------------------------------------------------------------
     # v1.1 — five missing cognitive verbs (#77)
     # ------------------------------------------------------------------
@@ -595,6 +615,26 @@ class AsyncMemory:
         """Schedule a governed retention-policy retract for ``memory_id``."""
         path = f"/memory/forget/{path_segment(memory_id)}?purpose={path_segment(self._purpose)}"
         return _unwrap(await self._t.delete(path))
+
+    async def review(
+        self,
+        memory_id: str,
+        decision: str,
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Approve or reject a pending memory (async).
+
+        Wraps ``POST /memory/review/{id}``. Memory stored with an ``external:``
+        origin is ``pending`` and hidden from recall until reviewed. The row is
+        superseded by a reviewed copy (history stays readable with ``as_of``).
+        Returns ``id``, ``review_status``, ``previous_review_status`` and
+        ``changed`` (``False`` when the memory already had that status).
+        """
+        payload: dict[str, Any] = {"decision": decision, "purpose": self._purpose}
+        if reason:
+            payload["reason"] = reason
+        return _unwrap(await self._t.post(f"/memory/review/{path_segment(memory_id)}", payload))
 
     # ------------------------------------------------------------------
     # v1.1 — five missing cognitive verbs (async mirrors, #77)

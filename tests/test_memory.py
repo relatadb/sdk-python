@@ -222,6 +222,27 @@ def test_forget_is_governed_retract() -> None:
     assert "purpose=agent-notes" in url
 
 
+def test_review_posts_decision_to_review_route() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["request"] = request
+        return httpx.Response(
+            200,
+            json={"id": "mem-1", "review_status": "approved", "changed": True},
+        )
+
+    with _memory(handler) as m:
+        out = m.review("mem-1", "approve", reason="checked source")
+
+    assert out["review_status"] == "approved"
+    assert seen["request"].method == "POST"
+    assert str(seen["request"].url).endswith("/memory/review/mem-1")
+    body = json.loads(seen["request"].content)
+    assert body["decision"] == "approve"
+    assert body["reason"] == "checked source"
+
+
 def test_get_returns_memory_or_none() -> None:
     def found(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
