@@ -13,8 +13,8 @@ Other languages use the HTTP API and its OpenAPI reference at `GET /openapi.json
 
 The v3 SDK accepts prepared detection rules through `GovernanceClient.create_rule`
 or MCP `create_rule`. Raw Sigma YAML parsing/import is no longer an SDK or MCP
-server method. Use the former `relata-connectors import-sigma` application
-workflow for YAML conversion, or convert externally and submit the prepared
+server method. Convert YAML in OpenETL (the former `relata-connectors import-sigma`
+was removed), or convert externally and submit the prepared
 `name`, `condition_sql`, and `target_type` JSON fields through `/rules`.
 
 Relata DB is a Rust-native, ontology-driven engine built for bi-temporal, governed knowledge workloads: link analysis, identity resolution, full-text and vector search, access-scoped restricted data, and provenance-tracked analytics.
@@ -409,8 +409,8 @@ RelataClient(
 `ingest_document` accepts application-prepared governed rows (such as a
 `DocumentSource`, linked `DocumentChunk` rows, and optional evidence rows with
 `_type` and stable `_pk` fields). It does not parse raw files or datagrep
-extractor JSONL. The former `relata-connectors prepare-document` adapter
-converts an extractor JSONL/manifest pair to an `objects` array. Queue
+extractor JSONL. Parsing extractor output into an `objects` array is OpenETL's job
+(the former `relata-connectors prepare-document` adapter was removed). Queue
 admission is process-local and not crash-durable; poll status for confirmed
 write/drop outcomes. `code` and `derived_error` can be present while the task
 is still pending; after all primary batches are accounted for, its status is
