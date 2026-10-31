@@ -201,14 +201,18 @@ def _envelope_headers(
     detect_packs: str | None,
     idempotency_key: str | None,
     durability: str | None,
+    media_work_claim: int | None = None,
 ) -> dict[str, str]:
     """Headers for the ``/ingest/bulk`` envelope: SmartIngest override,
-    ``Idempotency-Key`` (#5689) and ``X-Relata-Durability`` (``"sync"``)."""
+    ``Idempotency-Key`` (#5689), ``X-Relata-Durability`` (``"sync"``) and the
+    ``X-Relata-Claim`` media-work fence."""
     headers = _detect_headers(detect_packs)
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
     if durability:
         headers["X-Relata-Durability"] = durability
+    if media_work_claim is not None:
+        headers["X-Relata-Claim"] = str(int(media_work_claim))
     return headers
 
 
@@ -291,6 +295,7 @@ class IngestClient:
         durability: str | None = None,
         source_checkpoint: dict[str, Any] | None = None,
         contract: dict[str, Any] | None = None,
+        media_work_claim: int | None = None,
     ) -> dict[str, Any]:
         """Bulk-ingest ``rows``. Returns the server receipt.
 
@@ -315,6 +320,9 @@ class IngestClient:
           contract (#5714); invalid rows are quarantined server-side.
         Any of ``on_conflict``, ``idempotency_key``, ``source_checkpoint`` or
         ``contract`` routes the call to ``POST /ingest/bulk``.
+        - ``media_work_claim`` — the ``claim_id`` from ``MediaWorkClient.claim``,
+          sent as ``X-Relata-Claim``. Required when ``source_checkpoint`` names a
+          ``openetl/media/<work_id>`` source (the server fences stale holders).
         """
         import json
 
@@ -323,6 +331,7 @@ class IngestClient:
             or idempotency_key is not None
             or source_checkpoint is not None
             or contract is not None
+            or media_work_claim is not None
         ):
             payload = _envelope_payload(
                 object_type,
@@ -337,7 +346,7 @@ class IngestClient:
                 "/ingest/bulk",
                 json.dumps(payload),
                 content_type="application/json",
-                extra_headers=_envelope_headers(detect_packs, idempotency_key, durability),
+                extra_headers=_envelope_headers(detect_packs, idempotency_key, durability, media_work_claim),
             )
         body = "\n".join(json.dumps(r) for r in rows)
         return self._t.post_raw(
@@ -510,6 +519,7 @@ class AsyncIngestClient:
         durability: str | None = None,
         source_checkpoint: dict[str, Any] | None = None,
         contract: dict[str, Any] | None = None,
+        media_work_claim: int | None = None,
     ) -> dict[str, Any]:
         """Async variant of :meth:`bulk` (per-call SmartIngest, conflict,
         idempotency, checkpoint and contract controls)."""
@@ -520,6 +530,7 @@ class AsyncIngestClient:
             or idempotency_key is not None
             or source_checkpoint is not None
             or contract is not None
+            or media_work_claim is not None
         ):
             payload = _envelope_payload(
                 object_type,
@@ -534,7 +545,7 @@ class AsyncIngestClient:
                 "/ingest/bulk",
                 json.dumps(payload),
                 content_type="application/json",
-                extra_headers=_envelope_headers(detect_packs, idempotency_key, durability),
+                extra_headers=_envelope_headers(detect_packs, idempotency_key, durability, media_work_claim),
             )
         body = "\n".join(json.dumps(r) for r in rows)
         return await self._t.post_raw(
