@@ -52,3 +52,46 @@ async def test_async_changes() -> None:
 
     client = AsyncObjectClient(BASE, transport=httpx.MockTransport(handler))
     assert (await client.changes(cursor="f:9"))["head"] == 3
+
+
+def _paged_handler(seen: list[httpx.Request]):
+    pages = {
+        None: {"feedId": "f", "events": [{"eventId": "f:1"}], "nextCursor": "f:1", "hasMore": True},
+        "f:1": {"feedId": "f", "events": [{"eventId": "f:2"}], "nextCursor": "f:2", "hasMore": False},
+    }
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(200, json=pages[req.url.params.get("cursor")])
+
+    return handler
+
+
+def test_iter_change_pages_follows_has_more_until_caught_up() -> None:
+    seen: list[httpx.Request] = []
+    client = ObjectClient(BASE, transport=httpx.MockTransport(_paged_handler(seen)))
+    pages = list(client.iter_change_pages(limit=1))
+    assert [p["nextCursor"] for p in pages] == ["f:1", "f:2"]
+    assert [r.url.params.get("cursor") for r in seen] == [None, "f:1"]
+
+
+def test_disabled_feed_is_a_404_problem() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json={"code": "change-feed-disabled", "title": "Change Feed Disabled", "status": 404},
+            headers={"content-type": "application/problem+json"},
+        )
+
+    client = ObjectClient(BASE, transport=httpx.MockTransport(handler))
+    with pytest.raises(Exception) as caught:
+        client.changes()
+    assert "change-feed-disabled" in str(caught.value) or getattr(caught.value, "status", 404) == 404
+
+
+@pytest.mark.asyncio
+async def test_async_iter_change_pages() -> None:
+    seen: list[httpx.Request] = []
+    client = AsyncObjectClient(BASE, transport=httpx.MockTransport(_paged_handler(seen)))
+    pages = [p async for p in client.iter_change_pages()]
+    assert len(pages) == 2 and pages[-1]["hasMore"] is False

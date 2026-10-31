@@ -37,8 +37,11 @@ def _rid(relation_id: str) -> str:
     return f"/assertion-relations/{quote(relation_id, safe='')}/revoke"
 
 
-def _graph_path(assertion_id: str, depth, limit, policy, policy_version) -> str:  # noqa: ANN001
-    query = {k: str(v) for k, v in (("depth", depth), ("limit", limit)) if v is not None}
+def _graph_path(  # noqa: ANN001
+    assertion_id: str, depth, limit, policy, policy_version, min_similarity=None
+) -> str:
+    pairs = (("depth", depth), ("limit", limit), ("min_similarity", min_similarity))
+    query = {k: str(v) for k, v in pairs if v is not None}
     if policy is not None:
         query["policy"] = policy
         if policy_version is not None:
@@ -144,12 +147,17 @@ class AssertionsClient:
         rationale: str,
         *,
         locator: dict[str, Any] | None = None,
+        similarity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """``POST /assertion-relations`` (#5721): link two assertions (``supports``,
-        ``contradicts`` or ``derived_from``) with a rationale and optional locator."""
+        ``contradicts``, ``derived_from``, ``similar_to`` with
+        ``similarity={"score": 0.93, "method": "phash-v1"}``, or a reviewer's
+        ``same_group_as`` / ``distinct_from``) with a rationale and optional locator."""
         body: dict[str, Any] = {"from": from_id, "to": to_id, "kind": kind, "rationale": rationale}
         if locator is not None:
             body["locator"] = locator
+        if similarity is not None:
+            body["similarity"] = similarity
         return dict(self._t.post("/assertion-relations", body))
 
     def unrelate(self, relation_id: str, reason: str) -> dict[str, Any]:
@@ -170,10 +178,14 @@ class AssertionsClient:
         limit: int | None = None,
         policy: str | None = None,
         policy_version: int | None = None,
+        min_similarity: float | None = None,
     ) -> dict[str, Any]:
         """``GET .../evidence-graph``: bounded authorized neighbourhood plus the
-        corroboration summary (counts and separate components, no truth score)."""
-        return dict(self._t.get(_graph_path(assertion_id, depth, limit, policy, policy_version)))
+        corroboration summary (counts and separate components, no truth score) and
+        the ``similarity`` groups and propagation timeline (``min_similarity``
+        sets the score at which ``similar_to`` relations join a group)."""
+        path = _graph_path(assertion_id, depth, limit, policy, policy_version, min_similarity)
+        return dict(self._t.get(path))
 
     def publish_policy(
         self, name: str, definition: dict[str, Any], *, expected_version: int = 0
@@ -276,10 +288,13 @@ class AsyncAssertionsClient:
         rationale: str,
         *,
         locator: dict[str, Any] | None = None,
+        similarity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"from": from_id, "to": to_id, "kind": kind, "rationale": rationale}
         if locator is not None:
             body["locator"] = locator
+        if similarity is not None:
+            body["similarity"] = similarity
         return dict(await self._t.post("/assertion-relations", body))
 
     async def unrelate(self, relation_id: str, reason: str) -> dict[str, Any]:
@@ -297,8 +312,9 @@ class AsyncAssertionsClient:
         limit: int | None = None,
         policy: str | None = None,
         policy_version: int | None = None,
+        min_similarity: float | None = None,
     ) -> dict[str, Any]:
-        path = _graph_path(assertion_id, depth, limit, policy, policy_version)
+        path = _graph_path(assertion_id, depth, limit, policy, policy_version, min_similarity)
         return dict(await self._t.get(path))
 
     async def publish_policy(

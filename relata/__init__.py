@@ -45,6 +45,7 @@ from relata.media_work import AsyncMediaWorkClient, MediaWorkClient, media_work_
 from relata.ontology_definitions import AsyncOntologyDefinitionsClient, OntologyDefinitionsClient
 from relata.assertions import AssertionsClient, AsyncAssertionsClient
 from relata.extraction import AsyncExtractionClient, ExtractionClient
+from relata.investigation import AsyncInvestigationClient, InvestigationClient
 from relata.resolution import AsyncResolutionClient, ResolutionClient
 from relata.freshness import AsyncFreshnessClient, FreshnessClient, freshness_headers
 from relata.client import RelataClient
@@ -255,7 +256,9 @@ __all__ = [
     "AssertionsClient",
     "AsyncAssertionsClient",
     "AsyncExtractionClient",
+    "AsyncInvestigationClient",
     "ExtractionClient",
+    "InvestigationClient",
     "ResolutionClient",
     "AsyncResolutionClient",
     "AsyncEvidenceClient",

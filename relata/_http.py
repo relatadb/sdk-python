@@ -255,8 +255,13 @@ def _classify_error(
     }
 
     # Purpose-specific detection — works for both legacy and problem+json.
+    # A query-engine ``REL_*`` code is authoritative: a SQL parse error (``REL_PARSE``) echoes
+    # the statement, which carries its ``PURPOSE '...'`` clause, and must not read as a purpose
+    # rejection (#5666). Free-text hints still apply to every other code and to legacy bodies.
     is_purpose = status_code == 400 and (
-        (code and "purpose" in code.lower())
+        ("purpose" in code.lower())
+        if code and code.startswith("REL_")
+        else bool(code and "purpose" in code.lower())
         or any(hint in lower_detail for hint in _PURPOSE_HINTS)
     )
     if is_purpose:
