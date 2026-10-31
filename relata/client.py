@@ -886,6 +886,7 @@ class RelataClient:
         new_column: str | None = None,
         col_type: str | None = None,
         optional: bool | None = None,
+        expected_schema_version: str | None = None,
     ) -> dict[str, object]:
         """Online schema evolution — ``PATCH /types/:name/schema`` (#1307).
 
@@ -896,6 +897,10 @@ class RelataClient:
         ``rename_column`` / ``change_type`` on the wire (#4704) — the
         server's own long-form verbs are also accepted unchanged, for
         callers who prefer to pass them directly.
+
+        ``expected_schema_version`` (from ``type_detail(name)["schema_version"]``
+        or a prior alter) makes the call a compare-and-set: a stale value is
+        refused with 412 ``schema-version-conflict`` and nothing changes (#5724).
         """
         payload: dict[str, object] = {
             "action": _SCHEMA_ALTER_ACTIONS.get(action, action),
@@ -907,6 +912,8 @@ class RelataClient:
             payload["col_type"] = col_type
         if optional is not None:
             payload["optional"] = optional
+        if expected_schema_version is not None:
+            payload["expected_schema_version"] = expected_schema_version
         return self._sync.patch(f"/types/{path_segment(type_name)}/schema", payload)
 
     # ------------------------------------------------------------------
