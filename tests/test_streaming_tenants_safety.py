@@ -148,4 +148,3 @@ def test_tenant_client_me_only() -> None:
     assert me["tenant_id"] == "acme"
     for removed in ("usage", "create", "delete", "set_quota", "suspend", "platform_usage"):
         assert not hasattr(c, removed)
-
