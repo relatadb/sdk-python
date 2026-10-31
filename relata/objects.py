@@ -13,13 +13,16 @@ path (``_deleted: true``) — the same WAL mechanism the server uses internally.
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport, path_segment
-from relata.exceptions import NotFoundError
+from relata.exceptions import ConnectionError as RelataConnectionError
+from relata.exceptions import NotFoundError, RelataError
 
 if TYPE_CHECKING:
     import httpx
@@ -28,6 +31,29 @@ if TYPE_CHECKING:
 
 # Allowlist for object-type names embedded into query SQL.
 _TYPE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+_TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Whether a change-feed read failed in a way worth reconnecting for.
+
+    Network loss and 429/5xx are transient; every other API error (404
+    ``change-feed-disabled``, 410 ``change-feed-resync-required``, 4xx) is a
+    decision for the caller and is raised unchanged.
+    """
+    if isinstance(exc, RelataConnectionError):
+        return True
+    if isinstance(exc, RelataError):
+        return exc.status_code in _TRANSIENT_STATUS
+    return type(exc).__module__.startswith("httpx") and type(exc).__name__.endswith("Error")
+
+
+def _reconnect_delay(exc: BaseException, attempt: int, backoff: float, cap: float) -> float:
+    hinted = getattr(exc, "retry_after", None)
+    base = min(cap, backoff * (2**attempt))
+    return max(base, min(cap, hinted)) if isinstance(hinted, (int, float)) else base
 
 
 def _validate_object_type(name: str) -> str:
@@ -425,6 +451,51 @@ class ObjectClient:
                 return
             cursor, start = page["nextCursor"], None
 
+    def follow_changes(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        object_type: str | None = None,
+        start: str | None = None,
+        poll_interval: float = 1.0,
+        max_reconnects: int = 8,
+        reconnect_backoff: float = 0.5,
+        max_backoff: float = 30.0,
+    ) -> Iterator[dict[str, Any]]:
+        """Follow the change feed indefinitely, reconnecting and resuming by cursor.
+
+        Yields each non-empty page. The cursor only advances after the consumer
+        asks for the next page, so persist ``page["nextCursor"]`` once its events
+        are processed; after a crash pass it back as ``cursor=`` for at-least-once
+        delivery with no gap. When caught up the follower sleeps ``poll_interval``.
+        A transient failure (network loss, 429, 5xx) is retried from the last
+        delivered cursor with exponential backoff (``reconnect_backoff`` doubling
+        up to ``max_backoff``, honouring a server ``Retry-After``); after
+        ``max_reconnects`` consecutive failures the last error is raised. Any
+        other API error, including ``410 change-feed-resync-required`` and
+        ``404 change-feed-disabled``, is raised at once. Stop by closing the
+        generator.
+        """
+        failures = 0
+        while True:
+            try:
+                page = self.changes(
+                    cursor=cursor, limit=limit, object_type=object_type, start=start
+                )
+            except Exception as exc:
+                if not _is_transient(exc) or failures >= max_reconnects:
+                    raise
+                time.sleep(_reconnect_delay(exc, failures, reconnect_backoff, max_backoff))
+                failures += 1
+                continue
+            failures = 0
+            cursor, start = page["nextCursor"], None
+            if page.get("events"):
+                yield page
+            if not page.get("hasMore"):
+                time.sleep(poll_interval)
+
     def close(self) -> None:
         self._t.close()
 
@@ -676,6 +747,51 @@ class AsyncObjectClient:
             if not page.get("hasMore"):
                 return
             cursor, start = page["nextCursor"], None
+
+    async def follow_changes(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        object_type: str | None = None,
+        start: str | None = None,
+        poll_interval: float = 1.0,
+        max_reconnects: int = 8,
+        reconnect_backoff: float = 0.5,
+        max_backoff: float = 30.0,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Follow the change feed indefinitely, reconnecting and resuming by cursor.
+
+        Yields each non-empty page. The cursor only advances after the consumer
+        asks for the next page, so persist ``page["nextCursor"]`` once its events
+        are processed; after a crash pass it back as ``cursor=`` for at-least-once
+        delivery with no gap. When caught up the follower sleeps ``poll_interval``.
+        A transient failure (network loss, 429, 5xx) is retried from the last
+        delivered cursor with exponential backoff (``reconnect_backoff`` doubling
+        up to ``max_backoff``, honouring a server ``Retry-After``); after
+        ``max_reconnects`` consecutive failures the last error is raised. Any
+        other API error, including ``410 change-feed-resync-required`` and
+        ``404 change-feed-disabled``, is raised at once. Stop by closing the
+        generator.
+        """
+        failures = 0
+        while True:
+            try:
+                page = await self.changes(
+                    cursor=cursor, limit=limit, object_type=object_type, start=start
+                )
+            except Exception as exc:
+                if not _is_transient(exc) or failures >= max_reconnects:
+                    raise
+                await asyncio.sleep(_reconnect_delay(exc, failures, reconnect_backoff, max_backoff))
+                failures += 1
+                continue
+            failures = 0
+            cursor, start = page["nextCursor"], None
+            if page.get("events"):
+                yield page
+            if not page.get("hasMore"):
+                await asyncio.sleep(poll_interval)
 
     async def close(self) -> None:
         await self._t.aclose()
