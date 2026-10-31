@@ -449,10 +449,6 @@ class IngestClient:
             total += len(batch)
         return total
 
-    def media_status(self, task_id: str) -> dict[str, Any]:
-        """Poll the status of a multipart media upload (paired with #76)."""
-        return self._t.get(f"/ingest/media/{path_segment(task_id)}")
-
     def close(self) -> None:
         self._t.close()
 
@@ -646,9 +642,6 @@ class AsyncIngestClient:
             await self.bulk(object_type, batch, purpose=purpose)
             total += len(batch)
         return total
-
-    async def media_status(self, task_id: str) -> dict[str, Any]:
-        return await self._t.get(f"/ingest/media/{path_segment(task_id)}")
 
     async def close(self) -> None:
         await self._t.aclose()
