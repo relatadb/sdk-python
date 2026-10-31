@@ -1,6 +1,6 @@
 """Audit + provenance SDK (#78).
 
-Wraps ``/audit/count``, ``/audit/entries``.
+Wraps ``/audit/count``, ``/audit/entries``, ``/audit/log``.
 The ``prov_export`` helper is a thin wrapper over the server's ``prov export``
 CLI shape; until ADR-117 lands (#59) the server-side ``prov export`` is a stub
 and the SDK call returns a clear error.
@@ -76,12 +76,39 @@ class AuditClient:
         if request_id:
             params["request_id"] = request_id
         if since_ns is not None:
-            params["since_ns"] = str(since_ns)
+            params["since"] = str(since_ns)
         if until_ns is not None:
-            params["until_ns"] = str(until_ns)
+            params["until"] = str(until_ns)
         if cursor:
             params["cursor"] = cursor
         return self._t.get("/audit/entries?" + urlencode(params))
+
+    def log(
+        self,
+        *,
+        limit: int = 100,
+        from_: str | None = None,
+        to: str | None = None,
+        table: str | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Filtered mutation-style audit projections (``GET /audit/log``).
+
+        ``from_``/``to`` are inclusive timestamp bounds, ``table`` a substring of
+        the derived resource. ``tenant_id`` only applies to an unscoped admin
+        caller; an attributed caller's own tenant always wins. Returns
+        ``{"entries": [...], "chain_valid": bool}``.
+        """
+        params: dict[str, str] = {"limit": str(limit)}
+        if from_:
+            params["from"] = from_
+        if to:
+            params["to"] = to
+        if table:
+            params["table"] = table
+        if tenant_id:
+            params["tenant_id"] = tenant_id
+        return self._t.get("/audit/log?" + urlencode(params))
 
     def find_by_request_id(self, request_id: str) -> dict[str, Any] | None:
         """Look up a single audit entry by its ``request_id``. Returns ``None``
@@ -156,12 +183,39 @@ class AsyncAuditClient:
         if request_id:
             params["request_id"] = request_id
         if since_ns is not None:
-            params["since_ns"] = str(since_ns)
+            params["since"] = str(since_ns)
         if until_ns is not None:
-            params["until_ns"] = str(until_ns)
+            params["until"] = str(until_ns)
         if cursor:
             params["cursor"] = cursor
         return await self._t.get("/audit/entries?" + urlencode(params))
+
+    async def log(
+        self,
+        *,
+        limit: int = 100,
+        from_: str | None = None,
+        to: str | None = None,
+        table: str | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Filtered mutation-style audit projections (``GET /audit/log``).
+
+        ``from_``/``to`` are inclusive timestamp bounds, ``table`` a substring of
+        the derived resource. ``tenant_id`` only applies to an unscoped admin
+        caller; an attributed caller's own tenant always wins. Returns
+        ``{"entries": [...], "chain_valid": bool}``.
+        """
+        params: dict[str, str] = {"limit": str(limit)}
+        if from_:
+            params["from"] = from_
+        if to:
+            params["to"] = to
+        if table:
+            params["table"] = table
+        if tenant_id:
+            params["tenant_id"] = tenant_id
+        return await self._t.get("/audit/log?" + urlencode(params))
 
     async def find_by_request_id(self, request_id: str) -> dict[str, Any] | None:
         page = await self.entries(request_id=request_id, limit=1)

@@ -205,6 +205,24 @@ def test_audit_entries_filters_in_query_string() -> None:
     assert page["chain_valid"] is True
 
 
+def test_audit_log_and_entries_since_until_wire_names() -> None:
+    from relata.audit import AuditClient
+
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(str(req.url))
+        return httpx.Response(200, json={"entries": [], "chain_valid": True})
+
+    c = AuditClient(BASE, transport=_wrap(handler))
+    c.log(limit=5, from_="2026-01-01", table="Person", tenant_id="t1")
+    c.entries(since_ns=10, until_ns=20)
+    assert "/audit/log?" in seen[0]
+    assert "limit=5" in seen[0] and "from=2026-01-01" in seen[0]
+    assert "table=Person" in seen[0] and "tenant_id=t1" in seen[0]
+    assert "since=10" in seen[1] and "until=20" in seen[1] and "since_ns" not in seen[1]
+
+
 def test_audit_find_by_request_id_returns_first_match() -> None:
     from relata.audit import AuditClient
 
