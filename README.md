@@ -1,6 +1,6 @@
 # Relata Python SDK
 
-Python SDK for the [Relata DB](https://relatadb.dev) enterprise-grade data engine.
+Python SDK for the [Relata DB](https://relatadb.dev) governed temporal data engine.
 
 - **Repo:** [github.com/relatadb/sdk-python](https://github.com/relatadb/sdk-python)
 - **Docs:** [relatadb.dev](https://relatadb.dev) · [Issues](https://github.com/relatadb/sdk-python/issues)
