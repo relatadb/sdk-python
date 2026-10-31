@@ -1013,6 +1013,31 @@ class RelataClient:
             "target_type": target_type,
         })
 
+    def create_links(
+        self,
+        edges: list[dict[str, object]],
+        *,
+        idempotency_key: str | None = None,
+        durability: str | None = None,
+    ) -> dict[str, object]:
+        """Bulk-create up to 5000 edges in one idempotent, durable request.
+
+        Each edge is ``{"link_name", "source_id", "source_type", "target_id",
+        "target_type", "weight"?}``. Edges are keyed by ``(link_name,
+        source_id, target_id)`` within the tenant: an existing current edge is
+        counted under ``already_present`` and never written twice, so a retry
+        after a timeout or crash cannot duplicate. ``idempotency_key`` (sent as
+        ``Idempotency-Key``) additionally replays the first response.
+        ``durability`` is ``"sync"`` (server default when persistent) or
+        ``"async"``. Sends ``POST /links/batch``.
+        """
+        headers: dict[str, str] = {}
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
+        if durability is not None:
+            headers["X-Relata-Durability"] = durability
+        return self._sync.post("/links/batch", {"edges": edges}, extra_headers=headers or None)
+
     # ------------------------------------------------------------------
     # Identity resolution & entity lifecycle (#967)
     # ------------------------------------------------------------------
