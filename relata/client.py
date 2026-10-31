@@ -150,47 +150,6 @@ def _sql_literal(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
-def _face_search_sql(
-    gallery_id: str,
-    embedding: list[float] | str,
-    *,
-    k: int,
-    threshold: float,
-) -> str:
-    """Build a bare ``FACE_SEARCH(...)`` ticket (#2251, #5497).
-
-    Mirrors the server operator registered in
-    ``relata_query::parser`` — ``FACE_SEARCH('<csv floats>', '<gallery>',
-    K => <n>, THRESHOLD => <f>)`` (defaults K=10, THRESHOLD=0.7). The
-    engine dispatches this as a bare top-level statement only — wrapping
-    it in ``SELECT * FROM`` is a parse error (#5497, fixed in the TS SDK
-    by #5496).
-    """
-    if isinstance(embedding, str):
-        emb_csv = embedding
-    else:
-        emb_csv = ",".join(repr(float(x)) for x in embedding)
-    return (
-        "FACE_SEARCH("
-        f"{_sql_literal(emb_csv)}, {_sql_literal(gallery_id)}, "
-        f"K => {int(k)}, THRESHOLD => {float(threshold)})"
-    )
-
-
-def _match_pdq_sql(corpus_id: str, query_hash: str, *, threshold: float) -> str:
-    """Build a bare ``MATCH_PDQ(...)`` ticket (#2251, #5497).
-
-    Mirrors ``MATCH_PDQ('<hash>', '<corpus>', THRESHOLD => <f>)``
-    (default THRESHOLD=0.9). Bare top-level form only — see
-    ``_face_search_sql``'s #5497 note.
-    """
-    return (
-        "MATCH_PDQ("
-        f"{_sql_literal(query_hash)}, {_sql_literal(corpus_id)}, "
-        f"THRESHOLD => {float(threshold)})"
-    )
-
-
 def _similar_image_sql(
     media_ref: str,
     *,
@@ -204,7 +163,8 @@ def _similar_image_sql(
     — ``THRESHOLD`` defaults to 0.9 server-side when omitted, ``INDEX`` is
     optional with no server default and scopes the search to a named
     corpus/index when given). Bare top-level form only — see
-    ``_face_search_sql``'s #5497 note.
+    the #5497 bare-form note: the engine dispatches it as a bare top-level
+    statement only.
     """
     sql = f"SIMILAR_IMAGE({_sql_literal(media_ref)}"
     if threshold is not None:
@@ -1576,108 +1536,13 @@ class RelataClient:
     # tenant isolation apply identically to a hand-written query. The server
     # operators are registered in ``relata_query::parser``:
     #
-    # - ``FACE_SEARCH('<csv floats>', '<gallery>', K => n, THRESHOLD => f)``
-    #   (cosine k-NN over ``MediaEmbedding`` rows; columns ``entity_id``,
-    #   ``gallery_id``, ``score``, ``modality``).
-    # - ``MATCH_PDQ('<hash>', '<corpus>', THRESHOLD => f)``
-    #   (Hamming similarity over ``MediaHash`` rows; columns ``entity_id``,
-    #   ``media_type``, ``corpus_id``, ``score``, ``matcher``).
     # - ``SIMILAR_IMAGE('<media_ref>', THRESHOLD => f, INDEX => 'corpus')``
     #   (#2840, PR #2859 — near-duplicate/similar-image search scoped to an
     #   optional named index/corpus; THRESHOLD defaults to 0.9 server-side).
     #
-    # The MCP ``face_match`` tool was removed (#5935); these SQL-reachable
-    # operators are the path the SDK uses.
-
-    def face_search(
-        self,
-        gallery_id: str,
-        embedding: list[float] | str,
-        *,
-        k: int = 10,
-        threshold: float = 0.7,
-        purpose: str | None = None,
-    ) -> QueryResult:
-        """Biometric face k-NN search against a gallery (#2251, ADR-030).
-
-        Executes ``FACE_SEARCH(...)`` through the governed ``/query`` door.
-
-        Args:
-            gallery_id: Gallery to search (matches ``MediaEmbedding.gallery_id``).
-            embedding: Probe face embedding as a list of floats, or a
-                pre-formatted comma-separated string (the form the SQL
-                operator expects).
-            k: Max candidates (server default 10).
-            threshold: Minimum cosine similarity in ``[0.0, 1.0]`` (default 0.7).
-            purpose: Purpose override for this query.
-
-        Returns:
-            :class:`~relata.models.QueryResult` with columns ``entity_id``,
-            ``gallery_id``, ``score``, ``modality``, ranked by score desc.
-
-        Example::
-
-            result = client.face_search(
-                "gallery-1", [0.1, 0.2, 0.3], k=5, threshold=0.6,
-                purpose="investigation",
-            )
-            for row in result:
-                print(row["entity_id"], row["score"])
-        """
-        sql = _face_search_sql(gallery_id, embedding, k=k, threshold=threshold)
-        return self.query(sql, purpose=purpose)
-
-    async def aface_search(
-        self,
-        gallery_id: str,
-        embedding: list[float] | str,
-        *,
-        k: int = 10,
-        threshold: float = 0.7,
-        purpose: str | None = None,
-    ) -> QueryResult:
-        """Async variant of :meth:`face_search`."""
-        sql = _face_search_sql(gallery_id, embedding, k=k, threshold=threshold)
-        return await self.aquery(sql, purpose=purpose)
-
-    def match_pdq(
-        self,
-        corpus_id: str,
-        query_hash: str,
-        *,
-        threshold: float = 0.9,
-        purpose: str | None = None,
-    ) -> QueryResult:
-        """Perceptual-hash (PDQ) near-duplicate search over a corpus (#2251).
-
-        Executes ``MATCH_PDQ(...)`` through the governed ``/query`` door. PDQ
-        near-duplicates differ by ≤ 31 bits (ADR-187).
-
-        Args:
-            corpus_id: Hash corpus to search (matches ``MediaHash.corpus_id``).
-            query_hash: PDQ hash as a hex string.
-            threshold: Minimum Hamming similarity in ``[0.0, 1.0]`` (default 0.9).
-            purpose: Purpose override for this query.
-
-        Returns:
-            :class:`~relata.models.QueryResult` with columns ``entity_id``,
-            ``media_type``, ``corpus_id``, ``score``, ``matcher``, ranked by
-            score desc.
-        """
-        sql = _match_pdq_sql(corpus_id, query_hash, threshold=threshold)
-        return self.query(sql, purpose=purpose)
-
-    async def amatch_pdq(
-        self,
-        corpus_id: str,
-        query_hash: str,
-        *,
-        threshold: float = 0.9,
-        purpose: str | None = None,
-    ) -> QueryResult:
-        """Async variant of :meth:`match_pdq`."""
-        sql = _match_pdq_sql(corpus_id, query_hash, threshold=threshold)
-        return await self.aquery(sql, purpose=purpose)
+    # ``FACE_SEARCH`` / ``MATCH_PDQ`` (and the MCP ``face_match`` tool) were
+    # retired from core (#5935); embeddings and fingerprints are delivered by
+    # OpenETL and compared with generic vector search or ``SIMILAR_IMAGE``.
 
     def similar_image(
         self,

@@ -158,12 +158,6 @@ class MediaWorkClient:
             self._t.post(_item_path(work_id, "/fail"), _fail_body(claim_id, failure_class, code, detail))
         )
 
-    def qualification(self) -> dict[str, Any]:
-        """``GET /media/qualification``: supported media tasks and the strongest claim
-        the recorded evidence supports for each (``stored_only``,
-        ``extracted_features`` or ``evaluated_retrieval``)."""
-        return dict(self._t.get("/media/qualification"))
-
     def close(self) -> None:
         self._t.close()
 
@@ -241,9 +235,6 @@ class AsyncMediaWorkClient:
                 _item_path(work_id, "/fail"), _fail_body(claim_id, failure_class, code, detail)
             )
         )
-
-    async def qualification(self) -> dict[str, Any]:
-        return dict(await self._t.get("/media/qualification"))
 
     async def close(self) -> None:
         await self._t.aclose()

@@ -283,7 +283,6 @@ result = (
 | Bi-temporal | `SELECT * FROM Person AS OF '2024-06-01'` |
 | Provenance | `SELECT * FROM Person WITH PROVENANCE` |
 | Graph traversal | `FROM PATHS_BETWEEN('person-123', 'org-456', max_hops => 4)` |
-| Face search | `WHERE MATCH_FACE(probe_embedding, stored_embedding, 0.92)` |
 | Identity lookup | `FROM LOOKUP_IDENTITY('+919876543210')` |
 | Hybrid search | `SELECT *, HYBRID_SCORE('terror finance') AS score FROM Document` |
 
@@ -464,10 +463,9 @@ caller-signed feed entry and the matching `X-Publisher-Did`; the SDK does not
 create or sign entries. `SystemClient.from_client()` does not configure a
 broker client.
 
-`IngestClient.media_status()` polls an existing task but does not upload raw
-media bytes. `McpClient.ingest_media()` is the available MCP tool wrapper and
-uses that tool's base64/payload shape; it is separate from a raw
-`POST /ingest/media` upload. The separate new `FilesClient` and
+`POST /ingest/media` was removed (#5942), together with
+`IngestClient.media_status()` and `McpClient.ingest_media()`; poll OpenETL work
+items with `MediaWorkClient.get()`. The separate new `FilesClient` and
 `AsyncFilesClient` wrap `/files/content` for opaque file bytes; they do not
 start media processing or document extraction.
 
@@ -603,7 +601,6 @@ with safely-typed literals (str → single-quoted + escaped, int/float → numer
 | `.offset(n)` | OFFSET |
 | `.order_by(*cols)` | ORDER BY |
 | `.paths_between(src, dst, max_hops)` | PATHS_BETWEEN graph operator |
-| `.match_face(probe, candidate, threshold)` | MATCH_FACE operator |
 | `.lookup_identity(value)` | LOOKUP_IDENTITY operator |
 | `.hybrid_score(text)` | HYBRID_SCORE ranking |
 | `.raw(sql)` | Raw SQL escape hatch |
@@ -632,7 +629,6 @@ See the `examples/` directory:
 |---|---|
 | `basic_query.py` | Getting started, health check, quota check |
 | `analytics.py` | Full analytics workflow: identity → cases → graph → provenance |
-| `face_search.py` | MATCH_FACE operator, threshold comparison, CCTV temporal search |
 | `hybrid_search.py` | `VectorClient.hybrid_search()` — embed, ingest, BM25-only vs. vector-only vs. fused (RRF) search |
 | `graph_traversal.py` | PATHS_BETWEEN, temporal network shift, hub detection |
 | `audit.py` | Chain verification, audit summary, anomaly detection |
