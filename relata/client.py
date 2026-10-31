@@ -892,6 +892,19 @@ class RelataClient:
         """
         return self._sync.get("/v1/types/edges")
 
+    def list_type_detect_configs(self) -> dict[str, object]:
+        """List per-type SmartIngest detector-pack configs (``GET /v1/types/detect-config``)."""
+        return self._sync.get("/v1/types/detect-config")
+
+    def set_type_detect_config(self, type_name: str, packs: list[str]) -> dict[str, object]:
+        """Configure SmartIngest detector packs for a type (admin token required).
+
+        Wraps ``POST /v1/types/detect-config`` with ``{type, packs}``; ``packs``
+        takes the ``RELATA_DETECT_PACKS`` grammar (``["all"]``, ``["none"]``,
+        ``[]`` for none, or pack names).
+        """
+        return self._sync.post("/v1/types/detect-config", {"type": type_name, "packs": packs})
+
     def register_edge_type(
         self,
         from_type: str,
@@ -933,6 +946,18 @@ class RelataClient:
     async def alist_edge_types(self) -> dict[str, object]:
         """Async variant of :meth:`list_edge_types`."""
         return await self._async.get("/v1/types/edges")
+
+    async def alist_type_detect_configs(self) -> dict[str, object]:
+        """Async variant of :meth:`list_type_detect_configs`."""
+        return await self._async.get("/v1/types/detect-config")
+
+    async def aset_type_detect_config(
+        self, type_name: str, packs: list[str]
+    ) -> dict[str, object]:
+        """Async variant of :meth:`set_type_detect_config`."""
+        return await self._async.post(
+            "/v1/types/detect-config", {"type": type_name, "packs": packs}
+        )
 
     async def aquery_schema(self, *, purpose: str | None = None) -> dict[str, object]:
         """Async variant of :meth:`query_schema`."""
