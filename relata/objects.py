@@ -79,6 +79,21 @@ def _commit_payload(
     return payload
 
 
+def _changes_path(
+    cursor: str | None, limit: int | None, object_type: str | None, start: str | None
+) -> str:
+    params: dict[str, str] = {}
+    if cursor is not None:
+        params["cursor"] = cursor
+    if limit is not None:
+        params["limit"] = str(limit)
+    if object_type is not None:
+        params["type"] = _validate_object_type(object_type)
+    if start is not None:
+        params["start"] = start
+    return "/object-changes" + ("?" + urlencode(params) if params else "")
+
+
 class ObjectClient:
     """Synchronous typed upsert/load client for state objects."""
 
@@ -363,6 +378,27 @@ class ObjectClient:
             "/commit", _commit_payload(operations, idempotency_key, purpose or self._purpose)
         ))
 
+    def changes(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        object_type: str | None = None,
+        start: str | None = None,
+    ) -> dict[str, Any]:
+        """Read one page of the object change feed (``GET /object-changes``, #5716).
+
+        Pass the previous page's ``nextCursor`` as ``cursor`` and persist the new
+        one only after every event in the page is processed. Delivery is
+        at-least-once: dedupe on ``event["eventId"]``. Events carry identity,
+        ``version`` and ``kind`` (``create``/``update``/``delete``), never field
+        values. ``start="latest"`` (with no cursor) skips history. A cursor the
+        server can no longer serve raises the API error for ``410``
+        (``change-feed-resync-required``); re-read state and restart with
+        ``start="latest"``.
+        """
+        return dict(self._t.get(_changes_path(cursor, limit, object_type, start)))
+
     def close(self) -> None:
         self._t.close()
 
@@ -575,6 +611,27 @@ class AsyncObjectClient:
         return dict(await self._t.post(
             "/commit", _commit_payload(operations, idempotency_key, purpose or self._purpose)
         ))
+
+    async def changes(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        object_type: str | None = None,
+        start: str | None = None,
+    ) -> dict[str, Any]:
+        """Read one page of the object change feed (``GET /object-changes``, #5716).
+
+        Pass the previous page's ``nextCursor`` as ``cursor`` and persist the new
+        one only after every event in the page is processed. Delivery is
+        at-least-once: dedupe on ``event["eventId"]``. Events carry identity,
+        ``version`` and ``kind`` (``create``/``update``/``delete``), never field
+        values. ``start="latest"`` (with no cursor) skips history. A cursor the
+        server can no longer serve raises the API error for ``410``
+        (``change-feed-resync-required``); re-read state and restart with
+        ``start="latest"``.
+        """
+        return dict(await self._t.get(_changes_path(cursor, limit, object_type, start)))
 
     async def close(self) -> None:
         await self._t.aclose()
