@@ -48,6 +48,18 @@ def _unwrap(resp: dict[str, Any]) -> dict[str, Any]:
     return resp
 
 
+def _associate_batch_body(items: list[dict[str, Any]], purpose: str) -> dict[str, Any]:
+    """Body for ``POST /memory/associate/batch``: each item needs ``from_id`` and
+    ``to_id``; ``relation`` / ``confidence`` / ``purpose`` are optional and the
+    client's purpose fills any item that omits it."""
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not item.get("from_id") or not item.get("to_id"):
+            raise ValueError("each association needs non-empty 'from_id' and 'to_id'")
+        out.append({"purpose": purpose, **item})
+    return {"items": out}
+
+
 def _recall_params(
     query: str,
     purpose: str,
@@ -373,6 +385,16 @@ class Memory:
         }
         return _unwrap(self._t.post("/memory/associate", payload))
 
+    def associate_batch(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        """Link many memory pairs in one request.
+
+        Wraps ``POST /memory/associate/batch``. Each item is
+        ``{"from_id", "to_id", "relation"?, "confidence"?, "purpose"?}``. Returns
+        ``{"stored": N, "submitted": N, "results": [...]}``; ``stored`` below
+        ``submitted`` means some items were rejected (see ``results``).
+        """
+        return dict(self._t.post("/memory/associate/batch", _associate_batch_body(items, self._purpose)))
+
     def episodes(
         self,
         *,
@@ -656,6 +678,12 @@ class AsyncMemory:
             "purpose": self._purpose,
         }
         return _unwrap(await self._t.post("/memory/associate", payload))
+
+    async def associate_batch(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        """Link many memory pairs in one request (async) -- see :meth:`Memory.associate_batch`."""
+        return dict(
+            await self._t.post("/memory/associate/batch", _associate_batch_body(items, self._purpose))
+        )
 
     async def episodes(
         self,

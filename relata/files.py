@@ -78,6 +78,15 @@ _DEFAULT_CHUNK = 8 * 1024 * 1024
 _RESUMABLE = {409, 422, 429, 502, 503, 504}
 
 
+def _folder_body(key: str, bucket: str | None) -> bytes:
+    if not isinstance(key, str) or (bucket is not None and not isinstance(bucket, str)):
+        raise TypeError("folder key and optional bucket must be strings")
+    body: dict[str, str] = {"key": key}
+    if bucket is not None:
+        body["bucket"] = bucket
+    return json.dumps(body).encode()
+
+
 def _upload_path(upload_id: str, suffix: str = "", offset: int | None = None) -> str:
     if not isinstance(upload_id, str) or not upload_id:
         raise TypeError("upload_id must be a non-empty string")
@@ -150,6 +159,11 @@ def _status(response: _RawHttpResponse, expected: int) -> None:
             request_id=response.headers.get("x-request-id"))
 
 
+def _meta201(response: _RawHttpResponse) -> FileMetadata:
+    _status(response, 201)
+    return FileMetadata.model_validate_json(response.content)
+
+
 def _content(response: _RawHttpResponse) -> FileContent:
     _status(response, 200)
     return FileContent(response.content, response.headers.get("etag"), response.headers.get("content-type"))
@@ -198,6 +212,13 @@ class FilesClient:
         """Acknowledge DELETE204; no claim of physical/global copy destruction."""
         _status(self._t.request_bytes("DELETE", _path(key, bucket), accept="application/json"), 204)
 
+
+    def create_folder(self, key: str, *, bucket: str | None = None) -> FileMetadata:
+        """Create a folder marker (``POST /files/folders``); returns 201 metadata
+        with ``is_folder`` true."""
+        return _meta201(self._t.request_bytes("POST", "/files/folders",
+            content=_folder_body(key, bucket), content_type="application/json",
+            accept="application/json"))
 
     def start_upload(self, key: str, size: int, *, bucket: str | None = None,
         content_type: str = "application/octet-stream",
@@ -310,6 +331,12 @@ class AsyncFilesClient:
     async def delete(self, key: str, *, bucket: str | None = None) -> None:
         _status(await self._t.request_bytes("DELETE", _path(key, bucket), accept="application/json"), 204)
 
+
+    async def create_folder(self, key: str, *, bucket: str | None = None) -> FileMetadata:
+        """Create a folder marker (async) -- see :meth:`FilesClient.create_folder`."""
+        return _meta201(await self._t.request_bytes("POST", "/files/folders",
+            content=_folder_body(key, bucket), content_type="application/json",
+            accept="application/json"))
 
     async def start_upload(self, key: str, size: int, *, bucket: str | None = None,
         content_type: str = "application/octet-stream",

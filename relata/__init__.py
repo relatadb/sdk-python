@@ -40,6 +40,7 @@ from relata.a2a import A2AClient, AsyncA2AClient
 from relata.audit import AsyncAuditClient, AuditClient
 from relata.backup import AsyncBackupClient, BackupClient
 from relata.evidence import AsyncEvidenceClient, EvidenceClient, evidence_headers
+from relata.ingest_control import AsyncIngestControlClient, IngestControlClient
 from relata.media_work import AsyncMediaWorkClient, MediaWorkClient, media_work_claim_headers
 from relata.ontology_definitions import AsyncOntologyDefinitionsClient, OntologyDefinitionsClient
 from relata.assertions import AssertionsClient, AsyncAssertionsClient
@@ -256,6 +257,8 @@ __all__ = [
     "AsyncResolutionClient",
     "AsyncEvidenceClient",
     "evidence_headers",
+    "IngestControlClient",
+    "AsyncIngestControlClient",
     "MediaWorkClient",
     "AsyncMediaWorkClient",
     "media_work_claim_headers",
