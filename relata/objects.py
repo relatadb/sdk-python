@@ -14,6 +14,7 @@ path (``_deleted: true``) — the same WAL mechanism the server uses internally.
 from __future__ import annotations
 
 import re
+from collections.abc import AsyncIterator, Iterator
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
@@ -399,6 +400,31 @@ class ObjectClient:
         """
         return dict(self._t.get(_changes_path(cursor, limit, object_type, start)))
 
+    def iter_change_pages(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        object_type: str | None = None,
+        start: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield successive pages of the change feed until the consumer is caught up.
+
+        Each yielded page is the dict :meth:`changes` returns; persist its
+        ``nextCursor`` only after the page's events are processed, then resume
+        with ``cursor=`` after a restart. The generator ends on the first page
+        with ``hasMore == False`` (call it again to poll). The feed is
+        change-data-capture for every write path (objects, ingest, SQL, links,
+        deletes) and is off unless the server sets ``RELATA_CHANGE_FEED_ENABLE``;
+        a disabled feed raises the API error for ``404 change-feed-disabled``.
+        """
+        while True:
+            page = self.changes(cursor=cursor, limit=limit, object_type=object_type, start=start)
+            yield page
+            if not page.get("hasMore"):
+                return
+            cursor, start = page["nextCursor"], None
+
     def close(self) -> None:
         self._t.close()
 
@@ -632,6 +658,24 @@ class AsyncObjectClient:
         ``start="latest"``.
         """
         return dict(await self._t.get(_changes_path(cursor, limit, object_type, start)))
+
+    async def iter_change_pages(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        object_type: str | None = None,
+        start: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Async twin of :meth:`ObjectClient.iter_change_pages`."""
+        while True:
+            page = await self.changes(
+                cursor=cursor, limit=limit, object_type=object_type, start=start
+            )
+            yield page
+            if not page.get("hasMore"):
+                return
+            cursor, start = page["nextCursor"], None
 
     async def close(self) -> None:
         await self._t.aclose()

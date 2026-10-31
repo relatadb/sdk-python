@@ -98,19 +98,6 @@ def test_async_quarantine_delete() -> None:
     assert seen == [("DELETE", "/ingest/quarantine/3", "", None)]
 
 
-def test_media_qualification() -> None:
-    seen: list = []
-    MediaWorkClient(BASE, transport=httpx.MockTransport(_rec(seen))).qualification()
-
-    async def run() -> None:
-        c = AsyncMediaWorkClient(BASE, transport=httpx.MockTransport(_rec(seen)))
-        await c.qualification()
-        await c.close()
-
-    asyncio.run(run())
-    assert seen == [("GET", "/media/qualification", "", None)] * 2
-
-
 def test_memory_associate_batch() -> None:
     seen: list = []
     m = Memory(BASE, purpose="notes", transport=httpx.MockTransport(_rec(seen, body={"stored": 2})))

@@ -609,31 +609,6 @@ class McpClient:
         """``erase_subject`` — governed erasure with scoped local receipts, without global physical or cryptographic completion (#2322)."""
         return self.call_tool("erase_subject", {"subject": subject, "reason": reason})
 
-    def ingest_media(
-        self,
-        object_type: str,
-        *,
-        modality: str = "image",
-        codec: str | None = None,
-        bytes_b64: str | None = None,
-        text: str | None = None,
-        tenant_id: str | None = None,
-        partition_key: str | None = None,
-    ) -> dict[str, Any]:
-        """``ingest_media`` — ingest an image/audio/video (base64) or text payload (#2322)."""
-        args: dict[str, Any] = {"object_type": object_type, "modality": modality}
-        if codec:
-            args["codec"] = codec
-        if bytes_b64:
-            args["bytes_b64"] = bytes_b64
-        if text:
-            args["text"] = text
-        if tenant_id:
-            args["tenant_id"] = tenant_id
-        if partition_key:
-            args["partition_key"] = partition_key
-        return self.call_tool("ingest_media", args)
-
     def similar_multimodal(
         self,
         entity_type: str,
@@ -1372,31 +1347,6 @@ class AsyncMcpClient:
     ) -> dict[str, Any]:
         """``erase_subject`` — governed erasure with scoped local receipts, without global physical or cryptographic completion (#2322)."""
         return await self.call_tool("erase_subject", {"subject": subject, "reason": reason})
-
-    async def ingest_media(
-        self,
-        object_type: str,
-        *,
-        modality: str = "image",
-        codec: str | None = None,
-        bytes_b64: str | None = None,
-        text: str | None = None,
-        tenant_id: str | None = None,
-        partition_key: str | None = None,
-    ) -> dict[str, Any]:
-        """``ingest_media`` — ingest an image/audio/video (base64) or text payload (#2322)."""
-        args: dict[str, Any] = {"object_type": object_type, "modality": modality}
-        if codec:
-            args["codec"] = codec
-        if bytes_b64:
-            args["bytes_b64"] = bytes_b64
-        if text:
-            args["text"] = text
-        if tenant_id:
-            args["tenant_id"] = tenant_id
-        if partition_key:
-            args["partition_key"] = partition_key
-        return await self.call_tool("ingest_media", args)
 
     async def similar_multimodal(
         self,
