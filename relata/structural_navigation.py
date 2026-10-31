@@ -1,7 +1,7 @@
 """Structural table-of-contents navigation — RAG epic SDK-side agentic
 retrieval strategy (#4542).
 
-The optional application adapter half of #4542 (``apps/relata-connectors/src/document_ingest.rs``
+The optional application adapter half of #4542 (``the former relata-connectors document_ingest module (removed, #5932)``
 ``document_structure_batch``) derives a ``DocumentStructureNode`` tree from
 each document's ``section_path``/``page_start``/``page_end`` — one node per
 distinct heading-breadcrumb prefix, plus a synthetic root, each carrying a
@@ -93,7 +93,7 @@ class StructureNode:
         """Build a :class:`StructureNode` from one ``/query`` result row.
 
         ``leaf_chunk_ids`` is stored server-side as a JSON array string
-        (``apps/relata-connectors/src/document_ingest.rs`` — no native array
+        (``the former relata-connectors document_ingest module (removed, #5932)`` — no native array
         `CanonicalValue` variant); this parses it back into a real list,
         defaulting to ``[]`` on anything malformed rather than raising, so a
         node with no directly-attached chunks (an internal/structural-only
