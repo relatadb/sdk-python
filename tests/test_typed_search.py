@@ -233,3 +233,42 @@ def test_compression_enabled_opt_in() -> None:
     client = RelataClient(BASE, bearer_token="tok", compress=True)
     _ = client._sync
     assert client._sync._client.headers.get("accept-encoding") != "identity"
+
+
+def test_build_payload_carries_query_vector() -> None:
+    payload = _build_payload(
+        namespace="Document",
+        text=None,
+        match_column="*",
+        rank_by=["vector", "ann", "fraud"],
+        filters=None,
+        limit=5,
+        include_attributes=None,
+        consistency=None,
+        query_vector=[0.5, 1],
+        query_vector_model="m1",
+        purpose=None,
+    )
+    assert payload["query_vector"] == [0.5, 1.0]
+    assert payload["query_vector_model"] == "m1"
+    assert "query" not in payload
+
+
+@pytest.mark.parametrize(
+    ("vec", "model"), [([], None), (None, "m1"), ([True], None), (["x"], None)]
+)
+def test_build_payload_rejects_bad_query_vector(vec: Any, model: Any) -> None:
+    with pytest.raises(ValueError):
+        _build_payload(
+            namespace="D",
+            text=None,
+            match_column="*",
+            rank_by=None,
+            filters=None,
+            limit=5,
+            include_attributes=None,
+            consistency=None,
+            query_vector=vec,
+            query_vector_model=model,
+            purpose=None,
+        )

@@ -130,6 +130,8 @@ class SearchClient:
         include_attributes: list[str] | None = None,
         consistency: str | None = None,
         compute_attributes: dict[str, str] | None = None,
+        query_vector: list[float] | None = None,
+        query_vector_model: str | None = None,
         purpose: str | None = None,
     ) -> QueryResult:
         """Run a typed search against ``namespace`` (an object type).
@@ -154,6 +156,12 @@ class SearchClient:
                 ``{label: expr}`` e.g. ``{"bm25_score": "BM25()"}`` — compiles
                 to a trailing ``COMPUTE`` clause (#1985 T3). Purely additive:
                 never affects which rows match or their order.
+            query_vector: Caller-supplied query embedding for a
+                ``["vector","ann","<text>"]`` ``rank_by`` (ADR-0309, #5941) —
+                sent as the top-level ``query_vector`` field so the server
+                makes no embedding call.
+            query_vector_model: Model tag the vector was produced by; requires
+                ``query_vector``.
             purpose: Optional purpose override.
 
         Returns:
@@ -171,6 +179,8 @@ class SearchClient:
             include_attributes=include_attributes,
             consistency=consistency,
             compute_attributes=compute_attributes,
+            query_vector=query_vector,
+            query_vector_model=query_vector_model,
             purpose=self._purpose(purpose),
         )
         data = self._client._sync.post("/v1/search", payload)  # noqa: SLF001
@@ -188,6 +198,8 @@ class SearchClient:
         include_attributes: list[str] | None = None,
         consistency: str | None = None,
         compute_attributes: dict[str, str] | None = None,
+        query_vector: list[float] | None = None,
+        query_vector_model: str | None = None,
         purpose: str | None = None,
     ) -> QueryResult:
         """Async variant of :meth:`query`."""
@@ -201,6 +213,8 @@ class SearchClient:
             include_attributes=include_attributes,
             consistency=consistency,
             compute_attributes=compute_attributes,
+            query_vector=query_vector,
+            query_vector_model=query_vector_model,
             purpose=self._purpose(purpose),
         )
         data = await self._client._async.post("/v1/search", payload)  # noqa: SLF001
@@ -229,6 +243,8 @@ class AsyncSearchClient:
         include_attributes: list[str] | None = None,
         consistency: str | None = None,
         compute_attributes: dict[str, str] | None = None,
+        query_vector: list[float] | None = None,
+        query_vector_model: str | None = None,
         purpose: str | None = None,
     ) -> QueryResult:
         return await self._inner.aquery(
@@ -241,6 +257,8 @@ class AsyncSearchClient:
             include_attributes=include_attributes,
             consistency=consistency,
             compute_attributes=compute_attributes,
+            query_vector=query_vector,
+            query_vector_model=query_vector_model,
             purpose=purpose,
         )
 
@@ -256,6 +274,8 @@ def _build_payload(
     include_attributes: list[str] | None,
     consistency: str | None,
     compute_attributes: dict[str, str] | None = None,
+    query_vector: list[float] | None = None,
+    query_vector_model: str | None = None,
     purpose: str | None,
 ) -> dict[str, object]:
     """Assemble the typed ``POST /v1/search`` JSON body (no ``query`` key)."""
@@ -283,6 +303,16 @@ def _build_payload(
         payload["consistency"] = consistency
     if compute_attributes:
         payload["compute_attributes"] = compute_attributes
+    if query_vector is not None:
+        if not query_vector or not all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in query_vector
+        ):
+            raise ValueError("query_vector must be a non-empty list of numbers")
+        payload["query_vector"] = [float(x) for x in query_vector]
+    if query_vector_model:
+        if query_vector is None:
+            raise ValueError("query_vector_model requires query_vector")
+        payload["query_vector_model"] = query_vector_model
     if purpose:
         payload["purpose"] = purpose
     return payload
