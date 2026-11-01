@@ -840,8 +840,8 @@ class RelataClient:
     def type_lifecycle(self, name: str) -> dict[str, object]:
         """Lifecycle progress of a type (#5724): the durable journal of its
         register/alter/deregister outcomes (``applied`` / ``refused`` / ``failed`` /
-        ``in_progress`` / ``interrupted``, surviving restart and restore) plus per-index derived-index progress and a
-        freshness token."""
+        ``in_progress`` / ``interrupted``, surviving restart and restore) plus
+        per-index derived-index progress and a freshness token."""
         return self._sync.get(f"/v1/types/{path_segment(name)}/lifecycle")
 
     def schema_alter(
