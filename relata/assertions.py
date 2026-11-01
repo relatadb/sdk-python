@@ -169,6 +169,8 @@ class AssertionsClient:
         *,
         locator: dict[str, Any] | None = None,
         similarity: dict[str, Any] | None = None,
+        confidence: float | None = None,
+        uncertainty: str | None = None,
     ) -> dict[str, Any]:
         """``POST /v1/assertions/relations`` (#5721): link two assertions (``supports``,
         ``contradicts``, ``derived_from``, ``similar_to`` with
@@ -179,16 +181,33 @@ class AssertionsClient:
             body["locator"] = locator
         if similarity is not None:
             body["similarity"] = similarity
+        if confidence is not None:
+            body["confidence"] = confidence
+        if uncertainty is not None:
+            body["uncertainty"] = uncertainty
         return dict(self._t.post("/v1/assertions/relations", body))
 
     def unrelate(self, relation_id: str, reason: str) -> dict[str, Any]:
         """``POST /v1/assertions/relations/{id}/revoke``: withdraw a relation."""
         return dict(self._t.post(_rid(relation_id), {"reason": reason}))
 
-    def assess(self, assertion_id: str, judgment: str, reason: str) -> dict[str, Any]:
+    def assess(
+        self,
+        assertion_id: str,
+        judgment: str,
+        reason: str,
+        *,
+        confidence: float | None = None,
+        uncertainty: str | None = None,
+    ) -> dict[str, Any]:
         """``POST .../assessment``: an analyst judgment (``corroborated``, ``disputed``,
-        ``inconclusive``), kept apart from source reliability and model confidence."""
-        body = {"judgment": judgment, "reason": reason}
+        ``inconclusive``), kept apart from source reliability and model confidence.
+        Optional ``confidence`` in [0, 1] and ``uncertainty`` (what remains unknown)."""
+        body: dict[str, Any] = {"judgment": judgment, "reason": reason}
+        if confidence is not None:
+            body["confidence"] = confidence
+        if uncertainty is not None:
+            body["uncertainty"] = uncertainty
         return dict(self._t.post(_aid(assertion_id, "assessment"), body))
 
     def evidence_graph(
@@ -314,19 +333,37 @@ class AsyncAssertionsClient:
         *,
         locator: dict[str, Any] | None = None,
         similarity: dict[str, Any] | None = None,
+        confidence: float | None = None,
+        uncertainty: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"from": from_id, "to": to_id, "kind": kind, "rationale": rationale}
         if locator is not None:
             body["locator"] = locator
         if similarity is not None:
             body["similarity"] = similarity
+        if confidence is not None:
+            body["confidence"] = confidence
+        if uncertainty is not None:
+            body["uncertainty"] = uncertainty
         return dict(await self._t.post("/v1/assertions/relations", body))
 
     async def unrelate(self, relation_id: str, reason: str) -> dict[str, Any]:
         return dict(await self._t.post(_rid(relation_id), {"reason": reason}))
 
-    async def assess(self, assertion_id: str, judgment: str, reason: str) -> dict[str, Any]:
-        body = {"judgment": judgment, "reason": reason}
+    async def assess(
+        self,
+        assertion_id: str,
+        judgment: str,
+        reason: str,
+        *,
+        confidence: float | None = None,
+        uncertainty: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"judgment": judgment, "reason": reason}
+        if confidence is not None:
+            body["confidence"] = confidence
+        if uncertainty is not None:
+            body["uncertainty"] = uncertainty
         return dict(await self._t.post(_aid(assertion_id, "assessment"), body))
 
     async def evidence_graph(
