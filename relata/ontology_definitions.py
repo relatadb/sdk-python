@@ -32,6 +32,7 @@ def _publish_body(
     accept_migration: bool,
     accept_breaking: bool,
     from_version: int | None,
+    override_unsafe: bool = False,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"expected_version": int(expected_version)}
     if accept_migration:
@@ -40,6 +41,8 @@ def _publish_body(
         body["accept_breaking"] = True
     if from_version is not None:
         body["from_version"] = int(from_version)
+    if override_unsafe:
+        body["override_unsafe"] = True
     return body
 
 
@@ -117,9 +120,16 @@ class OntologyDefinitionsClient:
         accept_migration: bool = False,
         accept_breaking: bool = False,
         from_version: int | None = None,
+        override_unsafe: bool = False,
     ) -> dict[str, Any]:
-        """``POST .../publish`` under the ``expected_version`` precondition."""
-        body = _publish_body(expected_version, accept_migration, accept_breaking, from_version)
+        """``POST .../publish`` under the ``expected_version`` precondition.
+
+        ``override_unsafe`` (schema-admin or platform-admin token only) publishes a
+        change that drops or retypes data; without it that is 409.
+        """
+        body = _publish_body(
+            expected_version, accept_migration, accept_breaking, from_version, override_unsafe
+        )
         return dict(self._t.post(_p(name, "publish"), body))
 
     def version(self, name: str, version: int) -> dict[str, Any]:
@@ -210,8 +220,11 @@ class AsyncOntologyDefinitionsClient:
         accept_migration: bool = False,
         accept_breaking: bool = False,
         from_version: int | None = None,
+        override_unsafe: bool = False,
     ) -> dict[str, Any]:
-        body = _publish_body(expected_version, accept_migration, accept_breaking, from_version)
+        body = _publish_body(
+            expected_version, accept_migration, accept_breaking, from_version, override_unsafe
+        )
         return dict(await self._t.post(_p(name, "publish"), body))
 
     async def version(self, name: str, version: int) -> dict[str, Any]:

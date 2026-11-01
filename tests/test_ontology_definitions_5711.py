@@ -38,7 +38,7 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
     c.validate("crm", d)
     c.compare("crm", from_version=1, to="draft")
     c.compare("crm")
-    c.publish("crm", expected_version=1, accept_migration=True, from_version=1)
+    c.publish("crm", expected_version=1, accept_migration=True, from_version=1, override_unsafe=True)
     c.publish("crm", expected_version=0)
     c.version("crm", 2)
     c.status("crm")
@@ -58,7 +58,7 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
             "POST",
             "/v1/ontology/definitions/crm/publish",
             "",
-            {"expected_version": 1, "accept_migration": True, "from_version": 1},
+            {"expected_version": 1, "accept_migration": True, "from_version": 1, "override_unsafe": True},
         ),
         ("POST", "/v1/ontology/definitions/crm/publish", "", {"expected_version": 0}),
         ("GET", "/v1/ontology/definitions/crm/versions/2", "", None),
