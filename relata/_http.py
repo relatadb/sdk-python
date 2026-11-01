@@ -194,6 +194,24 @@ def _admin_listener_hint(path: str) -> str:
 
 
 def _classify_error(
+    *args: Any,
+    **kwargs: Any,
+) -> RelataError:
+    """Classify an HTTP error and attach ingest receipt fields (``task_id``,
+    ``accepted``, ``receipt_status``) when the body carries them."""
+    error = _classify_error_inner(*args, **kwargs)
+    body = args[1] if len(args) > 1 else kwargs.get("body")
+    if isinstance(body, dict):
+        if isinstance(body.get("task_id"), str) and body["task_id"]:
+            error.task_id = body["task_id"]
+        if isinstance(body.get("accepted"), bool):
+            error.accepted = body["accepted"]
+        if isinstance(body.get("receipt_status"), str):
+            error.receipt_status = body["receipt_status"]
+    return error
+
+
+def _classify_error_inner(
     status_code: int,
     body: dict[str, Any],
     *,

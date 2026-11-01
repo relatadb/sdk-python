@@ -42,7 +42,17 @@ class RelataError(Exception):
         query_id: Server query identifier, when supplied.
         retry_after: Server retry guidance in seconds, when supplied; not permission
             to replay a non-idempotent request.
+        task_id: Ingest task identifier when the server reports one in the error
+            body (an accepted-then-uncertain 5xx). Poll it instead of replaying.
+        accepted: ``True``/``False`` when the server states whether the request was
+            accepted before failing, else ``None`` (unknown).
+        receipt_status: Server receipt state on the error body (for example
+            ``"uncertain"``), else ``None``.
     """
+
+    task_id: str | None = None
+    accepted: bool | None = None
+    receipt_status: str | None = None
 
     def __init__(
         self,
