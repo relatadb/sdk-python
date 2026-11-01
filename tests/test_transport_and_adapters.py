@@ -313,6 +313,66 @@ async def test_async_retry_on_503_for_get_then_succeeds() -> None:
 
 
 # ---------------------------------------------------------------------------
+# #5733 — uncertain effects: mid-request transport failures
+# ---------------------------------------------------------------------------
+
+
+def test_mid_request_reset_is_a_relata_error_and_post_is_never_replayed() -> None:
+    """A reset after the request was sent leaves the effect unknown.
+
+    It must surface as a RelataError (not a raw httpx exception) so callers
+    catching the SDK's error type see it, must say reconciliation is needed,
+    and must not be replayed for POST. GET is idempotent and is retried.
+    """
+    from relata._http import HttpTransport
+    from relata.exceptions import ConnectionError as RelataConnectionError
+
+    post_calls = [0]
+
+    def reset(req: httpx.Request) -> httpx.Response:
+        post_calls[0] += 1
+        raise httpx.RemoteProtocolError("server disconnected without a response")
+
+    t = HttpTransport(BASE, None, 5.0, transport=_wrap(reset), max_retries=3, retry_backoff=0.001)
+    with pytest.raises(RelataConnectionError) as exc_info:
+        t.post("/v1/a2a/tasks", {"name": "remember", "input": {}})
+    assert post_calls[0] == 1
+    assert "may have been applied" in str(exc_info.value)
+
+    get_calls = [0]
+
+    def flaky(req: httpx.Request) -> httpx.Response:
+        get_calls[0] += 1
+        if get_calls[0] < 3:
+            raise httpx.ReadError("connection reset")
+        return httpx.Response(200, json={"id": "t1", "status": "completed"})
+
+    t = HttpTransport(BASE, None, 5.0, transport=_wrap(flaky), max_retries=3, retry_backoff=0.001)
+    assert t.get("/v1/a2a/tasks/t1")["status"] == "completed"
+    assert get_calls[0] == 3
+
+
+@pytest.mark.asyncio
+async def test_async_mid_request_reset_is_a_relata_error_and_post_is_never_replayed() -> None:
+    from relata._http import AsyncHttpTransport
+    from relata.exceptions import ConnectionError as RelataConnectionError
+
+    calls = [0]
+
+    def reset(req: httpx.Request) -> httpx.Response:
+        calls[0] += 1
+        raise httpx.ReadError("connection reset")
+
+    t = AsyncHttpTransport(
+        BASE, None, 5.0, transport=_wrap(reset), max_retries=3, retry_backoff=0.001
+    )
+    with pytest.raises(RelataConnectionError):
+        await t.post("/v1/a2a/tasks", {"name": "remember", "input": {}})
+    assert calls[0] == 1
+    await t.aclose()
+
+
+# ---------------------------------------------------------------------------
 # #89 — Adapter duck-typed shapes
 # ---------------------------------------------------------------------------
 

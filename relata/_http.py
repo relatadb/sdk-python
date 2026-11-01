@@ -501,6 +501,18 @@ class HttpTransport:
                     time.sleep(self._retry_backoff * (2**attempt))
                     continue
                 raise last_exc from exc
+            except httpx.TransportError as exc:
+                # Connection reset / protocol error after the request may have
+                # been sent: the effect is uncertain, so surface it as a
+                # RelataError and never replay a non-idempotent verb.
+                last_exc = ConnectionError(
+                    f"Connection to Relata server failed mid-request: {exc}. "
+                    "The request may have been applied; reconcile before retrying."
+                )
+                if idempotent and attempt < self._max_retries:
+                    time.sleep(self._retry_backoff * (2**attempt))
+                    continue
+                raise last_exc from exc
 
             try:
                 # Retry on configurable status codes (502/503/504) for idempotent
@@ -791,6 +803,15 @@ class AsyncHttpTransport:
             except httpx.TimeoutException as exc:
                 last_exc = ConnectionError(
                     f"Request timed out: {exc}."
+                )
+                if idempotent and attempt < self._max_retries:
+                    await asyncio.sleep(self._retry_backoff * (2**attempt))
+                    continue
+                raise last_exc from exc
+            except httpx.TransportError as exc:
+                last_exc = ConnectionError(
+                    f"Connection to Relata server failed mid-request: {exc}. "
+                    "The request may have been applied; reconcile before retrying."
                 )
                 if idempotent and attempt < self._max_retries:
                     await asyncio.sleep(self._retry_backoff * (2**attempt))
