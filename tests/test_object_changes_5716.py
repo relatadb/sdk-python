@@ -189,3 +189,121 @@ async def test_async_follow_changes_reconnects() -> None:
     got = [(await follower.__anext__())["events"][0]["eventId"] for _ in range(2)]
     await follower.aclose()
     assert got == ["f:1", "f:2"]
+
+
+def _scripted(
+    seen: list[httpx.Request], script: list[object]
+) -> Callable[[httpx.Request], httpx.Response]:
+    """Answer each request with the next script item (an Exception, a status, or a page)."""
+    pending = list(script)
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        item = pending.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        if isinstance(item, tuple):
+            status, headers, body = item
+            return httpx.Response(status, headers=headers, json=body)
+        return httpx.Response(200, json=item)
+
+    return handler
+
+
+def _page(event: str | None, nxt: str, has_more: bool = False) -> dict[str, object]:
+    return {
+        "feedId": "f",
+        "events": [{"eventId": event}] if event else [],
+        "nextCursor": nxt,
+        "hasMore": has_more,
+    }
+
+
+def test_follow_changes_honours_retry_after_and_backs_off_exponentially(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("relata.objects.time.sleep", sleeps.append)
+    seen: list[httpx.Request] = []
+    script: list[object] = [
+        (429, {"Retry-After": "7"}, {"detail": "slow down"}),
+        (503, {}, {"detail": "down"}),
+        (503, {}, {"detail": "down"}),
+        _page("f:1", "f:1"),
+    ]
+    client = ObjectClient(BASE, transport=httpx.MockTransport(_scripted(seen, script)))
+    follower = client.follow_changes(poll_interval=0, reconnect_backoff=1.0, max_backoff=30.0)
+    assert next(follower)["events"][0]["eventId"] == "f:1"
+    follower.close()
+    # attempt 0 honours the server hint; attempts 1 and 2 double from the base.
+    assert sleeps == [7.0, 2.0, 4.0]
+    assert [r.url.params.get("cursor") for r in seen] == [None] * 4
+
+
+def test_follow_changes_failure_budget_is_per_outage_not_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("relata.objects.time.sleep", lambda _s: None)
+    seen: list[httpx.Request] = []
+    fail = (503, {}, {"detail": "x"})
+    # Three outages of two failures each with max_reconnects=2: never exhausted,
+    # because a successful read in between resets the budget.
+    script: list[object] = [
+        fail, fail, _page("f:1", "f:1", True),
+        fail, fail, _page("f:2", "f:2", True),
+        fail, fail, _page("f:3", "f:3"),
+    ]
+    client = ObjectClient(BASE, transport=httpx.MockTransport(_scripted(seen, script)))
+    follower = client.follow_changes(poll_interval=0, reconnect_backoff=0, max_reconnects=2)
+    got = [next(follower)["events"][0]["eventId"] for _ in range(3)]
+    follower.close()
+    assert got == ["f:1", "f:2", "f:3"]
+    assert [r.url.params.get("cursor") for r in seen] == [
+        None, None, None, "f:1", "f:1", "f:1", "f:2", "f:2", "f:2",
+    ]
+
+
+def test_follow_changes_polls_from_the_same_cursor_when_caught_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("relata.objects.time.sleep", sleeps.append)
+    seen: list[httpx.Request] = []
+    script: list[object] = [
+        _page("f:1", "f:1"),  # caught up after one event
+        _page(None, "f:1"),  # still nothing: empty pages are not yielded
+        _page("f:2", "f:2"),
+    ]
+    client = ObjectClient(BASE, transport=httpx.MockTransport(_scripted(seen, script)))
+    follower = client.follow_changes(poll_interval=0.25)
+    got = [next(follower)["events"][0]["eventId"] for _ in range(2)]
+    follower.close()
+    assert got == ["f:1", "f:2"]
+    assert sleeps == [0.25, 0.25]
+    assert [r.url.params.get("cursor") for r in seen] == [None, "f:1", "f:1"]
+
+
+def test_follow_changes_surfaces_resync_details_after_a_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An outage that outlives the retention window ends in an explicit 410, never a gap."""
+    monkeypatch.setattr("relata.objects.time.sleep", lambda _s: None)
+    seen: list[httpx.Request] = []
+    gone = {
+        "code": "change-feed-resync-required",
+        "detail": "cursor expired",
+        "resync": {"reason": "cursor_expired", "oldest": 900, "head": 1000},
+    }
+    script: list[object] = [
+        _page("f:1", "f:1", True),
+        (503, {}, {"detail": "restarting"}),
+        (410, {}, gone),
+    ]
+    client = ObjectClient(BASE, transport=httpx.MockTransport(_scripted(seen, script)))
+    follower = client.follow_changes(poll_interval=0, reconnect_backoff=0)
+    next(follower)
+    with pytest.raises(RelataError) as info:
+        next(follower)
+    assert info.value.status_code == 410
+    assert info.value.code == "change-feed-resync-required"
+    assert len(seen) == 3, "the 410 is not retried"
