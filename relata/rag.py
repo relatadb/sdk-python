@@ -43,7 +43,7 @@ drifting the client.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 if TYPE_CHECKING:
     from relata.client import RelataClient
@@ -66,6 +66,19 @@ _EMBEDDING_SLOTS = frozenset({"text", "summary", "keyword", "question"})
 
 SearchMode = Literal["lexical", "dense", "hybrid", "structural"]
 EmbeddingSlot = Literal["text", "summary", "keyword", "question"]
+
+
+class RagQueryKwargs(TypedDict, total=False):
+    """Optional keyword arguments forwarded to :meth:`RagClient.query` (``purpose`` is separate)."""
+
+    top_k: int
+    rerank: bool
+    search_mode: SearchMode
+    embedding_slot: EmbeddingSlot
+    filters: list[dict[str, Any]] | dict[str, Any] | None
+    as_of: str | None
+    expand_window: bool
+    graph_hops: int
 
 #: Matches ``RAG_RETRIEVE_DEFAULT_TOP_K`` (crates/relata-query/src/parser.rs:2854).
 DEFAULT_TOP_K = 8
@@ -99,7 +112,7 @@ def _build_rag_payload(
     embedding_slot: str,
     filters: list[dict[str, Any]] | dict[str, Any] | None,
     as_of: str | None,
-    purpose: str,
+    purpose: str | None,
     expand_window: bool,
     graph_hops: int,
 ) -> dict[str, object]:

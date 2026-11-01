@@ -9,6 +9,7 @@ the contract is frozen by ADR-0299).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -59,8 +60,8 @@ from relata.rag_understanding import (
 BASE = "http://localhost:9090"
 
 
-def _hit(chunk_id: str, **overrides: Any) -> dict[str, Any]:
-    base = {
+def _hit(chunk_id: str, **overrides: object) -> dict[str, Any]:
+    base: dict[str, Any] = {
         "bm25_score": 1.0,
         "vector_score": 1.0,
         "rerank_score": None,
@@ -78,10 +79,10 @@ def _hit(chunk_id: str, **overrides: Any) -> dict[str, Any]:
     return base
 
 
-def _mock_client(handler: Any) -> RelataClient:
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -94,14 +95,14 @@ def _mock_client(handler: Any) -> RelataClient:
 # ── query-shape dispatch — classification ───────────────────────────────────
 
 
-def test_classify_conjunction_shape():
+def test_classify_conjunction_shape() -> None:
     assert (
         classify_query_shape("Who approved the budget and signed the contract?")
         == QueryShape.CONJUNCTION
     )
 
 
-def test_classify_enumeration_shape():
+def test_classify_enumeration_shape() -> None:
     assert (
         classify_query_shape("Which vendors were flagged for compliance issues?")
         == QueryShape.ENUMERATION
@@ -109,7 +110,7 @@ def test_classify_enumeration_shape():
     assert classify_query_shape("List every open finding.") == QueryShape.ENUMERATION
 
 
-def test_classify_how_many_is_aggregation_not_enumeration():
+def test_classify_how_many_is_aggregation_not_enumeration() -> None:
     """#4535 acceptance criteria: a 'count' question routes to COUNT(*) (one
     row), not full enumeration — "how many" used to fall through to
     ENUMERATION (widened top_k, LLM guesses a count from retrieved chunks);
@@ -118,14 +119,14 @@ def test_classify_how_many_is_aggregation_not_enumeration():
     assert shape == QueryShape.AGGREGATION
 
 
-def test_classify_simple_shape():
+def test_classify_simple_shape() -> None:
     assert classify_query_shape("What is RelataDB?") == QueryShape.SIMPLE
 
 
 # ── query-shape dispatch — the different /v1/rag/query call shape it produces ─
 
 
-def test_conjunction_shape_requests_expand_window():
+def test_conjunction_shape_requests_expand_window() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -143,7 +144,7 @@ def test_conjunction_shape_requests_expand_window():
     assert captured["expand_window"] is True
 
 
-def test_enumeration_shape_widens_top_k():
+def test_enumeration_shape_widens_top_k() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -162,7 +163,7 @@ def test_enumeration_shape_widens_top_k():
     assert captured["top_k"] > 8  # wider than #4514's RAG_RETRIEVE_DEFAULT_TOP_K
 
 
-def test_enumeration_shape_never_shrinks_an_explicit_larger_top_k():
+def test_enumeration_shape_never_shrinks_an_explicit_larger_top_k() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -181,7 +182,7 @@ def test_enumeration_shape_never_shrinks_an_explicit_larger_top_k():
     assert captured["top_k"] == 100
 
 
-def test_simple_shape_leaves_request_shape_alone():
+def test_simple_shape_leaves_request_shape_alone() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -207,15 +208,15 @@ def test_simple_shape_leaves_request_shape_alone():
         "What is the recommended dosage?",
     ],
 )
-def test_numeric_intent_detected(query: str):
+def test_numeric_intent_detected(query: str) -> None:
     assert is_numeric_intent(query) is True
 
 
-def test_non_numeric_query_is_not_numeric_intent():
+def test_non_numeric_query_is_not_numeric_intent() -> None:
     assert is_numeric_intent("Explain how RelataDB performs hybrid retrieval.") is False
 
 
-def test_hyde_skipped_for_numeric_intent_query():
+def test_hyde_skipped_for_numeric_intent_query() -> None:
     calls: list[str] = []
 
     def hypothesis_fn(q: str) -> str:
@@ -228,7 +229,7 @@ def test_hyde_skipped_for_numeric_intent_query():
     assert calls == []  # hypothesis_fn never invoked
 
 
-def test_hyde_applied_for_non_numeric_query():
+def test_hyde_applied_for_non_numeric_query() -> None:
     def hypothesis_fn(q: str) -> str:
         return f"Hypothetically, {q.lower()} is answered by RelataDB's hybrid engine."
 
@@ -238,7 +239,7 @@ def test_hyde_applied_for_non_numeric_query():
     assert result.startswith("Hypothetically,")
 
 
-def test_smart_rag_query_numeric_intent_provably_skips_hyde():
+def test_smart_rag_query_numeric_intent_provably_skips_hyde() -> None:
     captured: dict[str, Any] = {}
     hyde_calls: list[str] = []
 
@@ -260,7 +261,7 @@ def test_smart_rag_query_numeric_intent_provably_skips_hyde():
     assert captured["query"] == query  # sent unchanged, not the hallucinated text
 
 
-def test_smart_rag_query_applies_hyde_for_non_numeric_query():
+def test_smart_rag_query_applies_hyde_for_non_numeric_query() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -285,14 +286,14 @@ def test_smart_rag_query_applies_hyde_for_non_numeric_query():
 # ── decomposition + auto-scaling RRF merge ──────────────────────────────────
 
 
-def test_decompose_splits_multi_part_question():
+def test_decompose_splits_multi_part_question() -> None:
     parts = decompose_query("What is the incident response policy and who owns it?")
     assert len(parts) == 2
     assert parts[0] == "What is the incident response policy"
     assert parts[1] == "who owns it?"
 
 
-def test_decompose_single_part_question_is_unchanged():
+def test_decompose_single_part_question_is_unchanged() -> None:
     assert decompose_query("What is RelataDB?") == ["What is RelataDB?"]
 
 
@@ -307,16 +308,16 @@ def test_decompose_single_part_question_is_unchanged():
         (100, 10.0),  # floor
     ],
 )
-def test_rrf_k_for_fanout_matches_auto_scaling_formula(n: int, expected_k: float):
+def test_rrf_k_for_fanout_matches_auto_scaling_formula(n: int, expected_k: float) -> None:
     assert rrf_k_for_fanout(n) == expected_k
 
 
-def test_rrf_k_for_fanout_rejects_non_positive_n():
+def test_rrf_k_for_fanout_rejects_non_positive_n() -> None:
     with pytest.raises(ValueError):
         rrf_k_for_fanout(0)
 
 
-def test_rrf_scores_uses_the_k_it_is_given_not_a_fixed_constant():
+def test_rrf_scores_uses_the_k_it_is_given_not_a_fixed_constant() -> None:
     """`_rrf_scores` must compute `1/(k+rank)` with whatever `k` it's called
     with — not RelataDB's fixed internal RRF_K=60
     (`crates/relata-query/src/hybrid.rs`), which is a different merge at a
@@ -337,7 +338,7 @@ def test_rrf_scores_uses_the_k_it_is_given_not_a_fixed_constant():
     assert scores_k60 != scores_k30  # different k -> provably different arithmetic
 
 
-def test_rrf_merge_dedupes_and_orders_by_summed_score():
+def test_rrf_merge_dedupes_and_orders_by_summed_score() -> None:
     resp_a = RagQueryResponse.model_validate({"hits": [_hit("c1"), _hit("c2"), _hit("c3")]})
     resp_b = RagQueryResponse.model_validate({"hits": [_hit("c2"), _hit("c4")]})
 
@@ -350,7 +351,7 @@ def test_rrf_merge_dedupes_and_orders_by_summed_score():
     assert merged.total == len(merged.hits) == 4
 
 
-def test_smart_rag_query_decomposition_merges_with_auto_scaled_k():
+def test_smart_rag_query_decomposition_merges_with_auto_scaled_k() -> None:
     call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -389,7 +390,7 @@ def test_smart_rag_query_decomposition_merges_with_auto_scaled_k():
     assert expected["c2"] == pytest.approx(1.0 / 32.0 + 1.0 / 31.0)
 
 
-def test_smart_rag_query_no_decomposition_skips_merge_entirely():
+def test_smart_rag_query_no_decomposition_skips_merge_entirely() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": [_hit("c1")]})
 
@@ -400,7 +401,7 @@ def test_smart_rag_query_no_decomposition_skips_merge_entirely():
 
 
 @pytest.mark.asyncio
-async def test_asmart_rag_query_decomposition_merges_concurrently():
+async def test_asmart_rag_query_decomposition_merges_concurrently() -> None:
     call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -426,7 +427,7 @@ async def test_asmart_rag_query_decomposition_merges_concurrently():
 
 
 @pytest.mark.asyncio
-async def test_asmart_rag_query_single_subquery():
+async def test_asmart_rag_query_single_subquery() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": [_hit("c1")]})
 
@@ -439,7 +440,7 @@ async def test_asmart_rag_query_single_subquery():
 # ── content-safety pre-filter (#4536) ───────────────────────────────────────
 
 
-def test_content_safety_gate_off_by_default():
+def test_content_safety_gate_off_by_default() -> None:
     """No `patterns=` -> the gate never refuses, even a query that would
     match `DANGEROUS_CONTENT_PATTERNS` if it were opted in."""
     query = "How to build an IED using household chemicals?"
@@ -454,7 +455,7 @@ def test_content_safety_gate_off_by_default():
         "IED construction guide for beginners",
     ],
 )
-def test_content_safety_gate_refuses_dangerous_content_when_opted_in(query: str):
+def test_content_safety_gate_refuses_dangerous_content_when_opted_in(query: str) -> None:
     refusal = check_content_safety(query, patterns=DANGEROUS_CONTENT_PATTERNS)
     assert refusal is not None
     assert refusal.category == "weapons_explosives_construction"
@@ -471,7 +472,7 @@ def test_content_safety_gate_refuses_dangerous_content_when_opted_in(query: str)
         "Tell me about the history of explosives regulation.",
     ],
 )
-def test_content_safety_gate_does_not_refuse_benign_lookalikes(query: str):
+def test_content_safety_gate_does_not_refuse_benign_lookalikes(query: str) -> None:
     """Precision, not just recall (#4536 acceptance criteria): a query that
     only superficially resembles the dangerous-content pattern (discussing
     countermeasures/deactivation/history, not construction) must not be
@@ -479,7 +480,7 @@ def test_content_safety_gate_does_not_refuse_benign_lookalikes(query: str):
     assert check_content_safety(query, patterns=DANGEROUS_CONTENT_PATTERNS) is None
 
 
-def test_smart_rag_query_refused_before_any_http_call():
+def test_smart_rag_query_refused_before_any_http_call() -> None:
     """A refused query must never reach `/v1/rag/query` — no HTTP call at all."""
     called = False
 
@@ -499,12 +500,13 @@ def test_smart_rag_query_refused_before_any_http_call():
     )
     assert called is False
     assert result.is_refused is True
+    assert result.refused is not None
     assert result.refused.category == "weapons_explosives_construction"
     assert result.hits == []
 
 
 @pytest.mark.asyncio
-async def test_asmart_rag_query_refused_before_any_http_call():
+async def test_asmart_rag_query_refused_before_any_http_call() -> None:
     called = False
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -525,7 +527,7 @@ async def test_asmart_rag_query_refused_before_any_http_call():
     assert result.is_refused is True
 
 
-def test_smart_rag_query_benign_query_unaffected_by_content_safety_opt_in():
+def test_smart_rag_query_benign_query_unaffected_by_content_safety_opt_in() -> None:
     """Opting into the gate must not disturb ordinary retrieval traffic."""
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -547,13 +549,13 @@ def test_smart_rag_query_benign_query_unaffected_by_content_safety_opt_in():
 # ── structured-attribute-filter routing (#4536) ─────────────────────────────
 
 
-def test_classify_attribute_filter_shape():
+def test_classify_attribute_filter_shape() -> None:
     query = "list of persons above 6ft tall with moustache, fair complexion"
     assert classify_query_shape(query) == QueryShape.ATTRIBUTE_FILTER
     assert is_attribute_filter_intent(query) is True
 
 
-def test_attribute_filter_shape_checked_before_enumeration():
+def test_attribute_filter_shape_checked_before_enumeration() -> None:
     """"list of persons above 6ft tall ..." opens with "list" (an
     enumeration cue) but must classify as ATTRIBUTE_FILTER, not
     ENUMERATION — it's a structurally different, SQL-routable shape."""
@@ -561,21 +563,25 @@ def test_attribute_filter_shape_checked_before_enumeration():
     assert classify_query_shape(query) == QueryShape.ATTRIBUTE_FILTER
 
 
-def test_extract_attribute_filters_height_and_descriptors():
+def test_extract_attribute_filters_height_and_descriptors() -> None:
     query = "list of persons above 6ft tall with moustache, fair complexion"
     filters = extract_attribute_filters(query)
     by_field = {f["field"]: f for f in filters}
     assert by_field["height"]["op"] == ">="
     assert by_field["height"]["value"] == pytest.approx(182.9, abs=0.1)
-    assert by_field["facial_hair"] == {"field": "facial_hair", "op": "ILIKE", "value": "%moustache%"}
+    assert by_field["facial_hair"] == {
+        "field": "facial_hair",
+        "op": "ILIKE",
+        "value": "%moustache%",
+    }
     assert by_field["complexion"] == {"field": "complexion", "op": "ILIKE", "value": "%fair%"}
 
 
-def test_extract_attribute_filters_empty_for_non_attribute_query():
+def test_extract_attribute_filters_empty_for_non_attribute_query() -> None:
     assert extract_attribute_filters("What is RelataDB?") == []
 
 
-def test_route_attribute_filter_query_returns_sql_filtered_rows():
+def test_route_attribute_filter_query_returns_sql_filtered_rows() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -607,7 +613,7 @@ def test_route_attribute_filter_query_returns_sql_filtered_rows():
     assert "facial_hair ILIKE" in captured["sql"]
 
 
-def test_route_attribute_filter_query_returns_none_when_no_filters_extracted():
+def test_route_attribute_filter_query_returns_none_when_no_filters_extracted() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise AssertionError("no /v1/query call should be made")
 
@@ -615,7 +621,7 @@ def test_route_attribute_filter_query_returns_none_when_no_filters_extracted():
     assert route_attribute_filter_query(client, "What is RelataDB?", "Person") is None
 
 
-def test_route_attribute_filter_query_falls_back_when_known_fields_dont_match():
+def test_route_attribute_filter_query_falls_back_when_known_fields_dont_match() -> None:
     """Acceptance criteria: an attribute-filter query whose field mapping
     can't be resolved against the schema falls back (returns None) rather
     than guessing against a field that doesn't exist on `type`."""
@@ -633,7 +639,7 @@ def test_route_attribute_filter_query_falls_back_when_known_fields_dont_match():
     assert result is None
 
 
-def test_smart_rag_query_routes_attribute_filter_to_sql_not_retrieval():
+def test_smart_rag_query_routes_attribute_filter_to_sql_not_retrieval() -> None:
     rag_called = False
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -663,11 +669,12 @@ def test_smart_rag_query_routes_attribute_filter_to_sql_not_retrieval():
     )
     assert rag_called is False  # never a semantic-similarity guess
     assert result.is_sql_routed is True
+    assert result.sql_result is not None
     assert result.sql_result.rows[0]["name"] == "Ahmad Akhtar"
     assert result.hits == []
 
 
-def test_smart_rag_query_attribute_filter_falls_back_to_retrieval_with_low_confidence():
+def test_smart_rag_query_attribute_filter_falls_back_to_retrieval_with_low_confidence() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v1/rag/query":
             return httpx.Response(200, json={"hits": [_hit("c1")]})
@@ -689,7 +696,7 @@ def test_smart_rag_query_attribute_filter_falls_back_to_retrieval_with_low_confi
 
 
 @pytest.mark.asyncio
-async def test_asmart_rag_query_routes_attribute_filter_to_sql():
+async def test_asmart_rag_query_routes_attribute_filter_to_sql() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v1/rag/query":
             raise AssertionError("should not call /v1/rag/query for an attribute-filter shape")
@@ -714,11 +721,12 @@ async def test_asmart_rag_query_routes_attribute_filter_to_sql():
         purpose="research",
     )
     assert result.is_sql_routed is True
+    assert result.sql_result is not None
     assert result.sql_result.rows[0]["name"] == "Ahmad Akhtar"
 
 
 @pytest.mark.asyncio
-async def test_aroute_attribute_filter_query_returns_none_when_no_filters_extracted():
+async def test_aroute_attribute_filter_query_returns_none_when_no_filters_extracted() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise AssertionError("no /v1/query call should be made")
 
@@ -738,7 +746,7 @@ def _count_response(n: int) -> dict[str, Any]:
     }
 
 
-def test_classify_aggregation_shape():
+def test_classify_aggregation_shape() -> None:
     assert (
         classify_query_shape("How many incidents happened in 2023?") == QueryShape.AGGREGATION
     )
@@ -746,14 +754,14 @@ def test_classify_aggregation_shape():
     assert is_aggregation_intent("What is RelataDB?") is False
 
 
-def test_classify_negation_shape():
+def test_classify_negation_shape() -> None:
     query = "Which SIMI members are NOT in custody?"
     assert classify_query_shape(query) == QueryShape.NEGATION
     assert is_negation_intent(query) is True
     assert is_negation_intent("What is RelataDB?") is False
 
 
-def test_negation_checked_before_enumeration():
+def test_negation_checked_before_enumeration() -> None:
     """"Which SIMI members are NOT in custody?" opens with "which" (an
     ENUMERATION cue) but must classify as NEGATION — a top-k retrieval has
     no notion of "not"."""
@@ -762,27 +770,27 @@ def test_negation_checked_before_enumeration():
     )
 
 
-def test_classify_boolean_shape():
+def test_classify_boolean_shape() -> None:
     query = "Members of SIMI AND LeT"
     assert classify_query_shape(query) == QueryShape.BOOLEAN
     assert is_boolean_intent(query) is True
     assert is_boolean_intent("What is RelataDB?") is False
 
 
-def test_classify_ranking_shape():
+def test_classify_ranking_shape() -> None:
     query = "Top 5 most active members"
     assert classify_query_shape(query) == QueryShape.RANKING
     assert is_ranking_intent(query) is True
     assert is_ranking_intent("What is RelataDB?") is False
 
 
-def test_classify_simple_query_unaffected_by_new_shapes():
+def test_classify_simple_query_unaffected_by_new_shapes() -> None:
     """#4535 acceptance criteria: a semantically-similar but non-structured
     question is unaffected — still SIMPLE (routes to retrieval)."""
     assert classify_query_shape("Tell me about SIMI's history") == QueryShape.SIMPLE
 
 
-def test_extract_keyword_filters_builds_predicates_from_field_map():
+def test_extract_keyword_filters_builds_predicates_from_field_map() -> None:
     filters = extract_keyword_filters(
         "Which SIMI members are NOT in custody?",
         {"simi": "organization", "custody": "status"},
@@ -797,7 +805,7 @@ def test_extract_keyword_filters_builds_predicates_from_field_map():
     assert by_field["status"] == {"field": "status", "op": "NOT ILIKE", "value": "%custody%"}
 
 
-def test_extract_keyword_filters_dedupe_fields_off_keeps_both_same_field_matches():
+def test_extract_keyword_filters_dedupe_fields_off_keeps_both_same_field_matches() -> None:
     filters = extract_keyword_filters(
         "Members of SIMI AND LeT",
         {"simi": "organization", "let": "organization"},
@@ -812,7 +820,7 @@ def test_extract_keyword_filters_dedupe_fields_off_keeps_both_same_field_matches
 # -- aggregation --
 
 
-def test_route_aggregation_query_bare_count_needs_no_field_map():
+def test_route_aggregation_query_bare_count_needs_no_field_map() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -828,7 +836,7 @@ def test_route_aggregation_query_bare_count_needs_no_field_map():
     assert captured["sql"] == "SELECT COUNT(*) AS count FROM Incident"
 
 
-def test_route_aggregation_query_applies_extracted_filter():
+def test_route_aggregation_query_applies_extracted_filter() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -848,7 +856,7 @@ def test_route_aggregation_query_applies_extracted_filter():
     assert "organization ILIKE" in captured["sql"]
 
 
-def test_route_aggregation_query_falls_back_when_known_fields_dont_match():
+def test_route_aggregation_query_falls_back_when_known_fields_dont_match() -> None:
     """#4535 acceptance criteria: an aggregation-shaped question whose field
     mapping can't be resolved against the schema falls back to retrieval
     rather than silently counting an unfiltered (and therefore wrong) total."""
@@ -868,7 +876,7 @@ def test_route_aggregation_query_falls_back_when_known_fields_dont_match():
 
 
 @pytest.mark.asyncio
-async def test_aroute_aggregation_query_returns_count():
+async def test_aroute_aggregation_query_returns_count() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_count_response(100))
 
@@ -883,7 +891,7 @@ async def test_aroute_aggregation_query_returns_count():
 # -- negation --
 
 
-def test_route_negation_query_returns_none_without_field_map():
+def test_route_negation_query_returns_none_without_field_map() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise AssertionError("no /v1/query call should be made")
 
@@ -891,7 +899,7 @@ def test_route_negation_query_returns_none_without_field_map():
     assert route_negation_query(client, "Which SIMI members are NOT in custody?", "Person") is None
 
 
-def test_route_negation_query_builds_not_ilike_predicate():
+def test_route_negation_query_builds_not_ilike_predicate() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -919,7 +927,7 @@ def test_route_negation_query_builds_not_ilike_predicate():
     assert "status NOT ILIKE" in captured["sql"]
 
 
-def test_route_negation_query_falls_back_when_known_fields_dont_match():
+def test_route_negation_query_falls_back_when_known_fields_dont_match() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise AssertionError("no /v1/query call should be made")
 
@@ -935,7 +943,7 @@ def test_route_negation_query_falls_back_when_known_fields_dont_match():
 
 
 @pytest.mark.asyncio
-async def test_aroute_negation_query_builds_not_ilike_predicate():
+async def test_aroute_negation_query_builds_not_ilike_predicate() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -957,7 +965,7 @@ async def test_aroute_negation_query_builds_not_ilike_predicate():
 # -- boolean --
 
 
-def test_route_boolean_query_returns_none_without_field_map():
+def test_route_boolean_query_returns_none_without_field_map() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise AssertionError("no /v1/query call should be made")
 
@@ -965,7 +973,7 @@ def test_route_boolean_query_returns_none_without_field_map():
     assert route_boolean_query(client, "Members of SIMI AND LeT", "Person") is None
 
 
-def test_route_boolean_query_joins_predicates_with_and():
+def test_route_boolean_query_joins_predicates_with_and() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -987,7 +995,7 @@ def test_route_boolean_query_joins_predicates_with_and():
     assert " OR " not in captured["sql"]
 
 
-def test_route_boolean_query_joins_predicates_with_or():
+def test_route_boolean_query_joins_predicates_with_or() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -1005,7 +1013,7 @@ def test_route_boolean_query_joins_predicates_with_or():
     assert " OR " in captured["sql"]
 
 
-def test_route_boolean_query_returns_none_when_fewer_than_two_predicates_resolve():
+def test_route_boolean_query_returns_none_when_fewer_than_two_predicates_resolve() -> None:
     """A boolean shape needs >= 2 resolved predicates to be meaningful — a
     single-keyword field_map (or known_fields ruling all-but-one out) must
     fall back to retrieval rather than emitting a degenerate one-predicate
@@ -1034,7 +1042,7 @@ def test_route_boolean_query_returns_none_when_fewer_than_two_predicates_resolve
 
 
 @pytest.mark.asyncio
-async def test_aroute_boolean_query_joins_predicates():
+async def test_aroute_boolean_query_joins_predicates() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -1056,7 +1064,7 @@ async def test_aroute_boolean_query_joins_predicates():
 # -- ranking --
 
 
-def test_route_ranking_query_returns_none_without_field_map():
+def test_route_ranking_query_returns_none_without_field_map() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise AssertionError("no /v1/query call should be made")
 
@@ -1064,7 +1072,7 @@ def test_route_ranking_query_returns_none_without_field_map():
     assert route_ranking_query(client, "Top 5 most active members", "Person") is None
 
 
-def test_route_ranking_query_builds_order_by_limit():
+def test_route_ranking_query_builds_order_by_limit() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -1094,7 +1102,7 @@ def test_route_ranking_query_builds_order_by_limit():
     )
 
 
-def test_route_ranking_query_defaults_limit_when_no_explicit_n():
+def test_route_ranking_query_defaults_limit_when_no_explicit_n() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -1112,7 +1120,7 @@ def test_route_ranking_query_defaults_limit_when_no_explicit_n():
     assert f"LIMIT {DEFAULT_RANKING_LIMIT}" in captured["sql"]
 
 
-def test_route_ranking_query_ascending_for_lowest():
+def test_route_ranking_query_ascending_for_lowest() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -1132,7 +1140,7 @@ def test_route_ranking_query_ascending_for_lowest():
     assert f"LIMIT {DEFAULT_RANKING_LIMIT}" in captured["sql"]
 
 
-def test_route_ranking_query_falls_back_when_known_fields_dont_match():
+def test_route_ranking_query_falls_back_when_known_fields_dont_match() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise AssertionError("no /v1/query call should be made")
 
@@ -1148,7 +1156,7 @@ def test_route_ranking_query_falls_back_when_known_fields_dont_match():
 
 
 @pytest.mark.asyncio
-async def test_aroute_ranking_query_builds_order_by_limit():
+async def test_aroute_ranking_query_builds_order_by_limit() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -1170,7 +1178,7 @@ async def test_aroute_ranking_query_builds_order_by_limit():
 # -- enumeration (#4535 large-result-set policy) --
 
 
-def test_route_enumeration_query_returns_inline_result_when_small():
+def test_route_enumeration_query_returns_inline_result_when_small() -> None:
     """A completed /v1/rag/export operation at/under the server's row threshold
     is returned inline — no bucket/key, real rows in `.data`."""
     captured: dict[str, Any] = {}
@@ -1202,7 +1210,7 @@ def test_route_enumeration_query_returns_inline_result_when_small():
     assert result.bucket is None
 
 
-def test_route_enumeration_query_is_file_backed_when_large():
+def test_route_enumeration_query_is_file_backed_when_large() -> None:
     """#4535 acceptance criteria: a large-result enumeration produces a real
     S3Object descriptor (bucket/key/etag) plus a labeled preview + the real
     row_count — not a truncated list presented as complete."""
@@ -1251,7 +1259,7 @@ def test_route_enumeration_query_is_file_backed_when_large():
     assert result.preview == [{"msisdn": "9800004040", "called_at": "2023-01-01"}]
 
 
-def test_route_enumeration_query_falls_back_when_known_fields_dont_match():
+def test_route_enumeration_query_falls_back_when_known_fields_dont_match() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise AssertionError("no /v1/rag/export call should be made when the field can't resolve")
 
@@ -1266,7 +1274,7 @@ def test_route_enumeration_query_falls_back_when_known_fields_dont_match():
     assert result is None
 
 
-def test_route_enumeration_query_raises_timeout_error_when_never_completes():
+def test_route_enumeration_query_raises_timeout_error_when_never_completes() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v1/rag/export":
             return httpx.Response(
@@ -1290,7 +1298,7 @@ def test_route_enumeration_query_raises_timeout_error_when_never_completes():
         )
 
 
-def test_route_enumeration_query_propagates_server_error_on_failed_operation():
+def test_route_enumeration_query_propagates_server_error_on_failed_operation() -> None:
     """A failed operation (e.g. the row-cap backstop tripping,
     QueryError::ResultCapExceeded) surfaces as a real error, not a silent
     empty/partial result — the row cap is unconditional, this routing does
@@ -1322,7 +1330,7 @@ def test_route_enumeration_query_propagates_server_error_on_failed_operation():
 
 
 @pytest.mark.asyncio
-async def test_aroute_enumeration_query_returns_inline_result_when_small():
+async def test_aroute_enumeration_query_returns_inline_result_when_small() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v1/rag/export":
             return httpx.Response(
@@ -1345,7 +1353,7 @@ async def test_aroute_enumeration_query_returns_inline_result_when_small():
 # -- smart_rag_query / asmart_rag_query end-to-end dispatch --
 
 
-def test_smart_rag_query_routes_aggregation_to_count_not_enumeration():
+def test_smart_rag_query_routes_aggregation_to_count_not_enumeration() -> None:
     """#4535 acceptance criteria: 'how many X' against a seeded corpus
     returns the real row count via SQL, not an LLM-estimated number from
     retrieved chunks — and 'count' routes to COUNT(*) (one row), not full
@@ -1368,12 +1376,14 @@ def test_smart_rag_query_routes_aggregation_to_count_not_enumeration():
     )
     assert rag_called is False
     assert result.is_sql_routed is True
+    assert result.sql_result is not None
     assert result.sql_result.row_count == 1  # one row: the count
+    assert result.sql_result is not None
     assert result.sql_result.rows[0]["count"] == 1234
     assert result.hits == []
 
 
-def test_smart_rag_query_non_structured_question_still_routes_to_retrieval():
+def test_smart_rag_query_non_structured_question_still_routes_to_retrieval() -> None:
     """#4535 acceptance criteria: a semantically-similar but non-structured
     question is unaffected — still routes to retrieval."""
 
@@ -1391,7 +1401,7 @@ def test_smart_rag_query_non_structured_question_still_routes_to_retrieval():
     assert [h.chunk_id for h in result.hits] == ["c1"]
 
 
-def test_smart_rag_query_routes_boolean_to_sql():
+def test_smart_rag_query_routes_boolean_to_sql() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v1/rag/query":
             raise AssertionError("boolean-shaped query must not fall through to retrieval")
@@ -1417,10 +1427,11 @@ def test_smart_rag_query_routes_boolean_to_sql():
         structured_field_map={"simi": "organization", "let": "organization"},
     )
     assert result.is_sql_routed is True
+    assert result.sql_result is not None
     assert result.sql_result.rows[0]["name"] == "Bilal Hassan"
 
 
-def test_smart_rag_query_negation_falls_back_to_retrieval_with_low_confidence():
+def test_smart_rag_query_negation_falls_back_to_retrieval_with_low_confidence() -> None:
     """No structured_field_map given -> negation routing can't build a
     predicate -> falls back to retrieval with low_confidence set (#4535,
     mirrors #4536's attribute-filter fallback contract)."""
@@ -1442,7 +1453,7 @@ def test_smart_rag_query_negation_falls_back_to_retrieval_with_low_confidence():
 
 
 @pytest.mark.asyncio
-async def test_asmart_rag_query_routes_ranking_to_sql():
+async def test_asmart_rag_query_routes_ranking_to_sql() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v1/rag/query":
             raise AssertionError("ranking-shaped query must not fall through to retrieval")
@@ -1468,4 +1479,5 @@ async def test_asmart_rag_query_routes_ranking_to_sql():
         structured_field_map={"active": "activity_count"},
     )
     assert result.is_sql_routed is True
+    assert result.sql_result is not None
     assert result.sql_result.rows[0]["name"] == "Zahid Iqbal"

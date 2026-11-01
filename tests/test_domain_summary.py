@@ -31,7 +31,7 @@ def test_domain_summary_supports_all_and_rejects_bad_inputs() -> None:
     with pytest.raises(ValueError, match="unknown domain"):
         summarize_domain("other", {"types": []})
     with pytest.raises(TypeError, match="object with a types array"):
-        summarize_domain("telco", None)
+        summarize_domain("telco", None)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="types array"):
         summarize_domain("telco", {})
     with pytest.raises(TypeError, match="types array"):

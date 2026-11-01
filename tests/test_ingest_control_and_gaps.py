@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -12,10 +14,8 @@ import pytest
 from relata import (
     AsyncFilesClient,
     AsyncIngestControlClient,
-    AsyncMediaWorkClient,
     FilesClient,
     IngestControlClient,
-    MediaWorkClient,
     Memory,
     RelataError,
 )
@@ -24,10 +24,14 @@ from relata.memory import AsyncMemory
 BASE = "http://localhost:9090"
 
 
-def _rec(seen: list, status: int = 200, body: object = None):
+def _rec(
+    seen: list[tuple[str, str, str, Any]], status: int = 200, body: object = None
+) -> Callable[[httpx.Request], httpx.Response]:
     def handler(req: httpx.Request) -> httpx.Response:
         payload = json.loads(req.content) if req.content else None
-        seen.append((req.method, req.url.raw_path.decode().split("?")[0], req.url.query.decode(), payload))
+        seen.append(
+            (req.method, req.url.raw_path.decode().split("?")[0], req.url.query.decode(), payload)
+        )
         if status == 204:
             return httpx.Response(204)
         return httpx.Response(status, json=body if body is not None else {})
@@ -36,7 +40,7 @@ def _rec(seen: list, status: int = 200, body: object = None):
 
 
 def test_ingest_control_routes_and_bodies() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = IngestControlClient(BASE, transport=httpx.MockTransport(_rec(seen)))
     c.checkpoint("kafka/orders 1")
     c.list_contracts()
@@ -57,9 +61,9 @@ def test_ingest_control_routes_and_bodies() -> None:
 
 
 def test_quarantine_delete_expects_204() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = IngestControlClient(BASE, transport=httpx.MockTransport(_rec(seen, 204)))
-    assert c.delete_quarantine(9) is None
+    assert c.delete_quarantine(9) is None  # type: ignore[func-returns-value]
     assert seen == [("DELETE", "/v1/ingest/quarantine/9", "", None)]
     missing = IngestControlClient(
         BASE, transport=httpx.MockTransport(_rec([], 404, {"title": "nf", "status": 404}))
@@ -69,7 +73,7 @@ def test_quarantine_delete_expects_204() -> None:
 
 
 def test_ingest_control_async() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
 
     async def run() -> None:
         c = AsyncIngestControlClient(BASE, transport=httpx.MockTransport(_rec(seen)))
@@ -87,7 +91,7 @@ def test_ingest_control_async() -> None:
 
 
 def test_async_quarantine_delete() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
 
     async def run() -> None:
         c = AsyncIngestControlClient(BASE, transport=httpx.MockTransport(_rec(seen, 204)))
@@ -99,10 +103,13 @@ def test_async_quarantine_delete() -> None:
 
 
 def test_memory_associate_batch() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     m = Memory(BASE, purpose="notes", transport=httpx.MockTransport(_rec(seen, body={"stored": 2})))
     out = m.associate_batch(
-        [{"from_id": "a", "to_id": "b", "relation": "causes"}, {"from_id": "c", "to_id": "d", "purpose": "x"}]
+        [
+            {"from_id": "a", "to_id": "b", "relation": "causes"},
+            {"from_id": "c", "to_id": "d", "purpose": "x"},
+        ]
     )
     assert out == {"stored": 2}
     assert seen == [
@@ -123,7 +130,7 @@ def test_memory_associate_batch() -> None:
 
 
 def test_async_memory_associate_batch() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
 
     async def run() -> None:
         m = AsyncMemory(BASE, purpose="notes", transport=httpx.MockTransport(_rec(seen)))
@@ -142,7 +149,7 @@ _FOLDER = dict(
 
 
 def test_files_create_folder() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = FilesClient(BASE, transport=httpx.MockTransport(_rec(seen, 201, _FOLDER)))
     meta = c.create_folder("a", bucket="t")
     assert meta.is_folder and meta.key == "a/"

@@ -24,7 +24,7 @@ from relata.rag_rank import (
 )
 
 
-def _hit(chunk_id: str, **overrides: Any) -> RagHit:
+def _hit(chunk_id: str, **overrides: object) -> RagHit:
     base: dict[str, Any] = {
         "bm25_score": 1.0,
         "vector_score": 1.0,
@@ -47,7 +47,7 @@ def _hit(chunk_id: str, **overrides: Any) -> RagHit:
 # ── domain-configurable lambda (AC #3) ──────────────────────────────────────
 
 
-def test_verified_lambda_defaults_by_domain():
+def test_verified_lambda_defaults_by_domain() -> None:
     assert MMR_LAMBDA_BY_PURPOSE["legal"] == 0.7
     assert MMR_LAMBDA_BY_PURPOSE["clinical"] == 0.7
     assert MMR_LAMBDA_BY_PURPOSE["medical"] == 0.7
@@ -71,44 +71,44 @@ def test_verified_lambda_defaults_by_domain():
         ("code", 0.4),
     ],
 )
-def test_mmr_lambda_for_purpose_known_domains(purpose: str, expected: float):
+def test_mmr_lambda_for_purpose_known_domains(purpose: str, expected: float) -> None:
     assert mmr_lambda_for_purpose(purpose) == expected
 
 
-def test_mmr_lambda_for_purpose_unknown_falls_back_to_default():
+def test_mmr_lambda_for_purpose_unknown_falls_back_to_default() -> None:
     assert mmr_lambda_for_purpose("marketing") == DEFAULT_MMR_LAMBDA
 
 
-def test_mmr_lambda_for_purpose_none_falls_back_to_default():
+def test_mmr_lambda_for_purpose_none_falls_back_to_default() -> None:
     assert mmr_lambda_for_purpose(None) == DEFAULT_MMR_LAMBDA
 
 
 # ── default relevance/similarity are pure functions over sub-scores ────────
 
 
-def test_default_relevance_prefers_relevance_confidence_when_present():
+def test_default_relevance_prefers_relevance_confidence_when_present() -> None:
     hit = _hit("c1", relevance_confidence=0.42, bm25_score=1.0, vector_score=1.0)
     assert default_relevance(hit) == pytest.approx(0.42)
 
 
-def test_default_relevance_falls_back_to_score_average():
+def test_default_relevance_falls_back_to_score_average() -> None:
     hit = _hit("c1", relevance_confidence=None, bm25_score=0.8, vector_score=0.4)
     assert default_relevance(hit) == pytest.approx(0.6)
 
 
-def test_default_text_similarity_identical_text_is_one():
+def test_default_text_similarity_identical_text_is_one() -> None:
     a = _hit("a", text="quarterly revenue rose sharply")
     b = _hit("b", text="quarterly revenue rose sharply")
     assert default_text_similarity(a, b) == pytest.approx(1.0)
 
 
-def test_default_text_similarity_disjoint_text_is_zero():
+def test_default_text_similarity_disjoint_text_is_zero() -> None:
     a = _hit("a", text="quarterly revenue")
     b = _hit("b", text="unrelated topic entirely")
     assert default_text_similarity(a, b) == pytest.approx(0.0)
 
 
-def test_default_text_similarity_partial_overlap():
+def test_default_text_similarity_partial_overlap() -> None:
     a = _hit("a", text="alpha beta gamma")
     b = _hit("b", text="alpha beta delta")
     # tokens: {alpha,beta,gamma} vs {alpha,beta,delta} -> intersection 2, union 4
@@ -118,7 +118,7 @@ def test_default_text_similarity_partial_overlap():
 # ── mmr_select — pure, deterministic, no LLM/embedding/network call ────────
 
 
-def test_mmr_select_lambda_1_is_pure_relevance_ranking():
+def test_mmr_select_lambda_1_is_pure_relevance_ranking() -> None:
     hits = [
         _hit("low", relevance_confidence=0.2, text="alpha"),
         _hit("high", relevance_confidence=0.9, text="alpha"),
@@ -128,7 +128,7 @@ def test_mmr_select_lambda_1_is_pure_relevance_ranking():
     assert [h.chunk_id for h in selected] == ["high", "mid", "low"]
 
 
-def test_mmr_select_lambda_0_maximizes_diversity_only():
+def test_mmr_select_lambda_0_maximizes_diversity_only() -> None:
     # All three equally relevant; "dup" is a near-duplicate of "first".
     hits = [
         _hit("first", relevance_confidence=0.9, text="alpha beta gamma"),
@@ -140,31 +140,31 @@ def test_mmr_select_lambda_0_maximizes_diversity_only():
     assert selected[1].chunk_id == "diverse"  # second pick avoids the near-duplicate
 
 
-def test_mmr_select_respects_top_n():
+def test_mmr_select_respects_top_n() -> None:
     hits = [_hit(f"c{i}", relevance_confidence=1.0 - i * 0.1) for i in range(5)]
     selected = mmr_select(hits, lambda_mult=1.0, top_n=2)
     assert len(selected) == 2
     assert [h.chunk_id for h in selected] == ["c0", "c1"]
 
 
-def test_mmr_select_top_n_larger_than_pool_returns_everything():
+def test_mmr_select_top_n_larger_than_pool_returns_everything() -> None:
     hits = [_hit("a"), _hit("b")]
     selected = mmr_select(hits, top_n=10)
     assert len(selected) == 2
 
 
-def test_mmr_select_empty_input_returns_empty():
+def test_mmr_select_empty_input_returns_empty() -> None:
     assert mmr_select([]) == []
 
 
-def test_mmr_select_rejects_out_of_range_lambda():
+def test_mmr_select_rejects_out_of_range_lambda() -> None:
     with pytest.raises(ValueError):
         mmr_select([_hit("a")], lambda_mult=1.5)
     with pytest.raises(ValueError):
         mmr_select([_hit("a")], lambda_mult=-0.1)
 
 
-def test_mmr_select_is_deterministic_across_repeated_calls():
+def test_mmr_select_is_deterministic_across_repeated_calls() -> None:
     hits = [
         _hit("a", relevance_confidence=0.8, text="one two three"),
         _hit("b", relevance_confidence=0.7, text="two three four"),
@@ -175,7 +175,7 @@ def test_mmr_select_is_deterministic_across_repeated_calls():
     assert first == second
 
 
-def test_mmr_select_accepts_custom_relevance_and_similarity_fns():
+def test_mmr_select_accepts_custom_relevance_and_similarity_fns() -> None:
     hits = [_hit("a"), _hit("b"), _hit("c")]
     calls: list[str] = []
 
@@ -186,7 +186,9 @@ def test_mmr_select_accepts_custom_relevance_and_similarity_fns():
     def similarity_fn(x: RagHit, y: RagHit) -> float:
         return 0.0
 
-    selected = mmr_select(hits, lambda_mult=1.0, relevance_fn=relevance_fn, similarity_fn=similarity_fn)
+    selected = mmr_select(
+        hits, lambda_mult=1.0, relevance_fn=relevance_fn, similarity_fn=similarity_fn
+    )
     assert [h.chunk_id for h in selected] == ["b", "c", "a"]
     assert set(calls) == {"a", "b", "c"}  # every candidate's relevance was evaluated
 
@@ -194,7 +196,7 @@ def test_mmr_select_accepts_custom_relevance_and_similarity_fns():
 # ── mmr_select_for_purpose — the purpose-keyed convenience entry point ─────
 
 
-def test_mmr_select_for_purpose_uses_domain_lambda():
+def test_mmr_select_for_purpose_uses_domain_lambda() -> None:
     hits = [
         _hit("low", relevance_confidence=0.2, text="alpha"),
         _hit("high", relevance_confidence=0.9, text="alpha"),
@@ -204,7 +206,7 @@ def test_mmr_select_for_purpose_uses_domain_lambda():
     assert selected[0].chunk_id == "high"
 
 
-def test_mmr_select_for_purpose_none_uses_general_default():
+def test_mmr_select_for_purpose_none_uses_general_default() -> None:
     hits = [_hit("a", relevance_confidence=0.9), _hit("b", relevance_confidence=0.1)]
     selected = mmr_select_for_purpose(hits, None)
     assert selected[0].chunk_id == "a"

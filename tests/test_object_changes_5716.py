@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import httpx
 import pytest
 
@@ -40,7 +42,9 @@ def test_changes_without_arguments_has_no_query_string() -> None:
 
 
 def test_changes_rejects_an_unsafe_type_name() -> None:
-    client = ObjectClient(BASE, transport=httpx.MockTransport(lambda r: httpx.Response(200, json=PAGE)))
+    client = ObjectClient(
+        BASE, transport=httpx.MockTransport(lambda r: httpx.Response(200, json=PAGE))
+    )
     with pytest.raises(ValueError):
         client.changes(object_type="bad name!")
 
@@ -55,10 +59,17 @@ async def test_async_changes() -> None:
     assert (await client.changes(cursor="f:9"))["head"] == 3
 
 
-def _paged_handler(seen: list[httpx.Request]):
+def _paged_handler(
+    seen: list[httpx.Request],
+) -> Callable[[httpx.Request], httpx.Response]:
     pages = {
         None: {"feedId": "f", "events": [{"eventId": "f:1"}], "nextCursor": "f:1", "hasMore": True},
-        "f:1": {"feedId": "f", "events": [{"eventId": "f:2"}], "nextCursor": "f:2", "hasMore": False},
+        "f:1": {
+            "feedId": "f",
+            "events": [{"eventId": "f:2"}],
+            "nextCursor": "f:2",
+            "hasMore": False,
+        },
     }
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -87,7 +98,9 @@ def test_disabled_feed_is_a_404_problem() -> None:
     client = ObjectClient(BASE, transport=httpx.MockTransport(handler))
     with pytest.raises(Exception) as caught:
         client.changes()
-    assert "change-feed-disabled" in str(caught.value) or getattr(caught.value, "status", 404) == 404
+    assert (
+        "change-feed-disabled" in str(caught.value) or getattr(caught.value, "status", 404) == 404
+    )
 
 
 @pytest.mark.asyncio
@@ -98,7 +111,9 @@ async def test_async_iter_change_pages() -> None:
     assert len(pages) == 2 and pages[-1]["hasMore"] is False
 
 
-def _flaky_handler(seen: list[httpx.Request], failures: list[object]):
+def _flaky_handler(
+    seen: list[httpx.Request], failures: list[object]
+) -> Callable[[httpx.Request], httpx.Response]:
     """Serve f:1 then f:2; before the second page fail with each of ``failures``."""
     pending = list(failures)
 
@@ -111,8 +126,18 @@ def _flaky_handler(seen: list[httpx.Request], failures: list[object]):
                 raise item
             return httpx.Response(int(item), json={"detail": "x"})  # type: ignore[call-overload]
         pages = {
-            None: {"feedId": "f", "events": [{"eventId": "f:1"}], "nextCursor": "f:1", "hasMore": True},
-            "f:1": {"feedId": "f", "events": [{"eventId": "f:2"}], "nextCursor": "f:2", "hasMore": False},
+            None: {
+                "feedId": "f",
+                "events": [{"eventId": "f:1"}],
+                "nextCursor": "f:1",
+                "hasMore": True,
+            },
+            "f:1": {
+                "feedId": "f",
+                "events": [{"eventId": "f:2"}],
+                "nextCursor": "f:2",
+                "hasMore": False,
+            },
         }
         return httpx.Response(200, json=pages[cursor])
 

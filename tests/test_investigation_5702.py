@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -14,7 +15,7 @@ BASE = "http://localhost:9090"
 
 
 def _handler(
-    seen: list, status: int = 200, body: object = None
+    seen: list[tuple[str, str, str, Any]], status: int = 200, body: object = None
 ) -> Callable[[httpx.Request], httpx.Response]:
     def handler(req: httpx.Request) -> httpx.Response:
         payload = json.loads(req.content) if req.content else None
@@ -27,7 +28,7 @@ def _handler(
 
 
 def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = InvestigationClient(BASE, transport=httpx.MockTransport(_handler(seen)))
     c.alert_evidence("a/1")
     c.alert_evidence("a1", max_events=5, deadline_ms=900)
@@ -109,7 +110,7 @@ def test_errors_surface_with_their_problem_code() -> None:
 
 @pytest.mark.asyncio
 async def test_async_client_mirrors_the_sync_surface() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = AsyncInvestigationClient(BASE, transport=httpx.MockTransport(_handler(seen)))
     await c.alert_evidence("a1")
     await c.alert_timeline("a1")

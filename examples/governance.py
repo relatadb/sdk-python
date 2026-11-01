@@ -12,6 +12,7 @@ Run:
 from __future__ import annotations
 
 import os
+from typing import cast
 
 from relata import RelataClient
 from relata.audit import AuditClient
@@ -43,10 +44,9 @@ def main() -> None:
 
         # ── 4. List registered object types ────────────────────────────────
         print("\n=== Registered object types ===")
-        types = relata.list_types()
-        if isinstance(types, dict):
-            types = types.get("types", [])
-        for t in (types or [])[:10]:
+        listed = relata.list_types()
+        types = listed.get("types", []) if isinstance(listed, dict) else listed
+        for t in cast("list[object]", types or [])[:10]:
             name = t.get("name") if isinstance(t, dict) else t
             print(f"    - {name}")
 

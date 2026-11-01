@@ -12,8 +12,9 @@ import json
 import math
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any, Literal, overload
 from urllib.parse import quote
@@ -65,11 +66,13 @@ def _parse_retry_after(value: str | None) -> float | None:
         try:
             when = parsedate_to_datetime(value)
             if when.tzinfo is None:
-                when = when.replace(tzinfo=timezone.utc)
-            seconds = (when - datetime.now(timezone.utc)).total_seconds()
+                when = when.replace(tzinfo=UTC)
+            seconds = (when - datetime.now(UTC)).total_seconds()
         except (TypeError, ValueError, OverflowError):
             return None
-    return max(0.0, seconds) if math.isfinite(seconds) and seconds <= 9_007_199_254_740_991 else None
+    return (
+        max(0.0, seconds) if math.isfinite(seconds) and seconds <= 9_007_199_254_740_991 else None
+    )
 
 
 def path_segment(value: str) -> str:
@@ -114,7 +117,7 @@ def _is_idempotent(method: str) -> bool:
     return method in _IDEMPOTENT_METHODS
 
 
-def _opt_float_header(headers: Any, name: str) -> float | None:
+def _opt_float_header(headers: Mapping[str, str], name: str) -> float | None:
     """Parse a numeric response header to float, returning ``None`` when absent/unparseable."""
     raw = headers.get(name)
     try:
@@ -217,7 +220,9 @@ def _classify_error(
     type_url = body.get("type") if isinstance(body.get("type"), str) else None
     query_id = body.get("query_id") if isinstance(body.get("query_id"), str) else None
     retryable = body.get("retryable") is True
-    rid = request_id or (body.get("request_id") if isinstance(body.get("request_id"), str) else None)
+    rid = request_id or (
+        body.get("request_id") if isinstance(body.get("request_id"), str) else None
+    )
     detail = next((body[key] for key in ("detail", "error", "message")
                    if isinstance(body.get(key), str) and body[key]), "unknown server error")
     # #2321 (ADR-0261): a bare 404 with no detail text against an
@@ -237,7 +242,12 @@ def _classify_error(
     # Preserve finite delay guidance on every HTTP error, not only429. A valid
     # header wins (including zero); malformed headers permit a finite body fallback.
     def finite_delay(value: object) -> float | None:
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 9_007_199_254_740_991 and math.isfinite(value):
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and 0 <= value <= 9_007_199_254_740_991
+            and math.isfinite(value)
+        ):
             return float(value)
         return None
     delay = finite_delay(retry_after)
@@ -301,8 +311,12 @@ def _classify_error(
         failed = body.get("failed_operation")
         return PreconditionFailedError(
             f"Precondition failed: {detail}",
-            current_version=current if isinstance(current, int) and not isinstance(current, bool) else None,
-            failed_operation=failed if isinstance(failed, int) and not isinstance(failed, bool) else None,
+            current_version=current
+            if isinstance(current, int) and not isinstance(current, bool)
+            else None,
+            failed_operation=failed
+            if isinstance(failed, int) and not isinstance(failed, bool)
+            else None,
             status_code=status_code,
             **base_kwargs,
         )
@@ -502,7 +516,9 @@ class HttpTransport:
 
                 # Success or non-retryable error — return / raise via _handle.
                 if raw_response and resp.is_success:
-                    return _RawHttpResponse(resp.status_code, dict(resp.headers), self._read_capped(resp))
+                    return _RawHttpResponse(
+                        resp.status_code, dict(resp.headers), self._read_capped(resp)
+                    )
                 return self._handle(resp)
             finally:
                 resp.close()
@@ -789,7 +805,9 @@ class AsyncHttpTransport:
                     await asyncio.sleep(self._retry_backoff * (2**attempt))
                     continue
                 if raw_response and resp.is_success:
-                    return _RawHttpResponse(resp.status_code, dict(resp.headers), await self._read_capped(resp))
+                    return _RawHttpResponse(
+                        resp.status_code, dict(resp.headers), await self._read_capped(resp)
+                    )
                 return await self._handle(resp)
             finally:
                 await resp.aclose()

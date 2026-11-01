@@ -182,8 +182,8 @@ def test_cross_session_isolation() -> None:
 # ── subject_from_hit / anaphora-check unit coverage ─────────────────────────
 
 
-def _rag_hit(**overrides: Any) -> RagHit:
-    base = {
+def _rag_hit(**overrides: object) -> RagHit:
+    base: dict[str, Any] = {
         "bm25_score": 1.0,
         "vector_score": 1.0,
         "rerank_score": None,

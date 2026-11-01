@@ -1,6 +1,7 @@
 """Generic capped raw transport remains after retiring vertical PDF export."""
 import httpx
 import pytest
+
 from relata._http import AsyncHttpTransport, HttpTransport
 from relata.exceptions import ResponseTooLargeError
 
@@ -10,9 +11,11 @@ def test_raw_response_cap_refuses_oversize() -> None:
     transport = HttpTransport(BASE, "tok", 1.0, max_response_bytes=1024,
         transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b"x" * 2048)))
     try:
-        with transport._client.stream("GET", "/v1/objects/Blob/1") as response:
-            with pytest.raises(ResponseTooLargeError):
-                transport._read_capped(response)
+        with (
+            transport._client.stream("GET", "/v1/objects/Blob/1") as response,
+            pytest.raises(ResponseTooLargeError),
+        ):
+            transport._read_capped(response)
     finally:
         transport.close()
 

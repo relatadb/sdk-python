@@ -33,7 +33,7 @@ def _client(handler: Handler, **kwargs: object) -> RelataClient:
         "s3cr3t",
         30.0,
         transport=httpx.MockTransport(handler),
-        max_response_bytes=client._max_response_bytes,  # type: ignore[attr-defined]
+        max_response_bytes=client._max_response_bytes,
     )
     return client
 
@@ -49,7 +49,7 @@ def test_no_public_bearer_accessor() -> None:
     assert not hasattr(client, "bearer_token")
     assert not hasattr(client, "token")
     # The private holder has it (used only to build transports).
-    assert client._bearer_token == "s3cr3t"  # type: ignore[attr-defined]
+    assert client._bearer_token == "s3cr3t"
 
 
 def test_repr_does_not_leak_bearer() -> None:
@@ -61,13 +61,13 @@ def test_close_clears_bearer() -> None:
     client = RelataClient(BASE, bearer_token="s3cr3t")
     _ = client._sync  # force transport creation
     client.close()
-    assert client._bearer_token is None  # type: ignore[attr-defined]
+    assert client._bearer_token is None
 
 
 async def test_aclose_clears_bearer() -> None:
     client = RelataClient(BASE, bearer_token="s3cr3t")
     await client.aclose()
-    assert client._bearer_token is None  # type: ignore[attr-defined]
+    assert client._bearer_token is None
 
 
 def test_close_strips_auth_header_from_open_async_transport() -> None:

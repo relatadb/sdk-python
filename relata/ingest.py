@@ -8,13 +8,14 @@ application adapter.
 
 from __future__ import annotations
 
-import time
 import re
+import time
+from collections.abc import AsyncIterable, Iterable
 from datetime import date
-from typing import TYPE_CHECKING, Any, AsyncIterable, Iterable
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
-from relata._http import AsyncHttpTransport, HttpTransport, path_segment
+from relata._http import AsyncHttpTransport, HttpTransport
 
 if TYPE_CHECKING:
     import httpx
@@ -36,7 +37,7 @@ _CDR_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-def _cdr_value(row: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+def _cdr_value(row: dict[str, Any], aliases: tuple[str, ...]) -> object:
     """Get the first supplied alias from an already-normalized header map."""
     return next((row[key] for key in aliases if key in row), None)
 
@@ -52,7 +53,7 @@ def _cdr_metadata(row: dict[str, Any], normalized: dict[str, Any]) -> None:
         normalized["source_file_id"] = source_file_id
 
 
-def _cdr_int(value: Any, name: str, *, default: int | None = None) -> int:
+def _cdr_int(value: object, name: str, *, default: int | None = None) -> int:
     if value is None and default is not None:
         return default
     text = str(value).strip()
@@ -70,7 +71,7 @@ _I64_MIN = -(1 << 63)
 _I64_MAX = (1 << 63) - 1
 
 
-def _cdr_timestamp(value: Any, now_ns: int) -> int:
+def _cdr_timestamp(value: object, now_ns: int) -> int:
     """Normalize legacy epoch values or exact RFC3339-with-offset timestamps."""
     if value is None:
         return now_ns
@@ -81,13 +82,15 @@ def _cdr_timestamp(value: Any, now_ns: int) -> int:
             raise
         match = _RFC3339_CDR.fullmatch(value.strip())
         if match is None:
-            raise ValueError(f"call_start '{value}': expected integer epoch or RFC3339 timestamp")
+            raise ValueError(
+                f"call_start '{value}': expected integer epoch or RFC3339 timestamp"
+            ) from None
         year, month, day, hour, minute, second = map(int, match.groups()[:6])
         fraction, zone = match.group(7), match.group(8)
         if fraction is not None and len(fraction) > 9:
-            raise ValueError("call_start RFC3339 fraction exceeds nanosecond precision")
+            raise ValueError("call_start RFC3339 fraction exceeds nanosecond precision") from None
         if second > 59 or hour > 23 or minute > 59:
-            raise ValueError(f"call_start '{value}': invalid RFC3339 time")
+            raise ValueError(f"call_start '{value}': invalid RFC3339 time") from None
         try:
             days = (date(year, month, day) - date(1970, 1, 1)).days
         except ValueError as exc:
@@ -95,17 +98,17 @@ def _cdr_timestamp(value: Any, now_ns: int) -> int:
         offset_seconds = 0
         if zone != "Z":
             if zone == "-00:00":
-                raise ValueError("call_start RFC3339 -00:00 offset is unknown, not UTC")
+                raise ValueError("call_start RFC3339 -00:00 offset is unknown, not UTC") from None
             offset_hour, offset_minute = int(zone[1:3]), int(zone[4:6])
             if offset_hour > 23 or offset_minute > 59:
-                raise ValueError(f"call_start '{value}': invalid RFC3339 offset")
+                raise ValueError(f"call_start '{value}': invalid RFC3339 offset") from None
             offset_seconds = (offset_hour * 60 + offset_minute) * 60
             if zone[0] == "-":
                 offset_seconds = -offset_seconds
         epoch_seconds = days * 86_400 + hour * 3_600 + minute * 60 + second - offset_seconds
         nanos = epoch_seconds * 1_000_000_000 + int((fraction or "").ljust(9, "0") or "0")
         if not _I64_MIN <= nanos <= _I64_MAX:
-            raise ValueError("call_start RFC3339 value is outside i64 nanosecond range")
+            raise ValueError("call_start RFC3339 value is outside i64 nanosecond range") from None
         return nanos
     if not _I64_MIN <= raw <= _I64_MAX:
         raise ValueError(f"call_start '{raw}': value out of range for i64")
@@ -114,7 +117,9 @@ def _cdr_timestamp(value: Any, now_ns: int) -> int:
     return raw
 
 
-def _normalize_cdr_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _normalize_cdr_rows(
+    rows: Iterable[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Map telecom aliases to the persisted CdrRecord fields for generic ingest."""
     normalized: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -135,12 +140,24 @@ def _normalize_cdr_rows(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, 
             row = normalized_keys
             caller_raw = _cdr_value(row, _CDR_ALIASES["caller"])
             callee_raw = _cdr_value(row, _CDR_ALIASES["callee"])
-            caller_digits = "".join(c for c in str("" if caller_raw is None else caller_raw) if c.isascii() and c.isdigit())
-            callee_digits = "".join(c for c in str("" if callee_raw is None else callee_raw) if c.isascii() and c.isdigit())
+            caller_digits = "".join(
+                c
+                for c in str("" if caller_raw is None else caller_raw)
+                if c.isascii() and c.isdigit()
+            )
+            callee_digits = "".join(
+                c
+                for c in str("" if callee_raw is None else callee_raw)
+                if c.isascii() and c.isdigit()
+            )
             if len(caller_digits) > 15:
-                raise ValueError(f"caller_msisdn '{caller_raw}': too many digits (max 15 for E.164)")
+                raise ValueError(
+                    f"caller_msisdn '{caller_raw}': too many digits (max 15 for E.164)"
+                )
             if len(callee_digits) > 15:
-                raise ValueError(f"callee_msisdn '{callee_raw}': too many digits (max 15 for E.164)")
+                raise ValueError(
+                    f"callee_msisdn '{callee_raw}': too many digits (max 15 for E.164)"
+                )
             caller = _cdr_int(caller_digits, "caller_msisdn")
             callee = _cdr_int(callee_digits, "callee_msisdn")
             start_raw = _cdr_value(row, _CDR_ALIASES["start"])
@@ -346,7 +363,9 @@ class IngestClient:
                 "/v1/ingest/bulk",
                 json.dumps(payload),
                 content_type="application/json",
-                extra_headers=_envelope_headers(detect_packs, idempotency_key, durability, media_work_claim),
+                extra_headers=_envelope_headers(
+                    detect_packs, idempotency_key, durability, media_work_claim
+                ),
             )
         body = "\n".join(json.dumps(r) for r in rows)
         return self._t.post_raw(
@@ -553,7 +572,9 @@ class AsyncIngestClient:
                 "/v1/ingest/bulk",
                 json.dumps(payload),
                 content_type="application/json",
-                extra_headers=_envelope_headers(detect_packs, idempotency_key, durability, media_work_claim),
+                extra_headers=_envelope_headers(
+                    detect_packs, idempotency_key, durability, media_work_claim
+                ),
             )
         body = "\n".join(json.dumps(r) for r in rows)
         return await self._t.post_raw(
@@ -647,14 +668,14 @@ class AsyncIngestClient:
         batch: list[dict[str, Any]] = []
         total = 0
         if hasattr(rows, "__aiter__"):
-            async for row in rows:  # type: ignore[union-attr]
+            async for row in rows:
                 batch.append(row)
                 if len(batch) >= batch_size:
                     await self.bulk(object_type, batch, purpose=purpose)
                     total += len(batch)
                     batch = []
         else:
-            for row in rows:  # type: ignore[union-attr]
+            for row in rows:
                 batch.append(row)
                 if len(batch) >= batch_size:
                     await self.bulk(object_type, batch, purpose=purpose)

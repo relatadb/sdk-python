@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,8 +34,9 @@ from relata.canonical import (
 VECTORS_PATH = Path(__file__).resolve().parent / "fixtures" / "canonical-vectors.json"
 
 
-def _vectors() -> dict:
-    return json.loads(VECTORS_PATH.read_text())
+def _vectors() -> dict[str, Any]:
+    vectors: dict[str, Any] = json.loads(VECTORS_PATH.read_text())
+    return vectors
 
 
 NORMALIZERS = {

@@ -17,10 +17,9 @@ require a ``access_scope_ref`` — see the comment in step 4.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from relata import RelataClient
-from relata.exceptions import AuthError, QuotaError, RelataError
 
 
 def run_analytics_workflow(
@@ -40,7 +39,7 @@ def run_analytics_workflow(
     """
     print("=" * 70)
     print(f"ANALYTICS WORKFLOW — person: {person_name!r}")
-    print(f"Started at: {datetime.now(timezone.utc).isoformat()}")
+    print(f"Started at: {datetime.now(UTC).isoformat()}")
     print("=" * 70)
 
     with RelataClient(

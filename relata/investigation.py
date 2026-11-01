@@ -42,7 +42,7 @@ def _bounds(max_events: int | None, deadline_ms: int | None) -> str:
 
 def _pivot_body(
     field: str | None,
-    value: Any,
+    value: object,
     target_field: str | None,
     target_types: Sequence[str] | None,
     limit: int | None,
@@ -90,7 +90,9 @@ def _list_path(q: str | None, limit: int | None) -> str:
 
 
 class InvestigationClient:
-    """Synchronous client for ``/v1/alerts/{id}/{evidence,timeline,pivot}`` and ``/v1/search/saved``."""
+    """Synchronous client for ``/v1/alerts/{id}/{evidence,timeline,pivot}`` and
+    ``/v1/search/saved``.
+    """
 
     def __init__(
         self,
@@ -131,7 +133,7 @@ class InvestigationClient:
         alert_id: str,
         *,
         field: str | None = None,
-        value: Any = None,
+        value: object = None,
         target_field: str | None = None,
         target_types: Sequence[str] | None = None,
         limit: int | None = None,
@@ -186,7 +188,8 @@ class InvestigationClient:
     def run_saved_search(
         self, search_id: str, *, params: Sequence[Any] | None = None
     ) -> dict[str, Any]:
-        """``POST /v1/search/saved/{id}/run``: the ``POST /v1/query`` response for the stored SQL."""
+        """``POST /v1/search/saved/{id}/run``: the ``POST /v1/query`` response for the stored SQL.
+        """
         body: dict[str, Any] = {} if params is None else {"params": list(params)}
         return dict(self._t.post(_sid(search_id, "run"), body))
 
@@ -228,19 +231,23 @@ class AsyncInvestigationClient:
     async def alert_evidence(
         self, alert_id: str, *, max_events: int | None = None, deadline_ms: int | None = None
     ) -> dict[str, Any]:
-        return dict(await self._t.get(_aid(alert_id, "evidence") + _bounds(max_events, deadline_ms)))
+        return dict(
+            await self._t.get(_aid(alert_id, "evidence") + _bounds(max_events, deadline_ms))
+        )
 
     async def alert_timeline(
         self, alert_id: str, *, max_events: int | None = None, deadline_ms: int | None = None
     ) -> dict[str, Any]:
-        return dict(await self._t.get(_aid(alert_id, "timeline") + _bounds(max_events, deadline_ms)))
+        return dict(
+            await self._t.get(_aid(alert_id, "timeline") + _bounds(max_events, deadline_ms))
+        )
 
     async def pivot(
         self,
         alert_id: str,
         *,
         field: str | None = None,
-        value: Any = None,
+        value: object = None,
         target_field: str | None = None,
         target_types: Sequence[str] | None = None,
         limit: int | None = None,

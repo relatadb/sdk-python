@@ -21,7 +21,7 @@ Audit integrity rules:
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from relata import RelataClient
 from relata.exceptions import AuthError, RelataError
@@ -309,7 +309,7 @@ if __name__ == "__main__":
     RELATA_TOKEN = os.getenv("RELATA_TOKEN")
     CASE_REF = os.getenv("CASE_REF", "CASE-2025-0042")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     window_start = "2025-01-01T00:00:00Z"
     window_end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 

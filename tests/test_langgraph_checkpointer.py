@@ -18,11 +18,13 @@ skipped automatically if it isn't installed.
 from __future__ import annotations
 
 import json
+from typing import Any, TypedDict
 
 import httpx
 import pytest
 
 langgraph = pytest.importorskip("langgraph")
+from langchain_core.runnables import RunnableConfig  # noqa: E402
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata  # noqa: E402
 from langgraph.graph import END, StateGraph  # noqa: E402
 
@@ -36,7 +38,7 @@ class FakeCheckpointStore:
 
     def __init__(self) -> None:
         # (thread_id, checkpoint_id_segment) -> body
-        self.store: dict[tuple[str, str], dict] = {}
+        self.store: dict[tuple[str, str], dict[str, Any]] = {}
         self.calls: list[tuple[str, str]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -95,7 +97,7 @@ def test_is_a_base_checkpoint_saver() -> None:
 
 def test_put_and_get_tuple_round_trip() -> None:
     cp, fake = _sync_checkpointer()
-    config = {"configurable": {"thread_id": "t1"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "t1"}}
     checkpoint = _make_checkpoint("1f18dad7-92d5-61ca-9b74-c9a91c94b006")
     metadata: CheckpointMetadata = {"source": "loop", "step": 0}
 
@@ -112,13 +114,15 @@ def test_put_and_get_tuple_round_trip() -> None:
 
 def test_get_tuple_missing_returns_none() -> None:
     cp, _ = _sync_checkpointer()
-    config = {"configurable": {"thread_id": "t1", "checkpoint_id": "does-not-exist"}}
+    config: RunnableConfig = {
+        "configurable": {"thread_id": "t1", "checkpoint_id": "does-not-exist"}
+    }
     assert cp.get_tuple(config) is None
 
 
 def test_get_tuple_without_checkpoint_id_returns_latest() -> None:
     cp, _ = _sync_checkpointer()
-    thread = {"configurable": {"thread_id": "t2"}}
+    thread: RunnableConfig = {"configurable": {"thread_id": "t2"}}
     for cid in [
         "1f18dad7-92d5-61ca-0000-000000000001",
         "1f18dad7-92d5-61ca-0000-000000000002",
@@ -132,7 +136,7 @@ def test_get_tuple_without_checkpoint_id_returns_latest() -> None:
 
 def test_list_orders_newest_first_and_respects_limit() -> None:
     cp, _ = _sync_checkpointer()
-    thread = {"configurable": {"thread_id": "t3"}}
+    thread: RunnableConfig = {"configurable": {"thread_id": "t3"}}
     ids = [
         "1f18dad7-92d5-61ca-0000-000000000001",
         "1f18dad7-92d5-61ca-0000-000000000002",
@@ -157,7 +161,7 @@ def test_list_without_thread_id_raises() -> None:
 def test_put_writes_attaches_before_and_after_put() -> None:
     cp, _ = _sync_checkpointer()
     checkpoint_id = "1f18dad7-92d5-61ca-0000-0000000000aa"
-    config = {
+    config: RunnableConfig = {
         "configurable": {"thread_id": "t4", "checkpoint_ns": "", "checkpoint_id": checkpoint_id}
     }
 
@@ -171,6 +175,7 @@ def test_put_writes_attaches_before_and_after_put() -> None:
 
     tup = cp.get_tuple(config)
     assert tup is not None
+    assert tup.pending_writes is not None
     channels = {w[1] for w in tup.pending_writes}
     assert channels == {"messages", "other"}
 
@@ -205,7 +210,7 @@ def test_auth_header_sent() -> None:
         return fake(request)
 
     cp = RelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(check))
-    config = {"configurable": {"thread_id": "t5"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "t5"}}
     cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000bb"), {}, {})
 
 
@@ -222,7 +227,7 @@ def test_tenant_header_sent_on_put() -> None:
         return fake(request)
 
     cp = RelataCheckpointer(BASE, "tok", tenant="acme", transport=httpx.MockTransport(check))
-    config = {"configurable": {"thread_id": "t6"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "t6"}}
     cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000cc"), {}, {})
 
 
@@ -239,7 +244,7 @@ def test_acting_as_and_delegated_by_headers_sent() -> None:
         BASE, "tok", tenant="acme", acting_as="agent-1", delegated_by="root-org",
         transport=httpx.MockTransport(check),
     )
-    config = {"configurable": {"thread_id": "t7"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "t7"}}
     cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000dd"), {}, {})
 
 
@@ -253,7 +258,7 @@ async def test_async_tenant_header_sent_on_put() -> None:
     async with AsyncRelataCheckpointer(
         BASE, "tok", tenant="acme", transport=httpx.MockTransport(check)
     ) as cp:
-        config = {"configurable": {"thread_id": "t8"}}
+        config: RunnableConfig = {"configurable": {"thread_id": "t8"}}
         await cp.aput(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000ee"), {}, {})
 
 
@@ -269,7 +274,7 @@ def test_429_surfaces_as_rate_limited_error_with_retry_after() -> None:
         )
 
     cp = RelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(handler))
-    config = {"configurable": {"thread_id": "t9"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "t9"}}
     with pytest.raises(RateLimitedError) as exc:
         cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000000ff"), {}, {})
     assert exc.value.retry_after == 7.0
@@ -284,7 +289,7 @@ def test_403_surfaces_as_forbidden_error() -> None:
         return httpx.Response(403, json={"code": "access-denied", "detail": "no"})
 
     cp = RelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(handler))
-    config = {"configurable": {"thread_id": "t10"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "t10"}}
     with pytest.raises(ForbiddenError) as exc:
         cp.put(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000001aa"), {}, {})
     assert exc.value.code == "access-denied"
@@ -297,7 +302,7 @@ async def test_async_429_surfaces_as_rate_limited_error() -> None:
         return httpx.Response(429, json={"detail": "slow down"}, headers={"Retry-After": "3"})
 
     async with AsyncRelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(handler)) as cp:
-        config = {"configurable": {"thread_id": "t11"}}
+        config: RunnableConfig = {"configurable": {"thread_id": "t11"}}
         with pytest.raises(RateLimitedError) as exc:
             await cp.aput(config, _make_checkpoint("1f18dad7-92d5-61ca-0000-0000000001bb"), {}, {})
         assert exc.value.retry_after == 3.0
@@ -306,21 +311,26 @@ async def test_async_429_surfaces_as_rate_limited_error() -> None:
 def test_get_tuple_still_returns_none_on_404() -> None:
     """The 404->None contract is preserved alongside typed error mapping."""
     cp = RelataCheckpointer(BASE, "tok", transport=httpx.MockTransport(FakeCheckpointStore()))
-    config = {"configurable": {"thread_id": "t12", "checkpoint_id": "missing"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "t12", "checkpoint_id": "missing"}}
     assert cp.get_tuple(config) is None
 
 
 # -- real StateGraph.compile(checkpointer=...) conformance -------------------
 
 
-def _build_graph() -> StateGraph:
-    def node_a(state: dict) -> dict:
+class _State(TypedDict):
+    count: int
+    log: list[str]
+
+
+def _build_graph() -> StateGraph[_State, None, _State, _State]:
+    def node_a(state: _State) -> _State:
         return {"count": state["count"] + 1, "log": [*state["log"], "a"]}
 
-    def node_b(state: dict) -> dict:
+    def node_b(state: _State) -> _State:
         return {"count": state["count"] + 1, "log": [*state["log"], "b"]}
 
-    graph = StateGraph(dict)
+    graph = StateGraph(_State)
     graph.add_node("a", node_a)
     graph.add_node("b", node_b)
     graph.set_entry_point("a")
@@ -335,7 +345,7 @@ def test_compiled_graph_invoke_and_restart_recovery() -> None:
     process restart) recovers the state via `get_state()`."""
     fake = FakeCheckpointStore()
     transport = httpx.MockTransport(fake)
-    config = {"configurable": {"thread_id": "session-42"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "session-42"}}
 
     app = _build_graph().compile(checkpointer=RelataCheckpointer(BASE, "tok", transport=transport))
     result = app.invoke({"count": 0, "log": []}, config)
@@ -353,7 +363,7 @@ def test_compiled_graph_invoke_and_restart_recovery() -> None:
 async def test_async_compiled_graph_ainvoke_and_restart_recovery() -> None:
     fake = FakeCheckpointStore()
     transport = httpx.MockTransport(fake)
-    config = {"configurable": {"thread_id": "session-async-1"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "session-async-1"}}
 
     async with AsyncRelataCheckpointer(BASE, "tok", transport=transport) as checkpointer:
         app = _build_graph().compile(checkpointer=checkpointer)

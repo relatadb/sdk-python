@@ -14,6 +14,7 @@ import os
 import socket
 import subprocess
 import time
+from collections.abc import Iterator
 
 import pytest
 
@@ -21,11 +22,12 @@ import pytest
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        port: int = s.getsockname()[1]
+        return port
 
 
 @pytest.fixture(scope="session")
-def relata_server():
+def relata_server() -> Iterator[dict[str, object]]:
     """Start a relata serve process on a random port; yield config dict; kill on teardown."""
     port = _free_port()
     token = os.environ.get("RELATA_TEST_TOKEN", "relata-test")
@@ -33,7 +35,12 @@ def relata_server():
 
     proc = subprocess.Popen(
         [bin_path, "serve"],
-        env={**os.environ, "RELATA_PORT": str(port), "RELATA_BEARER_TOKEN": token, "RELATA_LOG_LEVEL": "warn"},
+        env={
+            **os.environ,
+            "RELATA_PORT": str(port),
+            "RELATA_BEARER_TOKEN": token,
+            "RELATA_LOG_LEVEL": "warn",
+        },
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

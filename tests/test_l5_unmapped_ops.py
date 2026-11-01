@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -20,7 +21,7 @@ BASE = "http://localhost:9090"
 Seen = list[httpx.Request]
 
 
-def _json_transport(seen: Seen, body: dict | None = None) -> httpx.MockTransport:
+def _json_transport(seen: Seen, body: dict[str, Any] | None = None) -> httpx.MockTransport:
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
         return httpx.Response(200, json=body or {"ok": True})

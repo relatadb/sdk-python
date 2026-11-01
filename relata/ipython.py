@@ -26,17 +26,28 @@ Configuration::
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from relata.client import RelataClient
+
+
+class _ShellLike(Protocol):
+    """The slice of ``InteractiveShell`` this extension uses."""
+
+    def register_magics(self, *magic_objects: object) -> None: ...
+
 
 try:
-    from IPython.core.magic import Magics, magics_class, line_magic, cell_magic, line_cell_magic
-    from IPython.core.magic_arguments import argument, magic_arguments, parse_argstring
+    from IPython.core.interactiveshell import InteractiveShell
+    from IPython.core.magic import Magics, line_cell_magic, line_magic, magics_class
+
     HAS_IPYTHON = True
 except ImportError:
     HAS_IPYTHON = False
 
 
-def _get_client(url: str | None, token: str | None):
+def _get_client(url: str | None, token: str | None) -> RelataClient:
     """Lazily import and construct a RelataClient."""
     from relata import RelataClient
     base = url or os.environ.get("RELATA_URL", "http://localhost:9090")
@@ -44,7 +55,7 @@ def _get_client(url: str | None, token: str | None):
     return RelataClient(base, bearer_token=tok or None)
 
 
-def _to_dataframe(rows: list[dict[str, Any]]):
+def _to_dataframe(rows: list[dict[str, Any]]) -> object:
     """Convert rows to a pandas DataFrame if available, else return list."""
     try:
         import pandas as pd
@@ -59,14 +70,14 @@ if HAS_IPYTHON:
     class RelataMagics(Magics):
         """``%%relata`` cell magic — execute SQL against a Relata server."""
 
-        def __init__(self, shell):
+        def __init__(self, shell: InteractiveShell | None) -> None:
             super().__init__(shell)
             self._url: str | None = None
             self._token: str | None = None
             self._purpose: str = "analytics"
 
         @line_magic
-        def relata_config(self, line: str):
+        def relata_config(self, line: str) -> None:
             """Configure the Relata connection.
 
             Usage::
@@ -77,17 +88,20 @@ if HAS_IPYTHON:
             i = 0
             while i < len(args):
                 if args[i] == "--url" and i + 1 < len(args):
-                    self._url = args[i + 1]; i += 2
+                    self._url = args[i + 1]
+                    i += 2
                 elif args[i] == "--token" and i + 1 < len(args):
-                    self._token = args[i + 1]; i += 2
+                    self._token = args[i + 1]
+                    i += 2
                 elif args[i] == "--purpose" and i + 1 < len(args):
-                    self._purpose = args[i + 1]; i += 2
+                    self._purpose = args[i + 1]
+                    i += 2
                 else:
                     i += 1
             print(f"Relata config: url={self._url or '(env)'}, purpose={self._purpose}")
 
         @line_cell_magic
-        def relata(self, line: str, cell: str | None = None):
+        def relata(self, line: str, cell: str | None = None) -> object:
             """Execute SQL against Relata and return results as a DataFrame.
 
             Line magic::
@@ -114,11 +128,14 @@ if HAS_IPYTHON:
             i = 0
             while i < len(parts):
                 if parts[i] == "--purpose" and i + 1 < len(parts):
-                    purpose = parts[i + 1]; i += 2
+                    purpose = parts[i + 1]
+                    i += 2
                 elif parts[i] == "--url" and i + 1 < len(parts):
-                    url = parts[i + 1]; i += 2
+                    url = parts[i + 1]
+                    i += 2
                 elif parts[i] == "--token" and i + 1 < len(parts):
-                    token = parts[i + 1]; i += 2
+                    token = parts[i + 1]
+                    i += 2
                 else:
                     i += 1
 
@@ -143,13 +160,13 @@ if HAS_IPYTHON:
                 return None
 
 
-    def load_ipython_extension(ipython):
+    def load_ipython_extension(ipython: _ShellLike) -> None:
         """Register the magic when the user runs %load_ext relata.ipython."""
         ipython.register_magics(RelataMagics)
         print("✓ %relata magic loaded. Try: %%relata\\nSELECT * FROM Person LIMIT 5")
         print("  Configure: %relata_config --url <url> --token <token>")
 
 else:
-    def load_ipython_extension(ipython):
+    def load_ipython_extension(ipython: _ShellLike) -> None:
         """Stub — IPython not installed."""
         print("IPython is not installed. Install with: pip install ipython jupyter")

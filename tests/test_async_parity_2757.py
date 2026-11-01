@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import inspect
 import json
-from pathlib import Path
 import tomllib
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -161,7 +161,7 @@ async def test_async_ingest_iter_batches_sync_and_async_iterables() -> None:
     assert total == 5
     assert seen == [2, 2, 1]
 
-    async def _agen() -> Any:
+    async def _agen() -> AsyncIterator[dict[str, str]]:
         for i in range(3):
             yield {"name": f"a{i}"}
 
@@ -189,7 +189,9 @@ async def test_async_ingest_cdr_uses_json_array_and_preserves_receipt() -> None:
             json={"rows_queued": 1, "rows_rejected": 0, "errors": [], "task_id": "itsk_async_cdr"},
         )
 
-    async with AsyncIngestClient(BASE, purpose="finint", tenant="tenant-cdr", transport=_wrap(handler)) as c:
+    async with AsyncIngestClient(
+        BASE, purpose="finint", tenant="tenant-cdr", transport=_wrap(handler)
+    ) as c:
         out = await c.ingest_cdr(
             [
                 {

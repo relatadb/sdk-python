@@ -16,6 +16,7 @@ Run:
 from __future__ import annotations
 
 import os
+from typing import cast
 
 from relata import RelataClient
 
@@ -65,7 +66,7 @@ def main() -> None:
 
 
 def print_multi(resp: dict[str, object]) -> None:
-    results = resp.get("results", []) if isinstance(resp, dict) else []
+    results = cast("list[object]", resp.get("results", []) if isinstance(resp, dict) else [])
     elapsed = resp.get("processing_time_ms", 0) if isinstance(resp, dict) else 0
     print(f"  {len(results)} sub-query result set(s) in {elapsed} ms")
     for i, sub in enumerate(results):

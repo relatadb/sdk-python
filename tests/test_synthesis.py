@@ -12,6 +12,7 @@ tests is a plain Python stub, since RelataDB has no server-side agent loop
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -19,7 +20,7 @@ import pytest
 
 from relata import RelataClient
 from relata._http import AsyncHttpTransport, HttpTransport
-from relata.models import RagQueryResponse
+from relata.models import RagHit, RagQueryResponse
 from relata.rag import RagClient
 from relata.synthesis import (
     Citation,
@@ -72,10 +73,10 @@ def _response(hits: list[dict[str, Any]] | None | object = _UNSET) -> RagQueryRe
     return RagQueryResponse.model_validate({"hits": hits})
 
 
-def _mock_client(handler: Any) -> RelataClient:
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -88,7 +89,7 @@ def _mock_client(handler: Any) -> RelataClient:
 # ── build_synthesis_prompt — inline citation instructions ──────────────────
 
 
-def test_prompt_includes_citation_grade_fields_for_every_hit():
+def test_prompt_includes_citation_grade_fields_for_every_hit() -> None:
     response = _response()
     prompt = build_synthesis_prompt("How does RelataDB rank hybrid results?", response.hits)
     assert "[chunk-1]" in prompt
@@ -102,7 +103,7 @@ def test_prompt_includes_citation_grade_fields_for_every_hit():
 # ── synthesize() — inline citation injection, no fabrication possible ──────
 
 
-def test_synthesize_resolves_real_citations_inline():
+def test_synthesize_resolves_real_citations_inline() -> None:
     """Citations attached during synthesis (not appended afterward) and
     every one traces to a real chunk_id/section_path/page from the
     response that produced it (#4527 AC1)."""
@@ -132,7 +133,7 @@ def test_synthesize_resolves_real_citations_inline():
     assert result.sentences[0].citations[0].chunk_id == "chunk-1"
 
 
-def test_synthesize_strips_fabricated_citation_by_construction():
+def test_synthesize_strips_fabricated_citation_by_construction() -> None:
     """A bracket marker that does not match a real chunk_id can never
     surface as a Citation — dropped from the visible answer instead of
     rendering as a fake source (#4527 AC1: 'no fabricated citations
@@ -151,7 +152,7 @@ def test_synthesize_strips_fabricated_citation_by_construction():
     assert result.sentences[0].citations == []
 
 
-def test_synthesize_dedupes_citations_across_sentences():
+def test_synthesize_dedupes_citations_across_sentences() -> None:
     def llm(_prompt: str) -> str:
         return (
             "RelataDB fuses BM25 and vector retrieval natively [chunk-1]. "
@@ -170,7 +171,7 @@ def test_synthesize_dedupes_citations_across_sentences():
 # ── faithfulness pass — on by default, marks unsupported claims ────────────
 
 
-def test_faithfulness_check_runs_by_default():
+def test_faithfulness_check_runs_by_default() -> None:
     """AC3: faithfulness checking is on by default, not opt-in."""
     calls: list[str] = []
 
@@ -188,7 +189,7 @@ def test_faithfulness_check_runs_by_default():
     assert len(calls) == 1
 
 
-def test_synthesize_marks_deliberately_injected_unsupported_claim():
+def test_synthesize_marks_deliberately_injected_unsupported_claim() -> None:
     """AC2: a deliberately injected unsupported claim gets marked, not
     silently returned as fact."""
 
@@ -219,7 +220,7 @@ def test_synthesize_marks_deliberately_injected_unsupported_claim():
     assert unsupported_sentence.citations[0].chunk_id == "chunk-2"
 
 
-def test_synthesize_custom_unsupported_marker():
+def test_synthesize_custom_unsupported_marker() -> None:
     def llm(_prompt: str) -> str:
         return "A totally fabricated claim with no citation at all."
 
@@ -236,7 +237,7 @@ def test_synthesize_custom_unsupported_marker():
     assert result.answer.endswith("[NEEDS VERIFICATION]")
 
 
-def test_faithfulness_check_can_be_disabled():
+def test_faithfulness_check_can_be_disabled() -> None:
     def llm(_prompt: str) -> str:
         return "Some claim [chunk-1]."
 
@@ -250,7 +251,7 @@ def test_faithfulness_check_can_be_disabled():
     assert all(s.supported for s in result.sentences)
 
 
-def test_default_entailment_fn_makes_a_second_independent_llm_call():
+def test_default_entailment_fn_makes_a_second_independent_llm_call() -> None:
     """Mechanism point 2: faithfulness is a second, independent LLM call —
     not a heuristic reuse of the synthesis output."""
     prompts: list[str] = []
@@ -269,7 +270,7 @@ def test_default_entailment_fn_makes_a_second_independent_llm_call():
     assert result.unsupported_count == 1
 
 
-def test_uncited_sentence_with_no_evidence_is_unsupported_by_default():
+def test_uncited_sentence_with_no_evidence_is_unsupported_by_default() -> None:
     def llm(_prompt: str) -> str:
         return "This sentence cites nothing."
 
@@ -287,7 +288,7 @@ def test_uncited_sentence_with_no_evidence_is_unsupported_by_default():
 # ── end-to-end: RagClient (mocked transport) -> synthesize() ───────────────
 
 
-def test_synthesize_end_to_end_from_mocked_rag_client():
+def test_synthesize_end_to_end_from_mocked_rag_client() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/rag/query"
         json.loads(req.content)  # sanity: valid JSON body
@@ -313,7 +314,7 @@ def test_synthesize_end_to_end_from_mocked_rag_client():
 
 
 @pytest.mark.parametrize("hits", [[], None])
-def test_synthesize_with_no_hits_produces_no_citations(hits):
+def test_synthesize_with_no_hits_produces_no_citations(hits: list[RagHit] | None) -> None:
     def llm(_prompt: str) -> str:
         return "I don't have enough information to answer that."
 

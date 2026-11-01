@@ -32,7 +32,8 @@ def freshness_headers(
     require_durable: bool = False,
     partial: bool = False,
 ) -> dict[str, str]:
-    """Headers that gate ``/v1/query``, ``/v1/search``, ``/v1/graphql`` or MCP reads on ``token``."""
+    """Headers that gate ``/v1/query``, ``/v1/search``, ``/v1/graphql`` or MCP reads on ``token``.
+    """
     headers = {"X-Relata-Min-Version": token}
     if indexes is not None:
         headers["X-Relata-Require-Index"] = ",".join(indexes) or "none"
@@ -102,7 +103,9 @@ class FreshnessClient:
         problem, whose body names the lagging index and its pending count.
         """
         return dict(
-            self._t.post("/v1/freshness/barrier", _barrier_payload(token, indexes, wait_ms, require_durable))
+            self._t.post(
+                "/v1/freshness/barrier", _barrier_payload(token, indexes, wait_ms, require_durable)
+            )
         )
 
     def close(self) -> None:

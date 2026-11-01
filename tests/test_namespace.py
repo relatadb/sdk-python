@@ -7,6 +7,7 @@ namespace-name validation. Uses httpx.MockTransport — no live server required.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -31,10 +32,10 @@ _SCHEMALESS_RESP = {
 }
 
 
-def _mock_client(handler: Any) -> RelataClient:
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok", purpose="rag")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -47,14 +48,14 @@ def _mock_client(handler: Any) -> RelataClient:
 # ── namespace() accessor + validation ────────────────────────────────────────
 
 
-def test_namespace_returns_bound_handle():
+def test_namespace_returns_bound_handle() -> None:
     client = _mock_client(lambda req: httpx.Response(200, json={}))
     ns = client.namespace("Document")
     assert isinstance(ns, Namespace)
     assert ns.name == "Document"
 
 
-def test_namespace_rejects_unsafe_name():
+def test_namespace_rejects_unsafe_name() -> None:
     client = _mock_client(lambda req: httpx.Response(200, json={}))
     with pytest.raises(ValueError):
         client.namespace("Doc; DROP TABLE")
@@ -63,7 +64,7 @@ def test_namespace_rejects_unsafe_name():
 # ── query() → /v1/search (typed) ────────────────────────────────────────────────
 
 
-def test_namespace_query_posts_typed_search():
+def test_namespace_query_posts_typed_search() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -87,7 +88,7 @@ def test_namespace_query_posts_typed_search():
 # ── write() → /v1/ingest/auto (schemaless, T6) ──────────────────────────────────
 
 
-def test_namespace_write_posts_to_ingest_auto():
+def test_namespace_write_posts_to_ingest_auto() -> None:
     seen: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -107,7 +108,7 @@ def test_namespace_write_posts_to_ingest_auto():
     assert out["inferred_schema"]["title"] == "text"
 
 
-def test_namespace_write_passes_schema_overrides():
+def test_namespace_write_passes_schema_overrides() -> None:
     seen: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -122,7 +123,7 @@ def test_namespace_write_passes_schema_overrides():
 # ── get() → governed SELECT ──────────────────────────────────────────────────
 
 
-def test_namespace_get_point_lookup():
+def test_namespace_get_point_lookup() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/query"
         body = json.loads(req.content)
@@ -136,7 +137,7 @@ def test_namespace_get_point_lookup():
     assert row == {"id": "d42", "title": "Found"}
 
 
-def test_namespace_get_missing_returns_none():
+def test_namespace_get_missing_returns_none() -> None:
     client = _mock_client(lambda req: httpx.Response(200, json={"rows": [], "columns": []}))
     assert client.namespace("Document").get("nope") is None
 
@@ -144,13 +145,15 @@ def test_namespace_get_missing_returns_none():
 # ── delete_all() → tombstone all rows ────────────────────────────────────────
 
 
-def test_namespace_delete_all_tombstones_every_row():
+def test_namespace_delete_all_tombstones_every_row() -> None:
     calls: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
         calls.append(req.url.path)
         if req.url.path == "/v1/query":
-            return httpx.Response(200, json={"rows": [{"id": "d1"}, {"id": "d2"}], "columns": ["id"]})
+            return httpx.Response(
+                200, json={"rows": [{"id": "d1"}, {"id": "d2"}], "columns": ["id"]}
+            )
         body = json.loads(req.content)
         assert all(r.get("_deleted") is True for r in body["rows"])
         return httpx.Response(200, json={"inserted": 2})
@@ -161,7 +164,7 @@ def test_namespace_delete_all_tombstones_every_row():
     assert calls == ["/v1/query", "/v1/ingest/auto"]
 
 
-def test_namespace_delete_all_empty_is_noop():
+def test_namespace_delete_all_empty_is_noop() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/query"
         return httpx.Response(200, json={"rows": [], "columns": ["id"]})
@@ -174,7 +177,7 @@ def test_namespace_delete_all_empty_is_noop():
 
 
 @pytest.mark.asyncio
-async def test_async_namespace_query_and_write():
+async def test_async_namespace_query_and_write() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path == "/v1/search":
             return httpx.Response(200, json=_QUERY_PAYLOAD)

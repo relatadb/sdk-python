@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -14,7 +15,7 @@ BASE = "http://localhost:9090"
 
 
 def _handler(
-    seen: list, status: int = 200, body: object = None
+    seen: list[tuple[str, str, str, Any]], status: int = 200, body: object = None
 ) -> Callable[[httpx.Request], httpx.Response]:
     def handler(req: httpx.Request) -> httpx.Response:
         payload = json.loads(req.content) if req.content else None
@@ -27,7 +28,7 @@ def _handler(
 
 
 def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = ExtractionClient(BASE, transport=httpx.MockTransport(_handler(seen)))
     s = {"kind": "entity", "confidence": 0.9}
     fix = {"type": "Person", "properties": {"name": "Ada"}}
@@ -86,7 +87,12 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
             "",
             {"decision": "correct", "reason": "typo", "correction": fix},
         ),
-        ("POST", "/v1/ontology/suggestions/sug_1/decision", "", {"decision": "reopen", "reason": ""}),
+        (
+            "POST",
+            "/v1/ontology/suggestions/sug_1/decision",
+            "",
+            {"decision": "reopen", "reason": ""},
+        ),
         ("POST", "/v1/ontology/suggestions/apply", "", {"definition": "kb"}),
         (
             "POST",
@@ -120,7 +126,7 @@ def test_errors_surface_with_their_problem_code() -> None:
 
 @pytest.mark.asyncio
 async def test_async_client_mirrors_the_sync_surface() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = AsyncExtractionClient(BASE, transport=httpx.MockTransport(_handler(seen)))
     await c.submit([{"kind": "entity"}])
     await c.list(state="pending")

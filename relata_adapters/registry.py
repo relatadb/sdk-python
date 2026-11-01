@@ -44,9 +44,9 @@ def get_memory_adapter() -> type[Any] | None:
 
         return RelataAG2Memory
     if _is_installed("autogen"):
-        from relata_adapters.autogen import RelataMemory
+        from relata_adapters.autogen import RelataMemory as AutogenMemory
 
-        return RelataMemory  # type: ignore[no-any-return]
+        return AutogenMemory
     if _is_installed("crewai"):
         from relata_adapters.crewai import RelataStorage
 
@@ -56,9 +56,9 @@ def get_memory_adapter() -> type[Any] | None:
 
         return RelataTool
     if _is_installed("llama_index"):
-        from relata_adapters.llamaindex import RelataMemory
+        from relata_adapters.llamaindex import RelataMemory as LlamaIndexMemory
 
-        return RelataMemory
+        return LlamaIndexMemory
     return None
 
 

@@ -345,12 +345,23 @@ def test_pydantic_ai_backend_add_search() -> None:
         if req.url.path == "/v1/memory/remember":
             return httpx.Response(
                 200,
-                json={"content": [{"type": "text", "text": json.dumps({"id": "m-1"})}], "isError": False},
+                json={
+                    "content": [{"type": "text", "text": json.dumps({"id": "m-1"})}],
+                    "isError": False,
+                },
             )
         if "/v1/memory/recall" in req.url.path:
             return httpx.Response(
                 200,
-                json={"content": [{"type": "text", "text": json.dumps({"rows": [{"id": "m-1", "content": "hi"}]})}], "isError": False},
+                json={
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps({"rows": [{"id": "m-1", "content": "hi"}]}),
+                        }
+                    ],
+                    "isError": False,
+                },
             )
         return httpx.Response(404)
 

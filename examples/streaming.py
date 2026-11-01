@@ -22,10 +22,11 @@ from __future__ import annotations
 import os
 import threading
 import time
+from typing import Any
 
 from relata import RelataClient
-from relata.ingest import IngestClient
 from relata.audit import AuditClient
+from relata.ingest import IngestClient
 from relata.streaming import StreamingClient
 
 
@@ -40,7 +41,7 @@ def main() -> None:
 
     # ── 1. Background thread: consume watch events for 5 seconds ──────────
     print("=== 1. Spawn StreamingClient.watch('SELECT * FROM Person') ===")
-    events: list[dict] = []
+    events: list[dict[str, Any]] = []
     stop = threading.Event()
 
     def watcher() -> None:
@@ -77,7 +78,10 @@ def main() -> None:
     print("\n=== 4. Audit log (count + recent entries) ===")
     print(f"  count: {audit.count()}")
     recent = audit.log(limit=5)
-    print(f"  {len(recent.get('entries', []))} recent entr(ies); chain_valid={recent.get('chain_valid')}")
+    print(
+        f"  {len(recent.get('entries', []))} recent entr(ies); "
+        f"chain_valid={recent.get('chain_valid')}"
+    )
 
     relata.close()
 

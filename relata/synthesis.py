@@ -86,7 +86,8 @@ class SynthesizedSentence(BaseModel):
     text: str = Field(..., description="Rendered sentence, incl. unsupported_marker if flagged")
     citations: list[Citation] = Field(default_factory=list)
     supported: bool = Field(
-        True, description="False when the post-synthesis faithfulness pass rejected this sentence"
+        default=True,
+        description="False when the post-synthesis faithfulness pass rejected this sentence",
     )
 
 
@@ -99,7 +100,9 @@ class SynthesisResult(BaseModel):
     citations: list[Citation] = Field(
         default_factory=list, description="Deduplicated citations across the whole answer"
     )
-    unsupported_count: int = Field(0, description="Number of sentences that failed entailment")
+    unsupported_count: int = Field(
+        default=0, description="Number of sentences that failed entailment"
+    )
 
     @property
     def has_unsupported_claims(self) -> bool:

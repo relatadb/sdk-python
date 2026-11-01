@@ -9,8 +9,8 @@ approach `test_rag_understanding.py` uses.
 
 from __future__ import annotations
 
-import json
 import math
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -18,7 +18,7 @@ import pytest
 
 from relata import RelataClient
 from relata._http import AsyncHttpTransport, HttpTransport
-from relata.models import RagQueryResponse
+from relata.models import RagHit, RagQueryResponse
 from relata.rag import AsyncRagClient, RagClient
 from relata.rag_loop import (
     CORRECTIVE_FRACTION_CORRECT_FLOOR,
@@ -37,8 +37,8 @@ from relata.rag_loop import (
 BASE = "http://localhost:9090"
 
 
-def _hit(chunk_id: str, **overrides: Any) -> dict[str, Any]:
-    base = {
+def _hit(chunk_id: str, **overrides: object) -> dict[str, Any]:
+    base: dict[str, Any] = {
         "bm25_score": 1.0,
         "vector_score": 1.0,
         "rerank_score": None,
@@ -56,10 +56,10 @@ def _hit(chunk_id: str, **overrides: Any) -> dict[str, Any]:
     return base
 
 
-def _mock_client(handler: Any) -> RelataClient:
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -69,7 +69,7 @@ def _mock_client(handler: Any) -> RelataClient:
     return client
 
 
-def _embedding_fn_for_score(score: float):
+def _embedding_fn_for_score(score: float) -> Callable[[str], list[float]]:
     """Return an embedding function under which any query text's embedding
     vs. any hit text's embedding (hit text always starts with "text for ",
     per `_hit()` above) has cosine similarity exactly `score`."""
@@ -86,38 +86,38 @@ def _embedding_fn_for_score(score: float):
 # ── heuristic gate — threshold defaults, verified against the ticket ───────
 
 
-def test_heuristic_gate_threshold_defaults_match_verified_values():
+def test_heuristic_gate_threshold_defaults_match_verified_values() -> None:
     assert HEURISTIC_PASS_THRESHOLD == 0.85
     assert HEURISTIC_RETRY_THRESHOLD == 0.60
     assert LOOP_CONFIDENCE_THRESHOLD == 0.85
     assert MAX_ITERATIONS == 5
 
 
-def test_heuristic_gate_passes_above_threshold():
+def test_heuristic_gate_passes_above_threshold() -> None:
     result = heuristic_gate([1.0, 0.0], [[1.0, 0.0], [1.0, 0.0]])
     assert result.score == pytest.approx(1.0)
     assert result.decision is GateDecision.PASS
 
 
-def test_heuristic_gate_retries_below_threshold():
+def test_heuristic_gate_retries_below_threshold() -> None:
     result = heuristic_gate([1.0, 0.0], [[0.0, 1.0]])
     assert result.score == pytest.approx(0.0)
     assert result.decision is GateDecision.RETRY
 
 
-def test_heuristic_gate_evaluates_between_thresholds():
+def test_heuristic_gate_evaluates_between_thresholds() -> None:
     result = heuristic_gate([1.0, 0.0], [[0.7, math.sqrt(1 - 0.7**2)]])
     assert result.score == pytest.approx(0.7)
     assert result.decision is GateDecision.EVALUATE
 
 
-def test_heuristic_gate_no_hits_retries():
+def test_heuristic_gate_no_hits_retries() -> None:
     result = heuristic_gate([1.0, 0.0], [])
     assert result.score == 0.0
     assert result.decision is GateDecision.RETRY
 
 
-def test_heuristic_gate_boundary_values_fall_into_evaluate():
+def test_heuristic_gate_boundary_values_fall_into_evaluate() -> None:
     # Strict inequalities: exactly at either bar is neither an auto-pass nor
     # an auto-retry — it must go to the (cheap-model) evaluator, not be
     # silently treated as confident or worthless.
@@ -130,12 +130,12 @@ def test_heuristic_gate_boundary_values_fall_into_evaluate():
 # ── corrective retrieval grading ────────────────────────────────────────────
 
 
-def test_grade_hits_computes_fraction_correct():
+def test_grade_hits_computes_fraction_correct() -> None:
     hits = RagQueryResponse.model_validate(
         {"hits": [_hit("c1"), _hit("c2"), _hit("c3")]}
     ).hits
 
-    def grader_fn(query, graded_hits):
+    def grader_fn(query: str, graded_hits: list[RagHit]) -> list[HitGrade]:
         return [HitGrade.CORRECT, HitGrade.INCORRECT, HitGrade.AMBIGUOUS]
 
     result = grade_hits("q", hits, grader_fn=grader_fn)
@@ -143,10 +143,10 @@ def test_grade_hits_computes_fraction_correct():
     assert result.grades == [HitGrade.CORRECT, HitGrade.INCORRECT, HitGrade.AMBIGUOUS]
 
 
-def test_grade_hits_needs_requery_below_floor():
+def test_grade_hits_needs_requery_below_floor() -> None:
     hits = RagQueryResponse.model_validate({"hits": [_hit("c1"), _hit("c2")]}).hits
 
-    def grader_fn(query, graded_hits):
+    def grader_fn(query: str, graded_hits: list[RagHit]) -> list[HitGrade]:
         return [HitGrade.INCORRECT, HitGrade.INCORRECT]
 
     result = grade_hits("q", hits, grader_fn=grader_fn)
@@ -154,23 +154,23 @@ def test_grade_hits_needs_requery_below_floor():
     assert result.needs_requery is True
 
 
-def test_grade_hits_does_not_need_requery_above_floor():
+def test_grade_hits_does_not_need_requery_above_floor() -> None:
     hits = RagQueryResponse.model_validate({"hits": [_hit("c1"), _hit("c2")]}).hits
 
-    def grader_fn(query, graded_hits):
+    def grader_fn(query: str, graded_hits: list[RagHit]) -> list[HitGrade]:
         return [HitGrade.CORRECT, HitGrade.CORRECT]
 
     result = grade_hits("q", hits, grader_fn=grader_fn)
     assert result.needs_requery is False
 
 
-def test_grade_hits_empty_hits_short_circuits():
+def test_grade_hits_empty_hits_short_circuits() -> None:
     result = grade_hits("q", [], grader_fn=lambda q, h: [])
     assert result.fraction_correct == 0.0
     assert result.grades == []
 
 
-def test_grade_hits_rejects_mismatched_grade_count():
+def test_grade_hits_rejects_mismatched_grade_count() -> None:
     hits = RagQueryResponse.model_validate({"hits": [_hit("c1"), _hit("c2")]}).hits
     with pytest.raises(ValueError):
         grade_hits("q", hits, grader_fn=lambda q, h: [HitGrade.CORRECT])
@@ -179,7 +179,7 @@ def test_grade_hits_rejects_mismatched_grade_count():
 # ── run_agentic_loop — the zero-LLM-calls property (AC #2) ─────────────────
 
 
-def test_iter0_heuristic_pass_makes_zero_llm_calls():
+def test_iter0_heuristic_pass_makes_zero_llm_calls() -> None:
     query_call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -190,7 +190,7 @@ def test_iter0_heuristic_pass_makes_zero_llm_calls():
     grader_calls: list[Any] = []
     hyde_calls: list[Any] = []
 
-    def grader_fn(query, hits):
+    def grader_fn(query: str, hits: list[RagHit]) -> list[HitGrade]:
         grader_calls.append((query, hits))
         return [HitGrade.CORRECT for _ in hits]
 
@@ -222,7 +222,7 @@ def test_iter0_heuristic_pass_makes_zero_llm_calls():
 # ── run_agentic_loop — MAX_ITERATIONS hard cap under adversarial input ─────
 
 
-def test_heuristic_retry_is_bounded_by_max_iterations():
+def test_heuristic_retry_is_bounded_by_max_iterations() -> None:
     query_call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -249,7 +249,7 @@ def test_heuristic_retry_is_bounded_by_max_iterations():
     assert result.llm_calls == 0  # RETRY never reaches the evaluator
 
 
-def test_corrective_grading_low_fraction_correct_is_bounded_by_max_iterations():
+def test_corrective_grading_low_fraction_correct_is_bounded_by_max_iterations() -> None:
     query_call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -258,7 +258,7 @@ def test_corrective_grading_low_fraction_correct_is_bounded_by_max_iterations():
         return httpx.Response(200, json={"hits": [_hit("c1"), _hit("c2")]})
 
     # An adversarial grader that never reports confidence.
-    def grader_fn(query, hits):
+    def grader_fn(query: str, hits: list[RagHit]) -> list[HitGrade]:
         return [HitGrade.INCORRECT for _ in hits]
 
     client = _mock_client(handler)
@@ -278,7 +278,7 @@ def test_corrective_grading_low_fraction_correct_is_bounded_by_max_iterations():
     assert result.llm_calls == 3  # one grading call per iteration, no HyDE
 
 
-def test_no_grader_configured_stops_immediately_on_evaluate():
+def test_no_grader_configured_stops_immediately_on_evaluate() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": [_hit("c1")]})
 
@@ -299,7 +299,7 @@ def test_no_grader_configured_stops_immediately_on_evaluate():
 # ── run_agentic_loop — corrective grading reaching loop confidence ─────────
 
 
-def test_corrective_grading_confident_stop():
+def test_corrective_grading_confident_stop() -> None:
     query_call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -307,7 +307,7 @@ def test_corrective_grading_confident_stop():
         query_call_count += 1
         return httpx.Response(200, json={"hits": [_hit("c1"), _hit("c2")]})
 
-    def grader_fn(query, hits):
+    def grader_fn(query: str, hits: list[RagHit]) -> list[HitGrade]:
         return [HitGrade.CORRECT for _ in hits]
 
     client = _mock_client(handler)
@@ -324,17 +324,18 @@ def test_corrective_grading_confident_stop():
     assert query_call_count == 1
     assert result.llm_calls == 1
     assert result.iterations[-1].confidence == pytest.approx(1.0)
-    assert result.iterations[-1].confidence >= LOOP_CONFIDENCE_THRESHOLD
+    final_confidence = result.iterations[-1].confidence
+    assert final_confidence is not None and final_confidence >= LOOP_CONFIDENCE_THRESHOLD
 
 
 # ── run_agentic_loop — web-search fallback + HyDE requery refinement ───────
 
 
-def test_web_search_fallback_used_when_needs_requery():
+def test_web_search_fallback_used_when_needs_requery() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": [_hit("c1")]})
 
-    def grader_fn(query, hits):
+    def grader_fn(query: str, hits: list[RagHit]) -> list[HitGrade]:
         return [HitGrade.INCORRECT for _ in hits]
 
     fallback_calls: list[str] = []
@@ -361,11 +362,11 @@ def test_web_search_fallback_used_when_needs_requery():
     assert result.llm_calls == 1  # the one grading call; fallback isn't an LLM call
 
 
-def test_hyde_refines_query_on_requery_and_is_called_at_most_once_per_retry():
+def test_hyde_refines_query_on_requery_and_is_called_at_most_once_per_retry() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": [_hit("c1")]})
 
-    def grader_fn(query, hits):
+    def grader_fn(query: str, hits: list[RagHit]) -> list[HitGrade]:
         return [HitGrade.INCORRECT for _ in hits]
 
     hyde_calls: list[str] = []
@@ -395,7 +396,7 @@ def test_hyde_refines_query_on_requery_and_is_called_at_most_once_per_retry():
     assert result.iterations[1].query == "a refined hypothetical answer, not numeric-intent"
 
 
-def test_run_agentic_loop_rejects_non_positive_max_iterations():
+def test_run_agentic_loop_rejects_non_positive_max_iterations() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"hits": []})
 
@@ -416,7 +417,7 @@ def test_run_agentic_loop_rejects_non_positive_max_iterations():
 
 
 @pytest.mark.asyncio
-async def test_arun_agentic_loop_heuristic_pass_zero_llm_calls():
+async def test_arun_agentic_loop_heuristic_pass_zero_llm_calls() -> None:
     query_call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -426,7 +427,7 @@ async def test_arun_agentic_loop_heuristic_pass_zero_llm_calls():
 
     grader_calls: list[Any] = []
 
-    def grader_fn(query, hits):
+    def grader_fn(query: str, hits: list[RagHit]) -> list[HitGrade]:
         grader_calls.append((query, hits))
         return [HitGrade.CORRECT for _ in hits]
 
@@ -447,7 +448,7 @@ async def test_arun_agentic_loop_heuristic_pass_zero_llm_calls():
 
 
 @pytest.mark.asyncio
-async def test_arun_agentic_loop_bounded_by_max_iterations():
+async def test_arun_agentic_loop_bounded_by_max_iterations() -> None:
     query_call_count = 0
 
     def handler(req: httpx.Request) -> httpx.Response:

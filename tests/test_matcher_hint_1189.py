@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Literal
 
 import httpx
 import pytest
@@ -87,14 +88,14 @@ def test_inject_rejects_unknown_matcher() -> None:
     "matcher,hint",
     [("vf3", "/*+ matcher=vf3 */"), ("bfs", "/*+ matcher=bfs */")],
 )
-def test_query_sends_hint(matcher: str, hint: str) -> None:
+def test_query_sends_hint(matcher: Literal["vf3", "bfs"], hint: str) -> None:
     tracker = _CallTracker()
     _client(tracker).query(CYPHER, matcher=matcher)
     assert tracker.bodies[0]["sql"] == f"{hint} {CYPHER}"
 
 
 @pytest.mark.parametrize("matcher", [None, "auto"])
-def test_query_sends_no_hint_for_auto(matcher: str | None) -> None:
+def test_query_sends_no_hint_for_auto(matcher: Literal["auto"] | None) -> None:
     tracker = _CallTracker()
     _client(tracker).query(CYPHER, matcher=matcher)
     assert tracker.bodies[0]["sql"] == CYPHER
@@ -103,7 +104,7 @@ def test_query_sends_no_hint_for_auto(matcher: str | None) -> None:
 def test_query_rejects_unknown_matcher_before_any_http_call() -> None:
     tracker = _CallTracker()
     with pytest.raises(ValueError, match="matcher"):
-        _client(tracker).query(CYPHER, matcher="nope")
+        _client(tracker).query(CYPHER, matcher="nope")  # type: ignore[arg-type]
     assert tracker.calls == 0
 
 

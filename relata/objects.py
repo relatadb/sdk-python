@@ -16,8 +16,8 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from collections.abc import AsyncIterator, Iterator
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport, path_segment
@@ -53,7 +53,7 @@ def _is_transient(exc: BaseException) -> bool:
 def _reconnect_delay(exc: BaseException, attempt: int, backoff: float, cap: float) -> float:
     hinted = getattr(exc, "retry_after", None)
     base = min(cap, backoff * (2**attempt))
-    return max(base, min(cap, hinted)) if isinstance(hinted, (int, float)) else base
+    return float(max(base, min(cap, hinted))) if isinstance(hinted, (int, float)) else base
 
 
 def _validate_object_type(name: str) -> str:
@@ -72,7 +72,9 @@ def _row_to_ndjson(rows: list[dict[str, Any]]) -> str:
 
 
 def _object_path(object_type: str, object_id: str, purpose: str | None = None) -> str:
-    path = f"/v1/objects/{path_segment(_validate_object_type(object_type))}/{path_segment(object_id)}"
+    path = (
+        f"/v1/objects/{path_segment(_validate_object_type(object_type))}/{path_segment(object_id)}"
+    )
     return f"{path}?{urlencode({'purpose': purpose})}" if purpose else path
 
 
@@ -237,7 +239,7 @@ class ObjectClient:
             content_type="application/x-ndjson",
         )
 
-    def typed_upsert(self, obj: Any, *, purpose: str | None = None) -> dict[str, Any]:
+    def typed_upsert(self, obj: object, *, purpose: str | None = None) -> dict[str, Any]:
         """Upsert a typed object (Pydantic model or dataclass). Field names
         and types are validated by the model's schema before the request
         reaches the server — a malformed field is a local ``ValidationError``,
@@ -248,13 +250,13 @@ class ObjectClient:
         """
         # Support Pydantic v2 models.
         if hasattr(obj, "model_dump"):
-            fields = obj.model_dump()
+            fields = cast("Any", obj).model_dump()
         # Support dataclasses.
         elif hasattr(obj, "__dataclass_fields__"):
             from dataclasses import asdict
-            fields = asdict(obj)
+            fields = asdict(cast("Any", obj))
         else:
-            fields = dict(obj)
+            fields = dict(cast("Any", obj))
         object_type = fields.pop("_type", type(obj).__name__)
         object_id = str(fields.get("_pk", fields.get("id", "")))
         return self.upsert(object_type, object_id, fields, purpose=purpose)
@@ -462,7 +464,7 @@ class ObjectClient:
         max_reconnects: int = 8,
         reconnect_backoff: float = 0.5,
         max_backoff: float = 30.0,
-    ) -> Iterator[dict[str, Any]]:
+    ) -> Generator[dict[str, Any], None, None]:
         """Follow the change feed indefinitely, reconnecting and resuming by cursor.
 
         Yields each non-empty page. The cursor only advances after the consumer
@@ -588,17 +590,17 @@ class AsyncObjectClient:
             content_type="application/x-ndjson",
         )
 
-    async def typed_upsert(self, obj: Any, *, purpose: str | None = None) -> dict[str, Any]:
+    async def typed_upsert(self, obj: object, *, purpose: str | None = None) -> dict[str, Any]:
         """Async equivalent of :meth:`ObjectClient.typed_upsert` — upsert a
         typed object (Pydantic model or dataclass), validated locally before
         the request reaches the server (#967 Tier 2a)."""
         if hasattr(obj, "model_dump"):
-            fields = obj.model_dump()
+            fields = cast("Any", obj).model_dump()
         elif hasattr(obj, "__dataclass_fields__"):
             from dataclasses import asdict
-            fields = asdict(obj)
+            fields = asdict(cast("Any", obj))
         else:
-            fields = dict(obj)
+            fields = dict(cast("Any", obj))
         object_type = fields.pop("_type", type(obj).__name__)
         object_id = str(fields.get("_pk", fields.get("id", "")))
         return await self.upsert(object_type, object_id, fields, purpose=purpose)
@@ -759,7 +761,7 @@ class AsyncObjectClient:
         max_reconnects: int = 8,
         reconnect_backoff: float = 0.5,
         max_backoff: float = 30.0,
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Follow the change feed indefinitely, reconnecting and resuming by cursor.
 
         Yields each non-empty page. The cursor only advances after the consumer

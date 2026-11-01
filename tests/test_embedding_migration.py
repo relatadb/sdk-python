@@ -12,6 +12,7 @@ retirement step.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -28,9 +29,11 @@ from relata.embedding_migration import (
 BASE = "http://localhost:9090"
 
 
-def _migration_client(handler: Any, **kwargs: Any) -> EmbeddingMigrationClient:
+def _migration_client(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> EmbeddingMigrationClient:
     mock = httpx.MockTransport(handler)
-    return EmbeddingMigrationClient(BASE, bearer_token="tok", transport=mock, **kwargs)
+    return EmbeddingMigrationClient(BASE, bearer_token="tok", transport=mock)
 
 
 def _row(row_id: str, text: str, other: str, model_tag: str) -> dict[str, Any]:
@@ -51,7 +54,7 @@ def _row(row_id: str, text: str, other: str, model_tag: str) -> dict[str, Any]:
 # ── Gap 1: re-embed + backfill ──────────────────────────────────────────────
 
 
-def test_migrate_batch_reembeds_and_preserves_other_fields():
+def test_migrate_batch_reembeds_and_preserves_other_fields() -> None:
     rows = [
         _row("row-1", "hello world", "keep-me-1", "old-model:1.0"),
         _row("row-2", "goodbye world", "keep-me-2", "old-model:1.0"),
@@ -107,7 +110,7 @@ def test_migrate_batch_reembeds_and_preserves_other_fields():
     assert "system_to" not in row1
 
 
-def test_migrate_batch_done_false_when_batch_is_full():
+def test_migrate_batch_done_false_when_batch_is_full() -> None:
     rows = [_row(f"row-{i}", "text", "o", "old-model:1.0") for i in range(3)]
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -129,7 +132,7 @@ def test_migrate_batch_done_false_when_batch_is_full():
     assert result.done is False, "a full batch must not claim completion"
 
 
-def test_migrate_batch_empty_result_is_done_with_zero_scanned():
+def test_migrate_batch_empty_result_is_done_with_zero_scanned() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": []})
 
@@ -148,7 +151,7 @@ def test_migrate_batch_empty_result_is_done_with_zero_scanned():
     )
 
 
-def test_migrate_batch_records_per_row_failure_without_aborting_batch():
+def test_migrate_batch_records_per_row_failure_without_aborting_batch() -> None:
     rows = [
         _row("row-ok", "text ok", "o", "old-model:1.0"),
         _row("row-bad", "text bad", "o", "old-model:1.0"),
@@ -180,7 +183,7 @@ def test_migrate_batch_records_per_row_failure_without_aborting_batch():
     assert result.failed_ids == ["row-bad"]
 
 
-def test_migrate_batch_rejects_embedder_vector_count_mismatch():
+def test_migrate_batch_rejects_embedder_vector_count_mismatch() -> None:
     rows = [_row("row-1", "t", "o", "old-model:1.0")]
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -199,7 +202,7 @@ def test_migrate_batch_rejects_embedder_vector_count_mismatch():
         )
 
 
-def test_migrate_iterates_until_batch_reports_done():
+def test_migrate_iterates_until_batch_reports_done() -> None:
     call_count = {"n": 0}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -232,7 +235,9 @@ def test_migrate_iterates_until_batch_reports_done():
     assert results[1].rows_scanned == 0
 
 
-def test_migrate_embedding_model_module_function_delegates_via_from_client(monkeypatch):
+def test_migrate_embedding_model_module_function_delegates_via_from_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     rows = [_row("row-1", "t", "o", "old-model:1.0")]
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -265,7 +270,7 @@ def test_migrate_embedding_model_module_function_delegates_via_from_client(monke
 # ── from_client() attribute passthrough (no network) ────────────────────────
 
 
-def test_from_client_copies_connection_settings():
+def test_from_client_copies_connection_settings() -> None:
     client = RelataClient(
         BASE, bearer_token="tok", timeout=42.0, admin_base_url="http://localhost:9091"
     )
@@ -277,7 +282,7 @@ def test_from_client_copies_connection_settings():
 # ── Gap 2: dual/multi-tag search ("Option B") ───────────────────────────────
 
 
-def test_search_multi_tag_posts_one_call_to_admin_endpoint():
+def test_search_multi_tag_posts_one_call_to_admin_endpoint() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -305,7 +310,7 @@ def test_search_multi_tag_posts_one_call_to_admin_endpoint():
     ]
 
 
-def test_search_multi_tag_rejects_empty_model_tags():
+def test_search_multi_tag_rejects_empty_model_tags() -> None:
     client = _migration_client(lambda req: httpx.Response(200, json={"hits": []}))
     with pytest.raises(ValueError, match="model_tags must be non-empty"):
         client.search_multi_tag("MigrDoc", [], [0.1])
@@ -314,13 +319,13 @@ def test_search_multi_tag_rejects_empty_model_tags():
 # ── Retirement — explicit, never automatic ──────────────────────────────────
 
 
-def test_retire_requires_embedding_field_or_force():
+def test_retire_requires_embedding_field_or_force() -> None:
     client = _migration_client(lambda req: httpx.Response(200, json={}))
     with pytest.raises(ValueError, match="embedding_field"):
         client.retire("MigrDoc", "old-model:1.0")
 
 
-def test_retire_refuses_when_rows_still_remain():
+def test_retire_refuses_when_rows_still_remain() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/query"
         return httpx.Response(200, json={"data": [{"n": 3}]})
@@ -330,7 +335,7 @@ def test_retire_refuses_when_rows_still_remain():
         client.retire("MigrDoc", "old-model:1.0", embedding_field="text")
 
 
-def test_retire_succeeds_when_zero_rows_remain():
+def test_retire_succeeds_when_zero_rows_remain() -> None:
     calls: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -349,7 +354,7 @@ def test_retire_succeeds_when_zero_rows_remain():
     assert calls == ["/v1/query", "/admin/vector-index/retire-model-tag"]
 
 
-def test_retire_with_force_skips_remaining_check():
+def test_retire_with_force_skips_remaining_check() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         # Must go straight to retirement — no /v1/query COUNT call at all.
         assert req.url.path == "/admin/vector-index/retire-model-tag"
@@ -363,14 +368,19 @@ def test_retire_with_force_skips_remaining_check():
 # ── http_embed_batch_embedder ────────────────────────────────────────────────
 
 
-def test_http_embed_batch_embedder_wraps_embed_batch():
+def test_http_embed_batch_embedder_wraps_embed_batch() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/embed"
         body = json.loads(req.content)
         assert body["texts"] == ["a", "b"]
         return httpx.Response(
             200,
-            json={"embeddings": [[0.1, 0.2], [0.3, 0.4]], "model": "e5-large:1.0", "dim": 2, "count": 2},
+            json={
+                "embeddings": [[0.1, 0.2], [0.3, 0.4]],
+                "model": "e5-large:1.0",
+                "dim": 2,
+                "count": 2,
+            },
         )
 
     from relata._http import HttpTransport

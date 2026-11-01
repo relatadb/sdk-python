@@ -32,7 +32,7 @@ def _mock(handler: Handler) -> httpx.MockTransport:
 def _client(handler: Handler) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok", purpose="schema")
     mock = _mock(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )

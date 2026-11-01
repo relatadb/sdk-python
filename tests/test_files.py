@@ -1,55 +1,56 @@
 """Files uses the normal capped authenticated transport, including byte bodies."""
 import asyncio
 import json
+from collections.abc import AsyncIterator, Iterator
+from typing import Any, cast
 
 import httpx
 import pytest
 
 from relata import AsyncFilesClient, FilesClient, RelataClient, ResponseTooLargeError, ServerError
 
-
 PAYLOAD = b'\x00\xff\x80binary\r\n'
 KEY = 'folder/a ?#&é.bin'
 ETAG = '"fixture-etag"'
 
 
-def metadata():
+def metadata() -> dict[str, object]:
     return dict(bucket='tenant-a', key=KEY, row_id='physical-row', size=len(PAYLOAD),
         etag=ETAG, content_type='application/x-fixture', modified_ns=123,
         is_folder=False, download_url='/v1/files/content?key=encoded')
 
 
 class SyncChunks(httpx.SyncByteStream):
-    def __init__(self, chunks):
+    def __init__(self, chunks: list[bytes]) -> None:
         self.chunks, self.closed, self.reads = chunks, False, 0
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[bytes]:
         for chunk in self.chunks:
             self.reads += 1
             yield chunk
 
-    def close(self):
+    def close(self) -> None:
         self.closed = True
 
 
 class AsyncChunks(httpx.AsyncByteStream):
-    def __init__(self, chunks):
+    def __init__(self, chunks: list[bytes]) -> None:
         self.chunks, self.closed, self.reads = chunks, False, 0
 
-    async def __aiter__(self):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
         for chunk in self.chunks:
             self.reads += 1
             yield chunk
 
-    async def aclose(self):
+    async def aclose(self) -> None:
         self.closed = True
 
 
-def test_sync_files_round_trip_preserves_exact_bytes_headers_and_query_encoding():
+def test_sync_files_round_trip_preserves_exact_bytes_headers_and_query_encoding() -> None:
     seen, streams = [], []
     extra = {'x-relata-tenant-id':'wrong-tenant', 'X-Custom':'retained'}
     before = dict(extra)
-    def handler(request):
+    def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.method)
         assert request.url.path == '/v1/files/content'
         assert request.url.params['key'] == KEY and request.url.params['bucket'] == 'tenant-a'
@@ -64,7 +65,10 @@ def test_sync_files_round_trip_preserves_exact_bytes_headers_and_query_encoding(
             return httpx.Response(204)
         stream = SyncChunks([PAYLOAD[:2], PAYLOAD[2:]])
         streams.append(stream)
-        return httpx.Response(200, stream=stream, headers={'ETag':ETAG, 'Content-Type':'application/x-fixture'})
+        return httpx.Response(
+            200, stream=stream, headers={"ETag": ETAG, "Content-Type": "application/x-fixture"}
+        )
+
     client = FilesClient('http://test', bearer_token='secret', tenant='tenant-a',
         extra_headers=extra, transport=httpx.MockTransport(handler))
     with client:
@@ -73,16 +77,16 @@ def test_sync_files_round_trip_preserves_exact_bytes_headers_and_query_encoding(
         content = client.get(KEY, bucket='tenant-a')
         assert content.data == PAYLOAD and content.size == len(PAYLOAD)
         assert content.etag == ETAG and content.content_type == 'application/x-fixture'
-        assert client.delete(KEY, bucket='tenant-a') is None
+        assert client.delete(KEY, bucket='tenant-a') is None  # type: ignore[func-returns-value]
     client.close()
     assert seen == ['PUT','GET','DELETE'] and streams[0].closed
     assert extra == before and client._t._client.is_closed
 
 
 @pytest.mark.asyncio
-async def test_async_files_round_trip_keeps_binary_and_closes_transport():
+async def test_async_files_round_trip_keeps_binary_and_closes_transport() -> None:
     seen, streams = [], []
-    async def handler(request):
+    async def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.method)
         assert request.headers['Authorization'] == 'Bearer secret'
         assert request.headers['X-Relata-Tenant-Id'] == 'tenant-a'
@@ -90,29 +94,44 @@ async def test_async_files_round_trip_keeps_binary_and_closes_transport():
         if request.method == 'PUT':
             assert request.content == PAYLOAD
             return httpx.Response(201, json=metadata())
-        if request.method == 'DELETE': return httpx.Response(204)
-        stream = AsyncChunks([PAYLOAD]); streams.append(stream)
-        return httpx.Response(200, stream=stream, headers={'ETag':ETAG,'Content-Type':'application/x-fixture'})
-    client = AsyncFilesClient('http://test', bearer_token='secret', tenant='tenant-a', transport=httpx.MockTransport(handler))
+        if request.method == "DELETE":
+            return httpx.Response(204)
+        stream = AsyncChunks([PAYLOAD])
+        streams.append(stream)
+        return httpx.Response(
+            200, stream=stream, headers={"ETag": ETAG, "Content-Type": "application/x-fixture"}
+        )
+
+    client = AsyncFilesClient(
+        "http://test",
+        bearer_token="secret",
+        tenant="tenant-a",
+        transport=httpx.MockTransport(handler),
+    )
     async with client:
         assert (await client.put(KEY, PAYLOAD)).etag == ETAG
         content = await client.get(KEY)
         assert content.data == PAYLOAD and content.etag == ETAG
-        assert await client.delete(KEY) is None
+        assert await client.delete(KEY) is None  # type: ignore[func-returns-value]
     await client.aclose()
     assert seen == ['PUT','GET','DELETE'] and streams[0].closed and client._t._client.is_closed
 
 
 @pytest.mark.parametrize('method', ['put','delete'])
-def test_sync_files_never_replay_mutations_and_keep_503_guidance(method):
+def test_sync_files_never_replay_mutations_and_keep_503_guidance(method: str) -> None:
     calls = []
-    def handler(request):
+    def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.method)
-        return httpx.Response(503, json={'code':'fixture-busy','detail':'uncertain','retryable':True},
-            headers={'Retry-After':'2','X-Request-ID':'request-files'})
-    with FilesClient('http://test', max_retries=2, transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(ServerError) as caught:
-            client.put(KEY, PAYLOAD) if method == 'put' else client.delete(KEY)
+        return httpx.Response(
+            503,
+            json={"code": "fixture-busy", "detail": "uncertain", "retryable": True},
+            headers={"Retry-After": "2", "X-Request-ID": "request-files"},
+        )
+
+    with FilesClient(
+        "http://test", max_retries=2, transport=httpx.MockTransport(handler)
+    ) as client, pytest.raises(ServerError) as caught:
+        client.put(KEY, PAYLOAD) if method == 'put' else client.delete(KEY)
     assert calls == [method.upper()]
     assert caught.value.status_code == 503 and caught.value.retry_after == 2
     assert caught.value.request_id == 'request-files' and caught.value.code == 'fixture-busy'
@@ -120,126 +139,175 @@ def test_sync_files_never_replay_mutations_and_keep_503_guidance(method):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('method', ['put','delete'])
-async def test_async_files_never_replay_mutations_and_keep_503_guidance(method):
+async def test_async_files_never_replay_mutations_and_keep_503_guidance(method: str) -> None:
     calls = []
-    async def handler(request):
+    async def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.method)
-        return httpx.Response(503, content=b'null', headers={'Retry-After':'2','X-Request-ID':'request-files'})
-    async with AsyncFilesClient('http://test', max_retries=2, transport=httpx.MockTransport(handler)) as client:
+        return httpx.Response(
+            503, content=b"null", headers={"Retry-After": "2", "X-Request-ID": "request-files"}
+        )
+
+    async with AsyncFilesClient(
+        "http://test", max_retries=2, transport=httpx.MockTransport(handler)
+    ) as client:
         with pytest.raises(ServerError) as caught:
-            if method == 'put': await client.put(KEY, PAYLOAD)
-            else: await client.delete(KEY)
+            if method == "put":
+                await client.put(KEY, PAYLOAD)
+            else:
+                await client.delete(KEY)
     assert calls == [method.upper()]
     assert caught.value.status_code == 503 and caught.value.retry_after == 2
     assert caught.value.request_id == 'request-files'
 
 
 @pytest.mark.parametrize('advertised', [False,True])
-def test_sync_files_cap_closes_body_before_or_during_read(advertised):
+def test_sync_files_cap_closes_body_before_or_during_read(advertised: bool) -> None:
     stream = SyncChunks([b'abc', b'de'])
     headers = {'Content-Length':'5'} if advertised else {}
-    with FilesClient('http://test', max_response_bytes=4,
-        transport=httpx.MockTransport(lambda _:httpx.Response(200, stream=stream, headers=headers))) as client:
-        with pytest.raises(ResponseTooLargeError): client.get(KEY)
+    with FilesClient(
+        "http://test",
+        max_response_bytes=4,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, stream=stream, headers=headers)
+        ),
+    ) as client, pytest.raises(ResponseTooLargeError):
+        client.get(KEY)
     assert stream.closed and stream.reads == (0 if advertised else 2)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('advertised', [False,True])
-async def test_async_files_cap_closes_body_before_or_during_read(advertised):
+async def test_async_files_cap_closes_body_before_or_during_read(advertised: bool) -> None:
     stream = AsyncChunks([b'abc', b'de'])
     headers = {'Content-Length':'5'} if advertised else {}
-    async with AsyncFilesClient('http://test', max_response_bytes=4,
-        transport=httpx.MockTransport(lambda _:httpx.Response(200, stream=stream, headers=headers))) as client:
-        with pytest.raises(ResponseTooLargeError): await client.get(KEY)
+    async with AsyncFilesClient(
+        "http://test",
+        max_response_bytes=4,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, stream=stream, headers=headers)
+        ),
+    ) as client:
+        with pytest.raises(ResponseTooLargeError):
+            await client.get(KEY)
     assert stream.closed and stream.reads == (0 if advertised else 2)
 
 
 @pytest.mark.asyncio
-async def test_async_files_cancellation_closes_partial_response_and_next_get_still_works():
+async def test_async_files_cancellation_closes_partial_response_and_next_get_still_works() -> None:
     blocked = asyncio.Event()
     class SlowBody(httpx.AsyncByteStream):
         closed = False
-        async def __aiter__(self):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
             yield b'partial'
             blocked.set()
             await asyncio.Event().wait()
-        async def aclose(self): self.closed = True
+        async def aclose(self) -> None: self.closed = True
     stream = SlowBody()
     calls = []
-    async def handler(request):
+    async def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.method)
-        return httpx.Response(200, stream=stream) if len(calls)==1 else httpx.Response(200, content=PAYLOAD)
+        return (
+            httpx.Response(200, stream=stream)
+            if len(calls) == 1
+            else httpx.Response(200, content=PAYLOAD)
+        )
+
     async with AsyncFilesClient('http://test', transport=httpx.MockTransport(handler)) as client:
         task = asyncio.create_task(client.get(KEY))
         await asyncio.wait_for(blocked.wait(), timeout=1)
         task.cancel()
-        with pytest.raises(asyncio.CancelledError): await task
+        with pytest.raises(asyncio.CancelledError):
+            await task
         assert stream.closed
         assert (await client.get(KEY)).data == PAYLOAD
     assert calls == ['GET','GET']
 
 
-def test_borrowed_parent_keeps_exact_cap_and_lifetime(monkeypatch):
+def test_borrowed_parent_keeps_exact_cap_and_lifetime(monkeypatch: pytest.MonkeyPatch) -> None:
     real_client = httpx.Client
-    def configured_client(**kwargs):
+    def configured_client(**kwargs: object) -> httpx.Client:
         kwargs['transport'] = httpx.MockTransport(lambda _: httpx.Response(200, content=b'abc'))
-        return real_client(**kwargs)
+        return real_client(**cast("dict[str, Any]", kwargs))
     monkeypatch.setattr(httpx, 'Client', configured_client)
     with RelataClient('http://test', max_response_bytes=2, max_retries=2) as parent:
         view = FilesClient.from_client(parent)
         assert view._t is parent._sync and view._t._max_retries == 2
-        with pytest.raises(ResponseTooLargeError): view.get(KEY)
+        with pytest.raises(ResponseTooLargeError):
+            view.get(KEY)
         view.close()
         assert not parent._sync._client.is_closed
     assert view._t._client.is_closed
 
 
-def test_invalid_upload_type_fails_before_http_mutation():
-    calls = []
-    with FilesClient('http://test', transport=httpx.MockTransport(lambda request:calls.append(request))) as client:
-        with pytest.raises(TypeError): client.put(KEY, 'not-bytes')
+def test_invalid_upload_type_fails_before_http_mutation() -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(500)
+
+    with FilesClient(
+        "http://test", transport=httpx.MockTransport(handler)
+    ) as client, pytest.raises(TypeError):
+        client.put(KEY, "not-bytes")  # type: ignore[arg-type]
     assert calls == []
 
 
-def test_files_get_retains_existing_safe_retry_policy():
+def test_files_get_retains_existing_safe_retry_policy() -> None:
     calls = []
-    def handler(request):
+    def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.method)
-        return httpx.Response(503, json={'detail':'busy'}) if len(calls)==1 else httpx.Response(200, content=PAYLOAD)
-    with FilesClient('http://test', max_retries=2, retry_backoff=0, transport=httpx.MockTransport(handler)) as client:
+        return (
+            httpx.Response(503, json={"detail": "busy"})
+            if len(calls) == 1
+            else httpx.Response(200, content=PAYLOAD)
+        )
+
+    with FilesClient(
+        "http://test", max_retries=2, retry_backoff=0, transport=httpx.MockTransport(handler)
+    ) as client:
         assert client.get(KEY).data == PAYLOAD
     assert calls == ['GET','GET']
 
 
 @pytest.mark.asyncio
-async def test_async_borrowed_parent_preserves_cap_without_closing_parent(monkeypatch):
+async def test_async_borrowed_parent_preserves_cap_without_closing_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     real_client = httpx.AsyncClient
-    def configured_client(**kwargs):
+    def configured_client(**kwargs: object) -> httpx.AsyncClient:
         kwargs['transport'] = httpx.MockTransport(lambda _: httpx.Response(200, content=b'abc'))
-        return real_client(**kwargs)
+        return real_client(**cast("dict[str, Any]", kwargs))
     monkeypatch.setattr(httpx, 'AsyncClient', configured_client)
     async with RelataClient('http://test', max_response_bytes=2, max_retries=2) as parent:
         view = AsyncFilesClient.from_client(parent)
         assert view._t is parent._async and view._t._max_retries == 2
-        with pytest.raises(ResponseTooLargeError): await view.get(KEY)
+        with pytest.raises(ResponseTooLargeError):
+            await view.get(KEY)
         await view.aclose()
         assert not parent._async._client.is_closed
     assert view._t._client.is_closed
 
 
 @pytest.mark.parametrize('method,wrong_status', [('put',200),('get',201),('delete',200)])
-def test_files_refuses_unexpected_success_status_instead_of_acknowledging(method, wrong_status):
+def test_files_refuses_unexpected_success_status_instead_of_acknowledging(
+    method: str, wrong_status: int
+) -> None:
     from relata import RelataError
     calls = []
-    def handler(request):
+    def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.method)
         return httpx.Response(wrong_status, content=PAYLOAD)
-    with FilesClient('http://test', max_retries=2, transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(RelataError) as caught:
-            if method == 'put': client.put(KEY, PAYLOAD)
-            elif method == 'get': client.get(KEY)
-            else: client.delete(KEY)
+
+    with FilesClient(
+        "http://test", max_retries=2, transport=httpx.MockTransport(handler)
+    ) as client, pytest.raises(RelataError) as caught:
+        if method == "put":
+            client.put(KEY, PAYLOAD)
+        elif method == "get":
+            client.get(KEY)
+        else:
+            client.delete(KEY)
     assert caught.value.status_code == wrong_status
     assert caught.value.code == 'unexpected-response-status'
     assert calls == [method.upper()]
@@ -247,16 +315,19 @@ def test_files_refuses_unexpected_success_status_instead_of_acknowledging(method
 
 class FakeUploads:
     """In-memory model of the resumable-upload protocol with one injected failure."""
-    def __init__(self, fail_chunk_at=None):
-        self.data, self.size, self.sha, self.fail_at = bytearray(), 0, None, fail_chunk_at
-        self.calls, self.digests, self.completed = [], [], None
+    def __init__(self, fail_chunk_at: int | None = None) -> None:
+        self.data, self.size, self.fail_at = bytearray(), 0, fail_chunk_at
+        self.sha: str | None = None
+        self.calls: list[tuple[str, str]] = []
+        self.digests: list[str] = []
+        self.completed: bytes | None = None
 
-    def session(self):
+    def session(self) -> dict[str, object]:
         return dict(upload_id='u1', bucket='tenant-a', key=KEY, size=self.size,
             offset=len(self.data), complete=len(self.data) == self.size, sha256=self.sha,
             expires_ns=1, max_chunk_bytes=4)
 
-    def __call__(self, request):
+    def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls.append((request.method, request.url.path))
         if request.method == 'POST' and request.url.path == '/v1/files/uploads':
             body = json.loads(request.content)
@@ -280,8 +351,9 @@ class FakeUploads:
         return httpx.Response(204)
 
 
-def test_sync_resumable_upload_resumes_after_transient_failure_with_exact_bytes():
-    import hashlib, io
+def test_sync_resumable_upload_resumes_after_transient_failure_with_exact_bytes() -> None:
+    import hashlib
+    import io
     payload = bytes(range(10))
     server = FakeUploads(fail_chunk_at=4)
     with FilesClient('http://test', transport=httpx.MockTransport(server)) as client:
@@ -292,23 +364,25 @@ def test_sync_resumable_upload_resumes_after_transient_failure_with_exact_bytes(
     assert ('GET', '/v1/files/uploads/u1') in server.calls  # offset re-read after the 503
 
 
-def test_sync_resumable_upload_gives_up_after_max_attempts_and_keeps_session():
+def test_sync_resumable_upload_gives_up_after_max_attempts_and_keeps_session() -> None:
     server = FakeUploads()
-    def handler(request):
+    def handler(request: httpx.Request) -> httpx.Response:
         if request.method == 'PUT':
             return httpx.Response(503, json={'code':'busy','detail':'retry','retryable':True})
         return server(request)
-    with FilesClient('http://test', transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(ServerError):
-            client.upload(KEY, b'0123456789', chunk_size=4, max_attempts=2)
+    with (
+        FilesClient('http://test', transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(ServerError),
+    ):
+        client.upload(KEY, b'0123456789', chunk_size=4, max_attempts=2)
     assert ('DELETE', '/v1/files/uploads/u1') not in server.calls and server.completed is None
 
 
 @pytest.mark.asyncio
-async def test_async_resumable_upload_round_trip():
+async def test_async_resumable_upload_round_trip() -> None:
     payload = b'abcdefghij'
     server = FakeUploads(fail_chunk_at=4)
-    async def handler(request):
+    async def handler(request: httpx.Request) -> httpx.Response:
         return server(request)
     async with AsyncFilesClient('http://test', transport=httpx.MockTransport(handler)) as client:
         await client.upload(KEY, payload, chunk_size=4)

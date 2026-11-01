@@ -9,6 +9,7 @@ httpx.MockTransport — no live server required.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -29,10 +30,10 @@ _QUERY_PAYLOAD = {
 }
 
 
-def _mock_client(handler: Any) -> RelataClient:
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -45,59 +46,59 @@ def _mock_client(handler: Any) -> RelataClient:
 # ── filters normalisation ────────────────────────────────────────────────────
 
 
-def test_filters_dict_becomes_eq():
+def test_filters_dict_becomes_eq() -> None:
     assert _normalise_filters({"status": "x", "age": 30}) == [
         {"field": "status", "op": "eq", "value": "x"},
         {"field": "age", "op": "eq", "value": 30},
     ]
 
 
-def test_filters_list_keeps_ops():
+def test_filters_list_keeps_ops() -> None:
     assert _normalise_filters([{"field": "age", "op": "gte", "value": 18}]) == [
         {"field": "age", "op": "gte", "value": 18},
     ]
 
 
-def test_filters_default_op_is_eq():
+def test_filters_default_op_is_eq() -> None:
     assert _normalise_filters([{"field": "x", "value": 1}]) == [
         {"field": "x", "op": "eq", "value": 1},
     ]
 
 
-def test_filters_unknown_op_rejected():
+def test_filters_unknown_op_rejected() -> None:
     with pytest.raises(ValueError):
         _normalise_filters([{"field": "x", "op": "bogus", "value": 1}])
 
 
-def test_filters_none():
+def test_filters_none() -> None:
     assert _normalise_filters(None) is None
 
 
 # ── rank_by normalisation ────────────────────────────────────────────────────
 
 
-def test_rank_by_pass_through():
+def test_rank_by_pass_through() -> None:
     assert _normalise_rank_by(["bm25", "title", "graph"]) == ["bm25", "title", "graph"]
 
 
-def test_rank_by_vector_form():
+def test_rank_by_vector_form() -> None:
     assert _normalise_rank_by(["vector", "ann", "graph"]) == ["vector", "ann", "graph"]
 
 
-def test_rank_by_none():
+def test_rank_by_none() -> None:
     assert _normalise_rank_by(None) is None
 
 
-def test_rank_by_empty_list_dropped():
+def test_rank_by_empty_list_dropped() -> None:
     assert _normalise_rank_by([]) is None
 
 
-def test_rank_by_non_string_mode_rejected():
+def test_rank_by_non_string_mode_rejected() -> None:
     with pytest.raises(ValueError):
         _normalise_rank_by([1, "title", "x"])
 
 
-def test_rank_by_bad_type_rejected():
+def test_rank_by_bad_type_rejected() -> None:
     with pytest.raises(TypeError):
         _normalise_rank_by("bm25")  # type: ignore[arg-type]
 
@@ -105,7 +106,7 @@ def test_rank_by_bad_type_rejected():
 # ── payload assembly ─────────────────────────────────────────────────────────
 
 
-def test_payload_text_compiles_to_bm25_rank_by():
+def test_payload_text_compiles_to_bm25_rank_by() -> None:
     payload = _build_payload(
         namespace="Document",
         text="graph retrieval",
@@ -124,7 +125,7 @@ def test_payload_text_compiles_to_bm25_rank_by():
     assert payload["limit"] == 10
 
 
-def test_payload_text_default_column_is_star():
+def test_payload_text_default_column_is_star() -> None:
     payload = _build_payload(
         namespace="Doc", text="x", match_column="*", rank_by=None, filters=None,
         limit=5, include_attributes=None, consistency=None, purpose=None,
@@ -132,7 +133,7 @@ def test_payload_text_default_column_is_star():
     assert payload["rank_by"] == ["bm25", "*", "x"]
 
 
-def test_payload_explicit_rank_by_passes_through():
+def test_payload_explicit_rank_by_passes_through() -> None:
     payload = _build_payload(
         namespace="Doc", text=None, match_column="*", rank_by=["vector", "ann", "q"],
         filters=None, limit=5, include_attributes=None, consistency=None, purpose=None,
@@ -141,7 +142,7 @@ def test_payload_explicit_rank_by_passes_through():
     assert "query" not in payload
 
 
-def test_payload_text_and_rank_by_are_mutually_exclusive():
+def test_payload_text_and_rank_by_are_mutually_exclusive() -> None:
     with pytest.raises(ValueError):
         _build_payload(
             namespace="Doc", text="x", match_column="*", rank_by=["bm25", "t", "x"],
@@ -149,7 +150,7 @@ def test_payload_text_and_rank_by_are_mutually_exclusive():
         )
 
 
-def test_payload_carries_filters_include_attributes_consistency_purpose():
+def test_payload_carries_filters_include_attributes_consistency_purpose() -> None:
     payload = _build_payload(
         namespace="Doc", text="x", match_column="title", rank_by=None,
         filters=[{"field": "status", "op": "eq", "value": "published"}],
@@ -161,7 +162,7 @@ def test_payload_carries_filters_include_attributes_consistency_purpose():
     assert payload["purpose"] == "rag"
 
 
-def test_payload_carries_compute_attributes():
+def test_payload_carries_compute_attributes() -> None:
     payload = _build_payload(
         namespace="Doc", text="x", match_column="*", rank_by=None, filters=None,
         limit=5, include_attributes=None, consistency=None,
@@ -170,7 +171,7 @@ def test_payload_carries_compute_attributes():
     assert payload["compute_attributes"] == {"bm25_score": "BM25()"}
 
 
-def test_payload_no_text_no_rank_by_is_filter_only():
+def test_payload_no_text_no_rank_by_is_filter_only() -> None:
     payload = _build_payload(
         namespace="Doc", text=None, match_column="*", rank_by=None,
         filters={"status": "published"}, limit=5, include_attributes=None,
@@ -183,7 +184,7 @@ def test_payload_no_text_no_rank_by_is_filter_only():
 # ── SearchClient.query → POST /v1/search ────────────────────────────────────────
 
 
-def test_search_client_posts_typed_body_and_returns_query_result():
+def test_search_client_posts_typed_body_and_returns_query_result() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -211,7 +212,7 @@ def test_search_client_posts_typed_body_and_returns_query_result():
 
 
 @pytest.mark.asyncio
-async def test_async_search_client_query():
+async def test_async_search_client_query() -> None:
     from relata.search import AsyncSearchClient
 
     client = _mock_client(lambda req: httpx.Response(200, json=_QUERY_PAYLOAD))
@@ -222,13 +223,13 @@ async def test_async_search_client_query():
 # ── compression off by default ───────────────────────────────────────────────
 
 
-def test_compression_disabled_by_default():
+def test_compression_disabled_by_default() -> None:
     client = RelataClient(BASE, bearer_token="tok")
-    _ = client._sync  # type: ignore[attr-defined]
-    assert client._sync._client.headers.get("accept-encoding") == "identity"  # type: ignore[attr-defined]
+    _ = client._sync
+    assert client._sync._client.headers.get("accept-encoding") == "identity"
 
 
-def test_compression_enabled_opt_in():
+def test_compression_enabled_opt_in() -> None:
     client = RelataClient(BASE, bearer_token="tok", compress=True)
-    _ = client._sync  # type: ignore[attr-defined]
-    assert client._sync._client.headers.get("accept-encoding") != "identity"  # type: ignore[attr-defined]
+    _ = client._sync
+    assert client._sync._client.headers.get("accept-encoding") != "identity"

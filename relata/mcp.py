@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 from relata._http import AsyncHttpTransport, HttpTransport
 
-
 if TYPE_CHECKING:
     import httpx
 
@@ -606,7 +605,9 @@ class McpClient:
         return self.call_tool("summarise", args)
 
     def erase_subject(self, subject: str, *, reason: str = "gdpr-art17-request") -> dict[str, Any]:
-        """``erase_subject`` — governed erasure with scoped local receipts, without global physical or cryptographic completion (#2322)."""
+        """``erase_subject`` — governed erasure with scoped local receipts, without global physical
+        or cryptographic completion (#2322).
+        """
         return self.call_tool("erase_subject", {"subject": subject, "reason": reason})
 
     def similar_multimodal(
@@ -705,11 +706,14 @@ class McpClient:
         return self.call_tool("create_rule", args)
 
     def list_jobs(self) -> dict[str, Any]:
-        """``list_jobs`` — list detection jobs registered by this server with live status (#2322)."""
+        """``list_jobs`` — list detection jobs registered by this server with live status (#2322).
+        """
         return self.call_tool("list_jobs", {})
 
     def schedule_job(self, name: str) -> dict[str, Any]:
-        """``schedule_job`` — request an immediate run of a detection job known to this server (#2322)."""
+        """``schedule_job`` — request an immediate run of a detection job known to this server
+        (#2322).
+        """
         return self.call_tool("schedule_job", {"name": name})
 
     def geofence(
@@ -1345,7 +1349,9 @@ class AsyncMcpClient:
     async def erase_subject(
         self, subject: str, *, reason: str = "gdpr-art17-request"
     ) -> dict[str, Any]:
-        """``erase_subject`` — governed erasure with scoped local receipts, without global physical or cryptographic completion (#2322)."""
+        """``erase_subject`` — governed erasure with scoped local receipts, without global physical
+        or cryptographic completion (#2322).
+        """
         return await self.call_tool("erase_subject", {"subject": subject, "reason": reason})
 
     async def similar_multimodal(
@@ -1444,11 +1450,14 @@ class AsyncMcpClient:
         return await self.call_tool("create_rule", args)
 
     async def list_jobs(self) -> dict[str, Any]:
-        """``list_jobs`` — list detection jobs registered by this server with live status (#2322)."""
+        """``list_jobs`` — list detection jobs registered by this server with live status (#2322).
+        """
         return await self.call_tool("list_jobs", {})
 
     async def schedule_job(self, name: str) -> dict[str, Any]:
-        """``schedule_job`` — request an immediate run of a detection job known to this server (#2322)."""
+        """``schedule_job`` — request an immediate run of a detection job known to this server
+        (#2322).
+        """
         return await self.call_tool("schedule_job", {"name": name})
 
     async def geofence(

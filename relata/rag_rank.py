@@ -39,7 +39,7 @@ through every ``/v1/rag/query`` call) via :func:`mmr_lambda_for_purpose`.
 from __future__ import annotations
 
 import re
-from typing import Callable, Sequence
+from collections.abc import Callable, Sequence
 
 from relata.models import RagHit
 

@@ -142,7 +142,8 @@ class IdentityClient:
 
         Pairs with #61 — today the server does governed-tombstone only (the
         DEK survives). Once #61 ships the per-subject DEK destroy, this same
-        SDK call must be inspected for actual local acknowledgments; provider/all-copy completion remains unverified.
+        SDK call must be inspected for actual local acknowledgments; provider/all-copy
+        completion remains unverified.
         """
         # This helper is provided on IdentityClient for ergonomics but needs
         # the parent query path; the caller must supply a purpose. We do not

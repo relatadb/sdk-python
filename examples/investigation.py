@@ -23,7 +23,7 @@ import json
 import os
 
 from relata import RelataClient
-from relata.exceptions import QuotaError, RelataError
+from relata.exceptions import QuotaError
 
 
 def main() -> None:

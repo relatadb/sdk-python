@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -14,17 +16,21 @@ from relata.media_work import AsyncMediaWorkClient, MediaWorkClient, media_work_
 BASE = "http://localhost:9090"
 
 
-def _recorder(seen: list):
+def _recorder(
+    seen: list[tuple[str, str, str, Any]],
+) -> Callable[[httpx.Request], httpx.Response]:
     def handler(req: httpx.Request) -> httpx.Response:
         body = json.loads(req.content) if req.content else None
-        seen.append((req.method, req.url.raw_path.decode().split("?")[0], req.url.query.decode(), body))
+        seen.append(
+            (req.method, req.url.raw_path.decode().split("?")[0], req.url.query.decode(), body)
+        )
         return httpx.Response(200, json={"items": [{"work_id": "w/1", "claim_id": 7}]})
 
     return handler
 
 
 def test_routes_and_bodies() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
     c = MediaWorkClient(BASE, transport=httpx.MockTransport(_recorder(seen)))
     out = c.claim("etl-1", max_items=2, lease_ms=5000)
     assert out["items"][0]["claim_id"] == 7
@@ -35,7 +41,12 @@ def test_routes_and_bodies() -> None:
     c.complete("w/1", 7, producer_version="v1", batches=2, children=5)
     c.fail("w/1", 7, failure_class="permanent", code="bad", detail="corrupt")
     assert seen == [
-        ("POST", "/v1/media/work/claim", "", {"claimant": "etl-1", "max_items": 2, "lease_ms": 5000}),
+        (
+            "POST",
+            "/v1/media/work/claim",
+            "",
+            {"claimant": "etl-1", "max_items": 2, "lease_ms": 5000},
+        ),
         ("GET", "/v1/media/work", "state=queued&limit=3", None),
         ("GET", "/v1/media/work", "", None),
         ("GET", "/v1/media/work/w%2F1", "", None),
@@ -64,7 +75,7 @@ def test_validation() -> None:
 
 
 def test_async_claim_and_complete() -> None:
-    seen: list = []
+    seen: list[tuple[str, str, str, Any]] = []
 
     async def run() -> None:
         c = AsyncMediaWorkClient(BASE, transport=httpx.MockTransport(_recorder(seen)))

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 
-from relata import EventAppendRequest, RelataClient
+from relata import EventAppendRequest, EventTarget, RelataClient
 from relata._http import AsyncHttpTransport, HttpTransport
 
 BASE = "http://localhost:9090"
@@ -17,7 +18,9 @@ _ROWS = [
 ]
 
 
-def _client(handler: Any) -> tuple[RelataClient, list[httpx.Request]]:
+def _client(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> tuple[RelataClient, list[httpx.Request]]:
     requests: list[httpx.Request] = []
 
     def record(request: httpx.Request) -> httpx.Response:
@@ -26,12 +29,12 @@ def _client(handler: Any) -> tuple[RelataClient, list[httpx.Request]]:
 
     client = RelataClient(BASE, purpose="analytics")
     transport = httpx.MockTransport(record)
-    extra = client._extra_headers  # type: ignore[attr-defined]
-    client._RelataClient__sync_transport = HttpTransport(
+    extra = client._extra_headers
+    client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=transport,
         extra_headers=extra,
     )
-    client._RelataClient__async_transport = AsyncHttpTransport(
+    client._RelataClient__async_transport = AsyncHttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=transport,
         extra_headers=extra,
     )
@@ -80,6 +83,7 @@ def test_document_ingest_uses_generic_queued_bulk_and_task_status() -> None:
     assert status.rows_written == 1
     assert status.rows_dropped == 1
     assert status.drop_reasons == ["write rejected: invalid row"]
+    assert status.model_extra is not None
     assert status.model_extra["error"] == {"code": "partial_write", "retryable": False}
     assert status.model_extra["partial_result"] == {"accepted_ids": ["chunk-1"]}
     assert [request.url.path for request in requests] == [
@@ -117,11 +121,7 @@ def test_append_event_uses_generic_contract_and_returns_receipt() -> None:
         EventAppendRequest(
             object_type="DocumentUsageEvent",
             idempotency_key="answer-1:citation",
-            target={
-                "object_type": "DocumentSource",
-                "key": "report_id",
-                "value": "rpt-1",
-            },
+            target=EventTarget(object_type="DocumentSource", key="report_id", value="rpt-1"),
             attributes={"cited": True},
             purpose="rag-usage",
         )
@@ -179,11 +179,14 @@ def test_document_task_status_preserves_complete_and_failed_outcomes() -> None:
 
 def test_submit_alert_sync_and_async_preserve_contract() -> None:
     import asyncio
+
     from relata import AlertSubmitRequest
 
-    payload = {"matched_key": "_pk", "idempotency_key": "run-1", "purpose": "detection",
-               "alert_type": "app-signal", "severity": "high",
-               "matched_type": "Event", "matched_row_id": "row-1", "context": {"count": 2}}
+    payload: dict[str, Any] = {
+        "matched_key": "_pk", "idempotency_key": "run-1", "purpose": "detection",
+        "alert_type": "app-signal", "severity": "high",
+        "matched_type": "Event", "matched_row_id": "row-1", "context": {"count": 2},
+    }
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/alerts"
         assert json.loads(request.content) == payload

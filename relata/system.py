@@ -5,7 +5,7 @@ Model-provider configuration and completion callbacks belong to applications.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport
@@ -70,7 +70,9 @@ class SystemClient:
     def notification_rules(self) -> list[dict[str, Any]]:
         """GET /v1/notification-rules — list notification rules."""
         data = self._t.get("/v1/notification-rules")
-        return data if isinstance(data, list) else data.get("rules", [])
+        return cast(
+            "list[dict[str, Any]]", data if isinstance(data, list) else data.get("rules", [])
+        )
 
     def create_notification_rule(self, rule: dict[str, Any]) -> dict[str, Any]:
         """POST /v1/notification-rules — create a notification rule.
@@ -151,7 +153,9 @@ class AsyncSystemClient:
 
     async def notification_rules(self) -> list[dict[str, Any]]:
         data = await self._t.get("/v1/notification-rules")
-        return data if isinstance(data, list) else data.get("rules", [])
+        return cast(
+            "list[dict[str, Any]]", data if isinstance(data, list) else data.get("rules", [])
+        )
 
     async def create_notification_rule(self, rule: dict[str, Any]) -> dict[str, Any]:
         return await self._t.post("/v1/notification-rules", rule)

@@ -8,6 +8,7 @@ via `httpx.MockTransport` — no live server required, same approach
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -27,10 +28,10 @@ from relata.structural_navigation import (
 BASE = "http://localhost:9090"
 
 
-def _mock_client(handler: Any) -> RelataClient:
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -115,7 +116,7 @@ _LEAF_CHUNK_HIT_ROW = {
 # ── StructureNode.from_row ──────────────────────────────────────────────────
 
 
-def test_structure_node_from_row_parses_leaf_chunk_ids_json_string():
+def test_structure_node_from_row_parses_leaf_chunk_ids_json_string() -> None:
     node = StructureNode.from_row(_PART1_ROW)
     assert node.node_id == "doc_1::Part I"
     assert node.parent_id == "doc_1::"
@@ -124,7 +125,7 @@ def test_structure_node_from_row_parses_leaf_chunk_ids_json_string():
     assert node.is_leaf  # child_count == 0
 
 
-def test_structure_node_from_row_handles_missing_and_malformed_leaf_ids():
+def test_structure_node_from_row_handles_missing_and_malformed_leaf_ids() -> None:
     row = dict(_ROOT_ROW)
     row["leaf_chunk_ids"] = "not json"
     node = StructureNode.from_row(row)
@@ -135,7 +136,7 @@ def test_structure_node_from_row_handles_missing_and_malformed_leaf_ids():
 # ── fetch_root_node / fetch_child_nodes ─────────────────────────────────────
 
 
-def test_fetch_root_node_queries_parent_id_is_null():
+def test_fetch_root_node_queries_parent_id_is_null() -> None:
     client, sent_sql = _queued_client([[_ROOT_ROW]])
     node = fetch_root_node(client, report_id="doc_1", purpose="research")
     assert node is not None
@@ -144,12 +145,12 @@ def test_fetch_root_node_queries_parent_id_is_null():
     assert "report_id = 'doc_1'" in sent_sql[0]
 
 
-def test_fetch_root_node_returns_none_when_no_tree():
+def test_fetch_root_node_returns_none_when_no_tree() -> None:
     client, _ = _queued_client([[]])
     assert fetch_root_node(client, report_id="doc_missing", purpose="research") is None
 
 
-def test_fetch_child_nodes_scopes_by_parent_id():
+def test_fetch_child_nodes_scopes_by_parent_id() -> None:
     client, sent_sql = _queued_client([[_PART1_ROW, _UNRELATED_ROW]])
     children = fetch_child_nodes(
         client, report_id="doc_1", parent_id="doc_1::", purpose="research"
@@ -161,14 +162,14 @@ def test_fetch_child_nodes_scopes_by_parent_id():
 # ── lexical_child_selector ───────────────────────────────────────────────────
 
 
-def test_lexical_child_selector_picks_best_overlap():
+def test_lexical_child_selector_picks_best_overlap() -> None:
     children = [StructureNode.from_row(_PART1_ROW), StructureNode.from_row(_UNRELATED_ROW)]
     chosen = lexical_child_selector("What are the liquidity termination clauses?", children)
     assert chosen is not None
     assert chosen.title == "Part I"
 
 
-def test_lexical_child_selector_returns_none_on_no_overlap():
+def test_lexical_child_selector_returns_none_on_no_overlap() -> None:
     children = [StructureNode.from_row(_PART1_ROW), StructureNode.from_row(_UNRELATED_ROW)]
     assert lexical_child_selector("zzz qqq nonsense", children) is None
 
@@ -176,7 +177,7 @@ def test_lexical_child_selector_returns_none_on_no_overlap():
 # ── navigate_structural_tree — the multi-hop descent ────────────────────────
 
 
-def test_navigate_structural_tree_descends_and_ranks_leaf_chunks():
+def test_navigate_structural_tree_descends_and_ranks_leaf_chunks() -> None:
     client, sent_sql = _queued_client(
         [
             [_ROOT_ROW],  # 1. root
@@ -209,7 +210,7 @@ def test_navigate_structural_tree_descends_and_ranks_leaf_chunks():
     assert hit.rerank_score is None
 
 
-def test_navigate_structural_tree_returns_empty_when_no_tree():
+def test_navigate_structural_tree_returns_empty_when_no_tree() -> None:
     client, sent_sql = _queued_client([[]])
     response = navigate_structural_tree(
         client,
@@ -222,7 +223,7 @@ def test_navigate_structural_tree_returns_empty_when_no_tree():
     assert len(sent_sql) == 1  # stopped after the root fetch found nothing
 
 
-def test_navigate_structural_tree_stops_when_selector_declines():
+def test_navigate_structural_tree_stops_when_selector_declines() -> None:
     # Root has children, but the (custom) selector never picks one — descent
     # stops at the root, and the root itself has no leaf_chunk_ids.
     client, sent_sql = _queued_client(
@@ -243,9 +244,9 @@ def test_navigate_structural_tree_stops_when_selector_declines():
     assert len(sent_sql) == 2  # root + one children fetch, no leaf-ranking call
 
 
-def test_navigate_structural_tree_requires_purpose():
+def test_navigate_structural_tree_requires_purpose() -> None:
     client, _ = _queued_client([[_ROOT_ROW]])
-    client._default_purpose = None  # type: ignore[attr-defined]
+    client._default_purpose = None
     with pytest.raises(PurposeError):
         navigate_structural_tree(
             client, report_id="doc_1", question="q", type="DocumentChunk"

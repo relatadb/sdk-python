@@ -90,13 +90,13 @@ import concurrent.futures
 import dataclasses
 import re
 import time
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Unpack
 
 if TYPE_CHECKING:
     from relata.client import RelataClient
-    from relata.rag import AsyncRagClient, RagClient
+    from relata.rag import AsyncRagClient, RagClient, RagQueryKwargs
 
 from relata.models import QueryResult, RagHit, RagQueryResponse, Refusal
 from relata.rag import DEFAULT_TOP_K
@@ -168,7 +168,7 @@ def check_content_safety(
 # ---------------------------------------------------------------------------
 
 
-class QueryShape(str, Enum):
+class QueryShape(str, Enum):  # noqa: UP042 - str() must stay "QueryShape.NAME"
     """Detected shape of a query text, per :func:`classify_query_shape`."""
 
     ATTRIBUTE_FILTER = "attribute_filter"
@@ -614,7 +614,7 @@ def extract_attribute_filters(
     return filters
 
 
-def _sql_literal(value: Any) -> str:
+def _sql_literal(value: object) -> str:
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
     if isinstance(value, (int, float)):
@@ -1238,7 +1238,7 @@ def smart_rag_query(
     attribute_known_fields: Collection[str] | None = None,
     structured_field_map: Mapping[str, str] | None = None,
     structured_known_fields: Collection[str] | None = None,
-    **rag_kwargs: Any,
+    **rag_kwargs: Unpack[RagQueryKwargs],
 ) -> RagQueryResponse:
     """Run ``query`` through the content-safety gate, structured-attribute
     routing, decomposition, per-sub-query shape dispatch, and optional HyDE,
@@ -1341,7 +1341,7 @@ def smart_rag_query(
 
     def _run(sub_query: str) -> RagQueryResponse:
         sub_shape = classify_query_shape(sub_query)
-        call_kwargs = _apply_query_shape(sub_shape, rag_kwargs)
+        call_kwargs = _apply_query_shape(sub_shape, dict(rag_kwargs))
         search_text = sub_query
         if hypothesis_fn is not None:
             search_text = expand_query_hyde(sub_query, hypothesis_fn=hypothesis_fn)
@@ -1376,7 +1376,7 @@ async def asmart_rag_query(
     attribute_known_fields: Collection[str] | None = None,
     structured_field_map: Mapping[str, str] | None = None,
     structured_known_fields: Collection[str] | None = None,
-    **rag_kwargs: Any,
+    **rag_kwargs: Unpack[RagQueryKwargs],
 ) -> RagQueryResponse:
     """Async variant of :func:`smart_rag_query` — issues the sub-query fan-out
     concurrently via ``asyncio.gather`` instead of a thread pool."""
@@ -1427,7 +1427,7 @@ async def asmart_rag_query(
 
     async def _run(sub_query: str) -> RagQueryResponse:
         sub_shape = classify_query_shape(sub_query)
-        call_kwargs = _apply_query_shape(sub_shape, rag_kwargs)
+        call_kwargs = _apply_query_shape(sub_shape, dict(rag_kwargs))
         search_text = sub_query
         if hypothesis_fn is not None:
             search_text = expand_query_hyde(sub_query, hypothesis_fn=hypothesis_fn)

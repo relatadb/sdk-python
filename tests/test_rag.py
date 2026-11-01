@@ -10,6 +10,7 @@ against that frozen shape, not a live integration test).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -70,10 +71,10 @@ _RAG_HIT = {
 _RAG_PAYLOAD = {"hits": [_RAG_HIT]}
 
 
-def _mock_client(handler: Any) -> RelataClient:
+def _mock_client(handler: Callable[[httpx.Request], httpx.Response]) -> RelataClient:
     client = RelataClient(BASE, bearer_token="tok")
     mock = httpx.MockTransport(handler)
-    extra = client._extra_headers  # type: ignore[attr-defined]
+    extra = client._extra_headers
     client._RelataClient__sync_transport = HttpTransport(  # type: ignore[attr-defined]
         BASE, client._bearer_token, client._timeout, transport=mock, extra_headers=extra
     )
@@ -86,7 +87,7 @@ def _mock_client(handler: Any) -> RelataClient:
 # ── payload assembly — #4514's exact request table ─────────────────────────
 
 
-def test_payload_carries_every_required_field():
+def test_payload_carries_every_required_field() -> None:
     payload = _build_rag_payload(
         query="graph databases",
         type="DocumentChunk",
@@ -115,7 +116,7 @@ def test_payload_carries_every_required_field():
     }
 
 
-def test_payload_defaults_match_4514_contract():
+def test_payload_defaults_match_4514_contract() -> None:
     payload = _build_rag_payload(
         query="q", type="DocumentChunk", top_k=8, rerank=False, search_mode="hybrid",
         embedding_slot="text", filters=None, as_of=None, purpose="research",
@@ -129,7 +130,7 @@ def test_payload_defaults_match_4514_contract():
     assert payload["graph_hops"] == 0
 
 
-def test_payload_requires_query():
+def test_payload_requires_query() -> None:
     with pytest.raises(ValueError):
         _build_rag_payload(
             query="", type="DocumentChunk", top_k=8, rerank=False, search_mode="hybrid",
@@ -138,7 +139,7 @@ def test_payload_requires_query():
         )
 
 
-def test_payload_requires_type():
+def test_payload_requires_type() -> None:
     with pytest.raises(ValueError):
         _build_rag_payload(
             query="q", type="", top_k=8, rerank=False, search_mode="hybrid",
@@ -147,7 +148,7 @@ def test_payload_requires_type():
         )
 
 
-def test_payload_requires_purpose():
+def test_payload_requires_purpose() -> None:
     with pytest.raises(PurposeError):
         _build_rag_payload(
             query="q", type="DocumentChunk", top_k=8, rerank=False, search_mode="hybrid",
@@ -156,7 +157,7 @@ def test_payload_requires_purpose():
         )
 
 
-def test_payload_rejects_bad_search_mode():
+def test_payload_rejects_bad_search_mode() -> None:
     with pytest.raises(ValueError):
         _build_rag_payload(
             query="q", type="DocumentChunk", top_k=8, rerank=False, search_mode="bogus",
@@ -165,7 +166,7 @@ def test_payload_rejects_bad_search_mode():
         )
 
 
-def test_payload_rejects_bad_embedding_slot():
+def test_payload_rejects_bad_embedding_slot() -> None:
     with pytest.raises(ValueError):
         _build_rag_payload(
             query="q", type="DocumentChunk", top_k=8, rerank=False, search_mode="hybrid",
@@ -174,7 +175,7 @@ def test_payload_rejects_bad_embedding_slot():
         )
 
 
-def test_payload_normalises_filters_dict_shorthand():
+def test_payload_normalises_filters_dict_shorthand() -> None:
     payload = _build_rag_payload(
         query="q", type="DocumentChunk", top_k=8, rerank=False, search_mode="hybrid",
         embedding_slot="text", filters={"status": "published"}, as_of=None, purpose="research",
@@ -183,7 +184,7 @@ def test_payload_normalises_filters_dict_shorthand():
     assert payload["filters"] == [{"field": "status", "op": "eq", "value": "published"}]
 
 
-def test_payload_carries_as_of():
+def test_payload_carries_as_of() -> None:
     payload = _build_rag_payload(
         query="q", type="DocumentChunk", top_k=8, rerank=False, search_mode="hybrid",
         embedding_slot="text", filters=None, as_of="2026-01-01T00:00:00Z", purpose="research",
@@ -195,7 +196,7 @@ def test_payload_carries_as_of():
 # ── RagHit / RagQueryResponse — no field dropped or fused ──────────────────
 
 
-def test_rag_hit_keeps_bm25_and_vector_scores_separate():
+def test_rag_hit_keeps_bm25_and_vector_scores_separate() -> None:
     hit = RagHit.model_validate(_RAG_HIT)
     assert hit.bm25_score == 4.2
     assert hit.vector_score == 0.83
@@ -211,7 +212,7 @@ def test_rag_hit_keeps_bm25_and_vector_scores_separate():
     assert hit.entity_ids == ["ent-1", "ent-2"]
 
 
-def test_rag_query_response_total_mirrors_hit_count():
+def test_rag_query_response_total_mirrors_hit_count() -> None:
     resp = RagQueryResponse.model_validate(_RAG_PAYLOAD)
     assert resp.total == 1
     assert len(resp.hits) == 1
@@ -220,7 +221,7 @@ def test_rag_query_response_total_mirrors_hit_count():
 # ── RagClient.query → POST /v1/rag/query ───────────────────────────────────────
 
 
-def test_rag_client_posts_full_contract_and_returns_typed_response():
+def test_rag_client_posts_full_contract_and_returns_typed_response() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -258,7 +259,7 @@ def test_rag_client_posts_full_contract_and_returns_typed_response():
     assert res.hits[0].vector_score == 0.83
 
 
-def test_rag_client_falls_back_to_client_default_purpose():
+def test_rag_client_falls_back_to_client_default_purpose() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -266,19 +267,19 @@ def test_rag_client_falls_back_to_client_default_purpose():
         return httpx.Response(200, json=_RAG_PAYLOAD)
 
     client = _mock_client(handler)
-    client._default_purpose = "default-purpose"  # type: ignore[attr-defined]
+    client._default_purpose = "default-purpose"
     RagClient.from_client(client).query("q", "DocumentChunk")
     assert captured["purpose"] == "default-purpose"
 
 
-def test_rag_client_raises_purpose_error_when_none_available():
+def test_rag_client_raises_purpose_error_when_none_available() -> None:
     client = _mock_client(lambda req: httpx.Response(200, json=_RAG_PAYLOAD))
     with pytest.raises(PurposeError):
         RagClient.from_client(client).query("q", "DocumentChunk")
 
 
 @pytest.mark.asyncio
-async def test_async_rag_client_query():
+async def test_async_rag_client_query() -> None:
     client = _mock_client(lambda req: httpx.Response(200, json=_RAG_PAYLOAD))
     res = await AsyncRagClient.from_client(client).query(
         "q", "DocumentChunk", purpose="research"
@@ -290,7 +291,7 @@ async def test_async_rag_client_query():
 # ── Clarification / EntityCandidate — #4534 ─────────────────────────────────
 
 
-def test_clarification_round_trips_every_candidate_field():
+def test_clarification_round_trips_every_candidate_field() -> None:
     c = Clarification.model_validate(_CLARIFICATION)
     assert c.type == "entity_disambiguation"
     assert c.question == 'Multiple entities match "Ahmad". Which one?'
@@ -303,13 +304,13 @@ def test_clarification_round_trips_every_candidate_field():
     assert first.top_aliases == ["A. Akhtar"]
 
 
-def test_entity_candidate_defaults_are_safe():
+def test_entity_candidate_defaults_are_safe() -> None:
     c = EntityCandidate(entity_id="e1", label="Someone")
     assert c.document_count == 0
     assert c.top_aliases == []
 
 
-def test_rag_query_response_carries_clarification_and_is_ambiguous():
+def test_rag_query_response_carries_clarification_and_is_ambiguous() -> None:
     resp = RagQueryResponse.model_validate(_AMBIGUOUS_PAYLOAD)
     assert resp.is_ambiguous
     assert resp.clarification is not None
@@ -317,33 +318,34 @@ def test_rag_query_response_carries_clarification_and_is_ambiguous():
     assert resp.total == 0  # no hits when ambiguous
 
 
-def test_rag_query_response_without_clarification_is_not_ambiguous():
+def test_rag_query_response_without_clarification_is_not_ambiguous() -> None:
     resp = RagQueryResponse.model_validate(_RAG_PAYLOAD)
     assert not resp.is_ambiguous
     assert resp.clarification is None
 
 
-def test_rag_client_query_surfaces_clarification():
+def test_rag_client_query_surfaces_clarification() -> None:
     client = _mock_client(lambda req: httpx.Response(200, json=_AMBIGUOUS_PAYLOAD))
     res = RagClient.from_client(client).query("Ahmad", "Person", purpose="research")
     assert res.is_ambiguous
+    assert res.clarification is not None
     assert res.clarification.candidates[0].entity_id == "ent-ahmad-akhtar"
 
 
 # ── filters_for_entity_ids / resume_with_selection — #4534 ─────────────────
 
 
-def test_filters_for_entity_ids_builds_in_filter():
+def test_filters_for_entity_ids_builds_in_filter() -> None:
     filters = filters_for_entity_ids(["e1", "e2"])
     assert filters == [{"field": CANONICAL_ENTITY_ID_FIELD, "op": "in", "value": ["e1", "e2"]}]
 
 
-def test_filters_for_entity_ids_rejects_empty_selection():
+def test_filters_for_entity_ids_rejects_empty_selection() -> None:
     with pytest.raises(ValueError):
         filters_for_entity_ids([])
 
 
-def test_resume_with_selection_scopes_follow_up_to_chosen_entity():
+def test_resume_with_selection_scopes_follow_up_to_chosen_entity() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -361,7 +363,7 @@ def test_resume_with_selection_scopes_follow_up_to_chosen_entity():
 
 
 @pytest.mark.asyncio
-async def test_async_resume_with_selection_scopes_follow_up_to_chosen_entity():
+async def test_async_resume_with_selection_scopes_follow_up_to_chosen_entity() -> None:
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:

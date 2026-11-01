@@ -10,7 +10,14 @@ from typing import Any
 
 _PROFILES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "financial": (
-        ("BankAccount", "FinancialTransaction", "CryptoWallet", "AmlAlert", "Transaction", "WireTransferHop"),
+        (
+            "BankAccount",
+            "FinancialTransaction",
+            "CryptoWallet",
+            "AmlAlert",
+            "Transaction",
+            "WireTransferHop",
+        ),
         (
             "SELECT * FROM FinancialTransaction ORDER BY amount DESC LIMIT 20",
             "SELECT * FROM AmlAlert WHERE risk_score > 70 LIMIT 10",
@@ -19,7 +26,11 @@ _PROFILES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "telco": (
         ("MsisdnRecord", "CallRecord", "CdrRecord", "ImsiRecord", "TowerDump"),
-        ("SELECT * FROM CallRecord LIMIT 20", "SELECT * FROM MsisdnRecord LIMIT 20", "SELECT * FROM TowerDump LIMIT 10"),
+        (
+            "SELECT * FROM CallRecord LIMIT 20",
+            "SELECT * FROM MsisdnRecord LIMIT 20",
+            "SELECT * FROM TowerDump LIMIT 10",
+        ),
     ),
     "cyber": (
         ("ThreatIndicator", "MalwareRecord", "DomainRecord", "NetworkEvent", "IpAddress"),
@@ -31,12 +42,25 @@ _PROFILES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "humint": (
         ("SourceReport", "DocumentSource", "CaseFile"),
-        ("SELECT * FROM DocumentSource LIMIT 10", "SELECT * FROM CaseFile LIMIT 10", "SELECT * FROM SourceReport LIMIT 10"),
+        (
+            "SELECT * FROM DocumentSource LIMIT 10",
+            "SELECT * FROM CaseFile LIMIT 10",
+            "SELECT * FROM SourceReport LIMIT 10",
+        ),
     ),
-    "narcotics": (("Person", "Organization", "CaseFile", "Transaction", "Vehicle"), ("SELECT * FROM Person LIMIT 20",)),
-    "fara": (("Person", "Organization", "Transaction", "SanctionEntry", "PepRecord"), ("SELECT * FROM Person LIMIT 20",)),
+    "narcotics": (
+        ("Person", "Organization", "CaseFile", "Transaction", "Vehicle"),
+        ("SELECT * FROM Person LIMIT 20",),
+    ),
+    "fara": (
+        ("Person", "Organization", "Transaction", "SanctionEntry", "PepRecord"),
+        ("SELECT * FROM Person LIMIT 20",),
+    ),
     "maritime": (("VesselRecord", "FlightRecord", "Location"), ("SELECT * FROM Person LIMIT 20",)),
-    "border": (("PassportRecord", "VisaRecord", "BorderCrossing", "Person"), ("SELECT * FROM Person LIMIT 20",)),
+    "border": (
+        ("PassportRecord", "VisaRecord", "BorderCrossing", "Person"),
+        ("SELECT * FROM Person LIMIT 20",),
+    ),
     "sanctions": (
         ("SanctionEntry", "WatchlistEntry", "PepRecord", "Person", "Organization"),
         (
@@ -71,7 +95,10 @@ def summarize_domain(domain: str, inventory: dict[str, Any]) -> dict[str, Any]:
     selected = _PROFILES if domain == "all" else {domain: _PROFILES[domain]}
     summaries = []
     for name, (object_types, queries) in selected.items():
-        per_type = [{"type": object_type, "rows": counts.get(object_type, 0)} for object_type in object_types]
+        per_type: list[dict[str, Any]] = [
+            {"type": object_type, "rows": counts.get(object_type, 0)}
+            for object_type in object_types
+        ]
         summaries.append(
             {
                 "domain": name,

@@ -36,31 +36,24 @@ Public API
 - :mod:`~relata.exceptions` — SDK exception hierarchy
 """
 
+from relata import aml, canonical
+from relata._version import __version__
 from relata.a2a import A2AClient, AsyncA2AClient
+from relata.app_primitives import AppPrimitivesClient
+from relata.assertions import AssertionsClient, AsyncAssertionsClient
 from relata.audit import AsyncAuditClient, AuditClient
 from relata.backup import AsyncBackupClient, BackupClient
-from relata.evidence import AsyncEvidenceClient, EvidenceClient, evidence_headers
-from relata.ingest_control import AsyncIngestControlClient, IngestControlClient
-from relata.media_work import AsyncMediaWorkClient, MediaWorkClient, media_work_claim_headers
-from relata.ontology_definitions import AsyncOntologyDefinitionsClient, OntologyDefinitionsClient
-from relata.assertions import AssertionsClient, AsyncAssertionsClient
-from relata.extraction import AsyncExtractionClient, ExtractionClient
-from relata.investigation import AsyncInvestigationClient, InvestigationClient
-from relata.resolution import AsyncResolutionClient, ResolutionClient
-from relata.freshness import AsyncFreshnessClient, FreshnessClient, freshness_headers
 from relata.client import RelataClient
-from relata import aml
-from relata import canonical
 from relata.coref import AsyncCorefResolver, CorefResolver, subject_from_hit
 from relata.domain_summary import summarize_domain
-from relata.extension_suggestions import suggest_extensions
 from relata.embedding_migration import (
-    EmbeddingMigrationClient,
     Embedder,
+    EmbeddingMigrationClient,
     MigrationBatchResult,
     http_embed_batch_embedder,
     migrate_embedding_model,
 )
+from relata.evidence import AsyncEvidenceClient, EvidenceClient, evidence_headers
 from relata.exceptions import (
     AuthError,
     ConflictError,
@@ -77,6 +70,9 @@ from relata.exceptions import (
     ServerError,
     ValidationError,
 )
+from relata.extension_suggestions import suggest_extensions
+from relata.extraction import AsyncExtractionClient, ExtractionClient
+from relata.feed_broker import AsyncFeedBrokerClient, FeedBrokerClient
 from relata.files import (
     AsyncFilesClient,
     FileContent,
@@ -85,27 +81,24 @@ from relata.files import (
     FilesClient,
     UploadSession,
 )
-from relata.feed_broker import AsyncFeedBrokerClient, FeedBrokerClient
+from relata.freshness import AsyncFreshnessClient, FreshnessClient, freshness_headers
 from relata.governance import AsyncGovernanceClient, GovernanceClient
 from relata.identity import AsyncIdentityClient, IdentityClient
 from relata.ingest import AsyncIngestClient, IngestClient
+from relata.ingest_control import AsyncIngestControlClient, IngestControlClient
+from relata.investigation import AsyncInvestigationClient, InvestigationClient
 from relata.mcp import AsyncMcpClient, McpClient
+from relata.media_work import AsyncMediaWorkClient, MediaWorkClient, media_work_claim_headers
 from relata.memory import AsyncMemory, Memory
-from relata.natural_language import (
-    aquery_in_natural_language,
-    asummarise_memory,
-    query_in_natural_language,
-    summarise_memory,
-)
 from relata.models import (
+    AlertSubmitReceipt,
+    AlertSubmitRequest,
     AuditCountResponse,
     Clarification,
+    EntityCandidate,
     EventAppendReceipt,
     EventAppendRequest,
-    AlertSubmitRequest,
-    AlertSubmitReceipt,
     EventTarget,
-    EntityCandidate,
     HealthResponse,
     IngestDocumentResponse,
     IngestDocumentTaskStatus,
@@ -119,19 +112,18 @@ from relata.models import (
     StatusResponse,
     VersionInfo,
 )
-from relata.usage import (
-    LegacyUsageBaseline,
-    MigratedUsageAggregate,
-    UsageAggregate,
-    aggregate_usage_events,
-    aggregate_usage_with_baseline,
-    arecord_usage,
-    record_usage,
-)
 from relata.namespace import AsyncNamespace, Namespace
+from relata.natural_language import (
+    aquery_in_natural_language,
+    asummarise_memory,
+    query_in_natural_language,
+    summarise_memory,
+)
 from relata.objects import AsyncObjectClient, ObjectClient
+from relata.ontology_definitions import AsyncOntologyDefinitionsClient, OntologyDefinitionsClient
 from relata.query import QueryBuilder, select
 from relata.rag import AsyncRagClient, RagClient, filters_for_entity_ids
+from relata.rag_answer import RagAnswerResult, arun_rag_answer, run_rag_answer
 from relata.rag_loop import (
     CORRECTIVE_FRACTION_CORRECT_FLOOR,
     HEURISTIC_PASS_THRESHOLD,
@@ -167,7 +159,6 @@ from relata.rag_rank import (
     mmr_select,
     mmr_select_for_purpose,
 )
-from relata.rag_answer import RagAnswerResult, arun_rag_answer, run_rag_answer
 from relata.rag_trace import (
     astore_reasoning_trace,
     build_reasoning_trace,
@@ -186,7 +177,9 @@ from relata.rag_understanding import (
     rrf_merge,
     smart_rag_query,
 )
+from relata.resolution import AsyncResolutionClient, ResolutionClient
 from relata.search import AsyncSearchClient, SearchClient
+from relata.streaming import AsyncStreamingClient, StreamingClient
 from relata.structural_navigation import (
     ChildSelector,
     StructureNode,
@@ -195,7 +188,6 @@ from relata.structural_navigation import (
     lexical_child_selector,
     navigate_structural_tree,
 )
-from relata.streaming import AsyncStreamingClient, StreamingClient
 from relata.synthesis import (
     Citation,
     EntailmentFn,
@@ -207,11 +199,20 @@ from relata.synthesis import (
 from relata.system import AsyncSystemClient, SystemClient
 from relata.tenants import AsyncTenantAdminClient, TenantAdminClient
 from relata.tokens import AsyncTokenClient, TokenClient
-from relata.app_primitives import AppPrimitivesClient
+from relata.usage import (
+    LegacyUsageBaseline,
+    MigratedUsageAggregate,
+    UsageAggregate,
+    aggregate_usage_events,
+    aggregate_usage_with_baseline,
+    arecord_usage,
+    record_usage,
+)
 from relata.vectors import AsyncVectorClient, VectorClient
-from relata._version import __version__
 
 __all__ = [
+    "__version__",
+    "suggest_extensions",
     # Client
     "RelataClient",
     # High-level memory client

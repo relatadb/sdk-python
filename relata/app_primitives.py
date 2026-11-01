@@ -70,7 +70,7 @@ class AppPrimitivesClient:
     def enqueue(
         self,
         queue: str,
-        payload: Any = None,
+        payload: object = None,
         *,
         priority: int | None = None,
         run_at: str | int | None = None,
@@ -106,14 +106,16 @@ class AppPrimitivesClient:
         resp = self._t.post(f"/v1/queues/{path_segment(queue)}/claim", body)
         return list(resp.get("jobs", []))
 
-    def renew(self, job_id: str, fencing_token: int, *, lease_ms: int | None = None) -> dict[str, Any]:
+    def renew(
+        self, job_id: str, fencing_token: int, *, lease_ms: int | None = None
+    ) -> dict[str, Any]:
         """Extend a held lease. A stale token is rejected with 409."""
         body: dict[str, Any] = {"fencingToken": fencing_token}
         if lease_ms is not None:
             body["leaseMs"] = lease_ms
         return self._t.post(f"/v1/jobs/{path_segment(job_id)}/renew", body)
 
-    def complete(self, job_id: str, fencing_token: int, *, result: Any = None) -> dict[str, Any]:
+    def complete(self, job_id: str, fencing_token: int, *, result: object = None) -> dict[str, Any]:
         """Mark a held job done. A stale token is rejected with 409."""
         body: dict[str, Any] = {"fencingToken": fencing_token}
         if result is not None:
@@ -131,7 +133,11 @@ class AppPrimitivesClient:
     ) -> dict[str, Any]:
         """Report failure: retried with backoff, then dead-lettered at ``maxAttempts``."""
         body: dict[str, Any] = {"fencingToken": fencing_token}
-        for key, value in (("error", error), ("retryAfterMs", retry_after_ms), ("retryable", retryable)):
+        for key, value in (
+            ("error", error),
+            ("retryAfterMs", retry_after_ms),
+            ("retryable", retryable),
+        ):
             if value is not None:
                 body[key] = value
         return self._t.post(f"/v1/jobs/{path_segment(job_id)}/fail", body)

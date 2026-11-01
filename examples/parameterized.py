@@ -15,6 +15,8 @@ Run:
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
+from typing import Any
 
 from relata import RelataClient
 
@@ -71,7 +73,7 @@ def main() -> None:
         print_rows(result)
 
 
-def print_rows(result: object) -> None:
+def print_rows(result: Iterable[dict[str, Any]]) -> None:
     # QueryResult behaves like an iterable of dict rows.
     rows = list(result)
     if not rows:
