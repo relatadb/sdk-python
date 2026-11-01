@@ -97,3 +97,25 @@ def test_similarity_relation_and_threshold_wire_shapes() -> None:
     assert seen[0][3]["similarity"] == {"score": 0.93, "method": "phash-v1"}
     assert "similarity" not in seen[1][3]
     assert seen[2][2] == "min_similarity=0.5"
+
+
+def test_confidence_and_uncertainty_reach_the_wire_only_when_given() -> None:
+    seen: list[tuple[str, str, str, Any]] = []
+    c = AssertionsClient(BASE, transport=httpx.MockTransport(_handler(seen)))
+    c.relate("a", "supports", "b", "same figure", confidence=0.4, uncertainty="one witness")
+    c.assess("a", "inconclusive", "needs a second source", confidence=0.6)
+    c.assess("a", "inconclusive", "plain")
+    assert seen[0][3] == {
+        "from": "a",
+        "to": "b",
+        "kind": "supports",
+        "rationale": "same figure",
+        "confidence": 0.4,
+        "uncertainty": "one witness",
+    }
+    assert seen[1][3] == {
+        "judgment": "inconclusive",
+        "reason": "needs a second source",
+        "confidence": 0.6,
+    }
+    assert seen[2][3] == {"judgment": "inconclusive", "reason": "plain"}
