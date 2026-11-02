@@ -201,13 +201,23 @@ class GovernanceClient(_BaseGovernance):
         )
 
     def suppress_rule(
-        self, rule_id: str, entity_id: str, *, condition: str | None = None
+        self,
+        rule_id: str,
+        entity_id: str,
+        *,
+        condition: str | None = None,
+        duration_secs: int | None = None,
     ) -> dict[str, Any]:
-        """Permanently suppress future matches of the rule for ``entity_id``
-        (#967). ``condition`` is an optional informational note."""
+        """Suppress future matches of the rule for ``entity_id`` (#967).
+
+        The server only accepts time-boxed suppressions (#3197): ``duration_secs`` must be a
+        positive integer or the call is a 400. ``condition`` is an optional informational note.
+        Requires an admin-level token."""
         payload: dict[str, Any] = {"entity_id": entity_id}
         if condition is not None:
             payload["condition"] = condition
+        if duration_secs is not None:
+            payload["duration_secs"] = duration_secs
         return self._t.post(f"/v1/rules/{path_segment(rule_id)}/suppress", payload)
 
     def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
@@ -492,11 +502,18 @@ class AsyncGovernanceClient(_BaseGovernance):
         )
 
     async def suppress_rule(
-        self, rule_id: str, entity_id: str, *, condition: str | None = None
+        self,
+        rule_id: str,
+        entity_id: str,
+        *,
+        condition: str | None = None,
+        duration_secs: int | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"entity_id": entity_id}
         if condition is not None:
             payload["condition"] = condition
+        if duration_secs is not None:
+            payload["duration_secs"] = duration_secs
         return await self._t.post(f"/v1/rules/{path_segment(rule_id)}/suppress", payload)
 
     async def add_rule_exception(self, rule_id: str, exception: dict[str, Any]) -> dict[str, Any]:
