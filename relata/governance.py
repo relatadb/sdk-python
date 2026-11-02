@@ -56,6 +56,22 @@ def _optional_str_or_none(v: object) -> str | None:
     return s or None
 
 
+
+def _worm_policies(data: Any) -> list[dict[str, Any]]:
+    """Normalise ``GET /v1/retention/worm`` (``{"worm_types": [...], "total": n}``).
+
+    Each WORM type becomes ``{"object_type": <name>, "worm": True}``, the same
+    shape :meth:`GovernanceClient.set_worm_policy` returns. A legacy
+    ``policies`` list is passed through.
+    """
+    if isinstance(data, dict):
+        types = data.get("worm_types")
+        if isinstance(types, list):
+            return [{"object_type": t, "worm": True} for t in types]
+        data = data.get("policies")
+    return data if isinstance(data, list) else []
+
+
 class _BaseGovernance:
     """Shared state for sync and async governance clients."""
 
@@ -278,9 +294,7 @@ class GovernanceClient(_BaseGovernance):
 
     def list_worm_policies(self) -> list[dict[str, Any]]:
         """List WORM (write-once-read-many) retention policies."""
-        data = self._t.get("/v1/retention/worm")
-        policies = data.get("policies") if isinstance(data, dict) else data
-        return policies if isinstance(policies, list) else []
+        return _worm_policies(self._t.get("/v1/retention/worm"))
 
     def set_worm_policy(
         self,
@@ -536,9 +550,7 @@ class AsyncGovernanceClient(_BaseGovernance):
         return await self._t.delete(f"/v1/retention/holds/{path_segment(case_id)}")
 
     async def list_worm_policies(self) -> list[dict[str, Any]]:
-        data = await self._t.get("/v1/retention/worm")
-        policies = data.get("policies") if isinstance(data, dict) else data
-        return policies if isinstance(policies, list) else []
+        return _worm_policies(await self._t.get("/v1/retention/worm"))
 
     async def set_worm_policy(self, object_type: str, *, retention_secs: int) -> dict[str, Any]:
         return await self._t.post(
