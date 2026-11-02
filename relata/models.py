@@ -117,14 +117,12 @@ class HealthResponse(BaseModel):
 
     Attributes:
         status: ``"ok"`` when the node is healthy.
-        profile: Deployment profile — one of ``"free"``, ``"server"``,
-            ``"cluster"``.
-        node_id: Stable node identifier (e.g. ``"coordinator"``,
-            ``"reader-1"``).
+        profile: Deployment profile (``"free"`` on the open edition).
+        node_id: Stable node identifier.
     """
 
     status: str = Field(..., description="'ok' when the node is healthy")
-    profile: str = Field(..., description="Deployment profile: free | server | cluster")
+    profile: str = Field(..., description="Deployment profile (free on the open edition)")
     node_id: str = Field(..., description="Stable node identifier")
 
     @property
@@ -145,17 +143,15 @@ class StatusResponse(BaseModel):
     """Response from ``GET /v1/system/status``.
 
     Attributes:
-        profile: Deployment profile — one of ``"free"``, ``"server"``,
-            ``"cluster"``.
-        role: Node role — one of ``"coordinator"``, ``"reader"``,
-            ``"writer"``, ``"indexer"``.
+        profile: Deployment profile (``"free"`` on the open edition).
+        role: Node role; always ``"coordinator"`` on the open edition.
         query_quota: Remaining query cost units for the current principal.
             Hard limit enforced by the server; queries that exceed this raise
             :class:`~relata.exceptions.QuotaError`.
     """
 
     profile: str = Field(..., description="Deployment profile")
-    role: str = Field(..., description="Node role: coordinator | reader | writer | indexer")
+    role: str = Field(..., description="Node role (coordinator on the open edition)")
     query_quota: int = Field(..., description="Remaining cost units for this principal", ge=0)
 
     def __repr__(self) -> str:
@@ -282,7 +278,7 @@ class IngestDocumentTaskStatus(BaseModel):
     write_token: dict[str, int] | None = Field(
         default=None,
         alias="_relata_write_token",
-        description="Optional cluster write watermark returned after completion",
+        description="Optional write watermark returned after completion",
     )
 
 
@@ -345,7 +341,7 @@ class VersionInfo(BaseModel):
     Attributes:
         version: Relata server version (e.g. ``"1.1.0"``).
         commit: Git commit hash the binary was built from.
-        profile: Deployment profile — ``free`` / ``server`` / ``cluster``.
+        profile: Deployment profile (``free`` on the open edition).
         schema_version: Ontology / row-model schema version, useful for
             migration gating.
         features: Optional list of compiled-in feature flags.

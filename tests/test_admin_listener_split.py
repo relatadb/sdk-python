@@ -1,7 +1,7 @@
 """Tests for #2321 (ADR-0261): the admin control-plane listener split.
 
 /admin/* is mounted ONLY on the loopbound admin listener
-(RELATA_ADMIN_BIND, default 127.0.0.1:9091) on a hardened server/cluster
+(RELATA_ADMIN_BIND, default 127.0.0.1:9091) on a hardened network-facing
 deployment -- never the main data-plane listener. These tests pin two
 things:
 

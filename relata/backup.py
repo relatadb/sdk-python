@@ -85,7 +85,7 @@ class BackupClient:
         # #2321 (ADR-0261): every route this client wraps is /admin/*, which
         # is mounted only on the loopbound admin control-plane listener
         # (RELATA_ADMIN_BIND, default 127.0.0.1:9091) on a hardened
-        # server/cluster deployment -- pass admin_base_url to reach it there.
+        # network-facing deployment -- pass admin_base_url to reach it there.
         # Unset (the default) preserves prior behaviour: every request goes
         # to base_url, correct when the admin listener isn't split (e.g.
         # local/free-profile dev).

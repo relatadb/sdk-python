@@ -261,7 +261,7 @@ def _scope_headers(
 ) -> dict[str, str]:
     """Tenant/delegation scope headers for the checkpoint door (#3216).
 
-    Without ``X-Relata-Tenant-Id`` a multi-tenant cluster either rejects
+    Without ``X-Relata-Tenant-Id`` a multi-tenant deployment either rejects
     checkpoint PUTs (401/403) or — worse — persists them under the default
     tenant, cross-readable by any thread that knows the id.
     """
