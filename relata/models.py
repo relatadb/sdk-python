@@ -61,7 +61,7 @@ class QueryResult(BaseModel):
     partial: bool = Field(
         default=False, description="Whether the server returned a partial shard result"
     )
-    provenance: list[dict[str, Any]] | None = Field(
+    provenance: list[dict[str, Any] | None] | None = Field(
         default=None,
         description="PROV-O records the server attaches when the statement ends WITH PROVENANCE",
     )

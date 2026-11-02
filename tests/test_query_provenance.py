@@ -23,3 +23,9 @@ def test_provenance_is_surfaced() -> None:
 def test_provenance_absent_is_none() -> None:
     wire = {k: v for k, v in WIRE.items() if k != "provenance"}
     assert QueryResult.model_validate(wire).provenance is None
+
+
+def test_null_entries_do_not_break_the_result() -> None:
+    """SAME_IDENTITY answers with ``provenance: [null]``; that must not raise a validation error."""
+    wire = {**{k: v for k, v in WIRE.items()}, "provenance": [None]}
+    assert QueryResult.model_validate(wire).provenance == [None]
