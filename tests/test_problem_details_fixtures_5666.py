@@ -80,3 +80,5 @@ def test_wire_response_maps_to_the_shared_expectation(case: dict[str, Any]) -> N
         assert err.retry_after is None
     else:
         assert err.retry_after == pytest.approx(exp["retry_after_seconds"])
+    for needle in exp.get("message_contains", []):
+        assert needle in str(err), f"{case['name']}: {needle!r} missing from {str(err)!r}"
