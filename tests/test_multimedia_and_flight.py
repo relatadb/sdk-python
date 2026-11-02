@@ -143,6 +143,6 @@ def _async_similar_image_handler(req: httpx.Request) -> httpx.Response:
 # ---------------------------------------------------------------------------
 # #3213 — Flight call metadata threads tenant/acting-as/delegated-by.
 # Pure unit tests (no pyarrow): the Flight door must receive the same scope
-# the HTTP door does, or a multi-tenant cluster silently falls back to the
+# the HTTP door does, or a multi-tenant deployment silently falls back to the
 # default tenant.
 # ---------------------------------------------------------------------------
