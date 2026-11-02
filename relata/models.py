@@ -460,15 +460,29 @@ class ReadyReport(BaseModel):
 
 
 class SearchHit(BaseModel):
-    """A single document returned by ``POST /v1/search``."""
+    """A single document returned by ``POST /v1/search``.
+
+    The wire hit carries the row under ``data`` and, when highlighting was requested,
+    ``snippet`` plus ``highlights`` as an array of ``{start, end, term}`` spans (#5666 shared
+    fixtures). ``fields`` / ``highlight_spans`` expose them; the legacy ``fields`` /
+    dict-shaped ``highlights`` wire shape is still accepted. ``object_type`` is not on the wire:
+    ``RelataClient.search`` fills it from the request.
+    """
 
     id: str = Field(..., description="Object ID")
-    object_type: str = Field(..., description="Object type name")
+    object_type: str = Field(default="", description="Object type name (from the request)")
     fields: dict[str, Any] = Field(default_factory=dict, description="Object fields")
     score: float = Field(..., description="BM25 relevance score")
     highlights: dict[str, str] = Field(
         default_factory=dict,
-        description="Field-level snippets with <em> tags (present when highlight=True)",
+        description="Legacy field-level snippets with <em> tags (dict-shaped servers only)",
+    )
+    highlight_spans: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Matched spans {start, end, term} (present when highlight=True)",
+    )
+    snippet: str | None = Field(
+        default=None, description="Highlighted snippet with <mark> tags (highlight=True)"
     )
     definition: dict[str, Any] | None = Field(
         default=None,
@@ -477,6 +491,19 @@ class SearchHit(BaseModel):
             "{stamp, current, stale}; None when the type has no published definition (#5711)"
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_wire_shape(cls, data: Any) -> Any:  # noqa: ANN401
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        if "fields" not in data and isinstance(data.get("data"), dict):
+            data["fields"] = data["data"]
+        if isinstance(data.get("highlights"), list):
+            data["highlight_spans"] = data["highlights"]
+            data["highlights"] = {}
+        return data
 
 
 class SearchResponse(BaseModel):
@@ -492,6 +519,18 @@ class SearchResponse(BaseModel):
         default_factory=dict, description="Numeric facet stats (min/max/sum/avg) (#967)"
     )
     processing_time_ms: int = Field(default=0, description="Server-side processing time")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_wire_shape(cls, data: Any) -> Any:  # noqa: ANN401
+        """The wire names these members ``estimatedTotalHits`` / ``facetStats`` (camelCase)."""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        for wire, field in (("estimatedTotalHits", "estimated_total_hits"), ("facetStats", "facet_stats")):
+            if wire in data and field not in data:
+                data[field] = data[wire]
+        return data
 
 
 # ---------------------------------------------------------------------------

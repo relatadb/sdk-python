@@ -195,6 +195,14 @@ def _graphql_data(resp: dict[str, object]) -> dict[str, object] | list[dict[str,
 
 
 
+def _with_object_type(resp: SearchResponse, object_type: str) -> SearchResponse:
+    """The wire hit has no ``object_type`` (the caller named it in the request); fill it in."""
+    for hit in resp.hits:
+        if not hit.object_type:
+            hit.object_type = object_type
+    return resp
+
+
 class RelataClient:
     """Synchronous and asynchronous client for the Relata HTTP API.
 
@@ -712,7 +720,7 @@ class RelataClient:
         if weights is not None:
             payload["weights"] = weights
         data = self._sync.post("/v1/search", payload)
-        return SearchResponse.model_validate(data)
+        return _with_object_type(SearchResponse.model_validate(data), type)
 
     async def asearch(
         self,
@@ -750,7 +758,7 @@ class RelataClient:
         if weights is not None:
             payload["weights"] = weights
         data = await self._async.post("/v1/search", payload)
-        return SearchResponse.model_validate(data)
+        return _with_object_type(SearchResponse.model_validate(data), type)
 
     def multi_search(
         self,
