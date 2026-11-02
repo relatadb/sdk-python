@@ -372,7 +372,7 @@ class GovernanceClient(_BaseGovernance):
         from urllib.parse import urlencode
 
         params: dict[str, str] = {
-            "subject_identity": subject_identity,
+            "subject": subject_identity,
             "reason": reason,
         }
         if scope is not None:
@@ -586,7 +586,7 @@ class AsyncGovernanceClient(_BaseGovernance):
         from urllib.parse import urlencode
 
         params: dict[str, str] = {
-            "subject_identity": subject_identity,
+            "subject": subject_identity,
             "reason": reason,
         }
         if scope is not None:

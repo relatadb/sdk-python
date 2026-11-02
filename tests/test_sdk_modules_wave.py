@@ -86,9 +86,9 @@ def test_governance_submit_dsar_uses_query_params() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.method == "GET"
         assert req.url.path == "/v1/gdpr/dsar"
-        # The query string carries subject_identity + reason.
+        # The server reads the subject from the `subject` query param (live-verified).
         qs = str(req.url)
-        assert "subject_identity=alice" in qs
+        assert "subject=alice" in qs and "subject_identity" not in qs
         assert "reason=gdpr-art-15" in qs
         return httpx.Response(200, json={"dsar_id": "dsar-1"})
 
