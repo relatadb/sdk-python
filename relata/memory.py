@@ -158,6 +158,21 @@ def _batch_ids(result: dict[str, Any]) -> list[str]:
     return [str(r.get("id", "")) if isinstance(r, dict) else "" for r in rows]
 
 
+def _episode_rows(result: Any) -> list[dict[str, Any]]:
+    """Episodes from ``GET /v1/memory/episodes``.
+
+    The server answers ``{"session_id", "episodes": [...], "count"}``; an older
+    shape used ``rows``. Reading only ``rows`` made a live call return ``[]``.
+    """
+    if isinstance(result, dict):
+        rows = result.get("episodes")
+        if not isinstance(rows, list):
+            rows = result.get("rows")
+    else:
+        rows = result
+    return rows if isinstance(rows, list) else []
+
+
 class Memory:
     """High-level memory client — ``add`` / ``search`` / ``forget``.
 
@@ -441,8 +456,7 @@ class Memory:
         if as_of:
             params["as_of"] = as_of
         result = _unwrap(self._t.get("/v1/memory/episodes?" + urlencode(params)))
-        rows = result.get("rows") if isinstance(result, dict) else result
-        return rows if isinstance(rows, list) else []
+        return _episode_rows(result)
 
     def justify(self, memory_id: str) -> dict[str, Any]:
         """Return the PROV-O assertion chain for ``memory_id``.
@@ -808,8 +822,7 @@ class AsyncMemory:
         if as_of:
             params["as_of"] = as_of
         result = _unwrap(await self._t.get("/v1/memory/episodes?" + urlencode(params)))
-        rows = result.get("rows") if isinstance(result, dict) else result
-        return rows if isinstance(rows, list) else []
+        return _episode_rows(result)
 
     async def justify(self, memory_id: str) -> dict[str, Any]:
         """Return the PROV-O assertion chain for ``memory_id`` (async)."""
