@@ -1260,11 +1260,15 @@ class RelataClient:
     ) -> dict[str, object]:
         """Breadth-first traversal via the governed ``GET /v1/graph/traverse`` door.
 
-        ``direction`` is ``"out"`` | ``"in"`` | ``"both"`` (server default out).
+        ``direction`` is ``"outbound"`` | ``"inbound"`` | ``"any"`` (server default
+        outbound); the shorthands ``"out"`` / ``"in"`` / ``"both"`` are accepted and mapped,
+        because the server silently treats any other value as "do not expand".
         """
         params: dict[str, str | int] = {"from": from_id}
         if direction is not None:
-            params["direction"] = direction
+            params["direction"] = {"out": "outbound", "in": "inbound", "both": "any"}.get(
+                direction, direction
+            )
         if max_depth is not None:
             params["max_depth"] = max_depth
         if limit is not None:
