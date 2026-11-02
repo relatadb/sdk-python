@@ -38,7 +38,9 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
     c.validate("crm", d)
     c.compare("crm", from_version=1, to="draft")
     c.compare("crm")
-    c.publish("crm", expected_version=1, accept_migration=True, from_version=1, override_unsafe=True)
+    c.publish(
+        "crm", expected_version=1, accept_migration=True, from_version=1, override_unsafe=True
+    )
     c.publish("crm", expected_version=0)
     c.version("crm", 2)
     c.status("crm")
@@ -58,7 +60,12 @@ def test_every_call_hits_its_documented_route_with_exact_bodies() -> None:
             "POST",
             "/v1/ontology/definitions/crm/publish",
             "",
-            {"expected_version": 1, "accept_migration": True, "from_version": 1, "override_unsafe": True},
+            {
+                "expected_version": 1,
+                "accept_migration": True,
+                "from_version": 1,
+                "override_unsafe": True,
+            },
         ),
         ("POST", "/v1/ontology/definitions/crm/publish", "", {"expected_version": 0}),
         ("GET", "/v1/ontology/definitions/crm/versions/2", "", None),
@@ -96,3 +103,20 @@ def test_a_precondition_failure_is_raised_not_returned() -> None:
     with pytest.raises(Exception) as info:
         c.publish("crm", expected_version=1)
     assert "412" in str(info.value) or "ontology-version-conflict" in str(info.value)
+
+
+def test_search_hit_carries_the_definition_version() -> None:
+    from relata.models import SearchHit
+
+    hit = SearchHit.model_validate(
+        {
+            "id": "p1",
+            "object_type": "Person",
+            "score": 1.0,
+            "definition": {"stamp": "crm@1", "current": "crm@2", "stale": True},
+        }
+    )
+    assert hit.definition == {"stamp": "crm@1", "current": "crm@2", "stale": True}
+    assert (
+        SearchHit.model_validate({"id": "p", "object_type": "T", "score": 1.0}).definition is None
+    )

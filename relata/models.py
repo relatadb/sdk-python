@@ -470,6 +470,13 @@ class SearchHit(BaseModel):
         default_factory=dict,
         description="Field-level snippets with <em> tags (present when highlight=True)",
     )
+    definition: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Ontology definition version the row was written under: "
+            "{stamp, current, stale}; None when the type has no published definition (#5711)"
+        ),
+    )
 
 
 class SearchResponse(BaseModel):
