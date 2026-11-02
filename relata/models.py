@@ -117,14 +117,14 @@ class HealthResponse(BaseModel):
 
     Attributes:
         status: ``"ok"`` when the node is healthy.
-        profile: Deployment profile — one of ``"free"``, ``"server"``,
-            ``"cluster"``.
+        profile: Deployment profile. Always ``"free"`` in Relata DB
+            (``server`` and ``cluster`` are retired, #5809).
         node_id: Stable node identifier (e.g. ``"coordinator"``,
             ``"reader-1"``).
     """
 
     status: str = Field(..., description="'ok' when the node is healthy")
-    profile: str = Field(..., description="Deployment profile: free | server | cluster")
+    profile: str = Field(..., description="Deployment profile (always free; server and cluster are retired)")
     node_id: str = Field(..., description="Stable node identifier")
 
     @property
@@ -145,8 +145,8 @@ class StatusResponse(BaseModel):
     """Response from ``GET /v1/system/status``.
 
     Attributes:
-        profile: Deployment profile — one of ``"free"``, ``"server"``,
-            ``"cluster"``.
+        profile: Deployment profile. Always ``"free"`` in Relata DB
+            (``server`` and ``cluster`` are retired, #5809).
         role: Node role — one of ``"coordinator"``, ``"reader"``,
             ``"writer"``, ``"indexer"``.
         query_quota: Remaining query cost units for the current principal.
@@ -345,7 +345,7 @@ class VersionInfo(BaseModel):
     Attributes:
         version: Relata server version (e.g. ``"1.1.0"``).
         commit: Git commit hash the binary was built from.
-        profile: Deployment profile — ``free`` / ``server`` / ``cluster``.
+        profile: Deployment profile (always ``free``; ``server`` and ``cluster`` are retired).
         schema_version: Ontology / row-model schema version, useful for
             migration gating.
         features: Optional list of compiled-in feature flags.
