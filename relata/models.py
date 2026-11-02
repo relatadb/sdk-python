@@ -36,6 +36,9 @@ class QueryResult(BaseModel):
         row_count: Number of rows returned.  Always equals ``len(rows)``; the
             field exists as a convenience to avoid ``len()`` calls.
         columns: Column names in projection order (when the server provides them).
+        provenance: Provenance records (``source``, ``method``, ``confidence``,
+            ``recorded_at``, ``derived_from``) returned for ``... WITH PROVENANCE``
+            statements; ``None`` when the statement did not ask for them.
     """
 
     rows: list[dict[str, Any]] = Field(default_factory=list)
@@ -57,6 +60,10 @@ class QueryResult(BaseModel):
     )
     partial: bool = Field(
         default=False, description="Whether the server returned a partial shard result"
+    )
+    provenance: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="PROV-O records the server attaches when the statement ends WITH PROVENANCE",
     )
 
     @property
