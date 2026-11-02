@@ -235,6 +235,29 @@ def test_migrate_iterates_until_batch_reports_done() -> None:
     assert results[1].rows_scanned == 0
 
 
+def test_migrate_stops_when_a_batch_makes_no_progress() -> None:
+    # rows without an `id` (e.g. bulk-ingested, never upserted) cannot be written back: every
+    # batch fails whole and the same rows are selected again -- migrate() must not spin forever.
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/v1/query"
+        rows = [{"text_body": "t", "_emb_text_model": "old-model:1.0"} for _ in range(2)]
+        return httpx.Response(200, json={"data": rows})
+
+    results = list(
+        _migration_client(handler).migrate(
+            "MigrDoc",
+            text_field="text_body",
+            embedding_field="text",
+            old_model_tag="old-model:1.0",
+            new_model_tag="new-model:2.0",
+            embedder=lambda texts: [[0.0] for _ in texts],
+            batch_size=2,
+        )
+    )
+    assert len(results) == 1
+    assert results[0].rows_migrated == 0 and results[0].rows_failed == 2 and results[0].done is False
+
+
 def test_migrate_embedding_model_module_function_delegates_via_from_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

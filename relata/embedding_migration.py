@@ -330,8 +330,9 @@ class EmbeddingMigrationClient:
         :class:`MigrationBatchResult` per batch. A caller can inspect/log
         each result, back off on repeated `rows_failed`, or stop early —
         this never blocks on the whole corpus in one call. Stops when a
-        batch finds fewer than `batch_size` remaining rows, or after
-        `max_batches` (whichever comes first).
+        batch finds fewer than `batch_size` remaining rows, when a batch
+        migrates nothing (no progress is possible, so retrying would loop
+        forever), or after `max_batches` (whichever comes first).
         """
         batches = 0
         while max_batches is None or batches < max_batches:
@@ -347,7 +348,9 @@ class EmbeddingMigrationClient:
             )
             yield result
             batches += 1
-            if result.done:
+            # A batch that scanned rows but migrated none made no progress: the same rows
+            # would be selected again forever, so stop and let the caller inspect failed_ids.
+            if result.done or (result.rows_scanned > 0 and result.rows_migrated == 0):
                 return
 
     # ── Gap 2: dual/multi-tag search ("Option B") ───────────────────────
