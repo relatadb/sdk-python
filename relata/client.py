@@ -1064,8 +1064,7 @@ class RelataClient:
         durable journal acknowledgment (enabled persistent WAL or selected
         recovery generation required). A request exceeding 4,096 matching
         edges or an 8 MiB journal record returns HTTP 413 before mutation.
-        Nodes with configured replication peers return HTTP 501 until native
-        deletion replication is implemented. HTTP 503 with ``retryable: false``
+        HTTP 503 with ``retryable: false``
         means the outcome needs reconciliation; mutations are not retried.
         """
         return self._sync.delete("/v1/links", {
@@ -2069,7 +2068,7 @@ class RelataClient:
 
         Exact retries return the original event receipt. A key reused with a
         different payload raises the server's conflict error. The endpoint
-        requires a local persistent WAL and currently rejects cluster mode.
+        requires a local persistent WAL.
         """
         data = self._sync.post("/v1/ingest/events", request.model_dump(exclude_none=True))
         return EventAppendReceipt.model_validate(data)

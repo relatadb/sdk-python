@@ -6,8 +6,8 @@ never see rows they do not own. This example ingests data as tenant A, then
 shows that a query from tenant B (a different bearer token mapped to a
 different organisation_id) returns zero rows.
 
-The server must be running with `RELATA_TENANCY_MODE=multi` and two
-admin-issued bearer tokens for two different tenants.
+The server must be running with two admin-issued, tenant-scoped bearer
+tokens for two different tenants.
 
 Run:
     RELATA_TOKEN_A=<token-a> RELATA_TOKEN_B=<token-b> python -m examples.multi_tenant
