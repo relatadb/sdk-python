@@ -432,10 +432,9 @@ class AsyncStreamingClient:
                 "GET", f"/v1/watch/stream?{params}"
             ) as resp:
                 if not resp.is_success:
-                    # The `async with` context closes the response on return;
-                    # don't drain the error body (`aread()` was unbounded — a
-                    # huge "error" body could OOM the SDK, #3214).
-                    return
+                    # Classify like the sync consumers (bounded read, #3214) instead of
+                    # silently yielding an empty stream on 401/403/404.
+                    await _aclassify_capped_error(async_transport, resp)
                 event_type: str | None = None
                 data_lines: list[str] = []
                 async for line in resp.aiter_lines():
@@ -481,10 +480,9 @@ class AsyncStreamingClient:
                 "GET", f"/v1/watch/stream?{params}"
             ) as resp:
                 if not resp.is_success:
-                    # The `async with` context closes the response on return;
-                    # don't drain the error body (`aread()` was unbounded — a
-                    # huge "error" body could OOM the SDK, #3214).
-                    return
+                    # Classify like the sync consumers (bounded read, #3214) instead of
+                    # silently yielding an empty stream on 401/403/404.
+                    await _aclassify_capped_error(async_transport, resp)
                 event_type: str | None = None
                 data_lines: list[str] = []
                 async for line in resp.aiter_lines():
@@ -515,10 +513,9 @@ class AsyncStreamingClient:
                 "GET", "/v1/alerts/stream"
             ) as resp:
                 if not resp.is_success:
-                    # The `async with` context closes the response on return;
-                    # don't drain the error body (`aread()` was unbounded — a
-                    # huge "error" body could OOM the SDK, #3214).
-                    return
+                    # Classify like the sync consumers (bounded read, #3214) instead of
+                    # silently yielding an empty stream on 401/403/404.
+                    await _aclassify_capped_error(async_transport, resp)
                 async for line in resp.aiter_lines():
                     if line.startswith("data:"):
                         try:
@@ -547,7 +544,7 @@ class AsyncStreamingClient:
         async def _gen() -> Any:  # noqa: ANN401
             async with async_transport._client.stream("GET", path) as resp:  # noqa: SLF001
                 if not resp.is_success:
-                    return
+                    await _aclassify_capped_error(async_transport, resp)
                 event_type: str | None = None
                 data_lines: list[str] = []
                 async for line in resp.aiter_lines():
