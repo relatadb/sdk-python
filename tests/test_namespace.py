@@ -154,14 +154,17 @@ def test_namespace_delete_all_tombstones_every_row() -> None:
             return httpx.Response(
                 200, json={"rows": [{"id": "d1"}, {"id": "d2"}], "columns": ["id"]}
             )
-        body = json.loads(req.content)
-        assert all(r.get("_deleted") is True for r in body["rows"])
+        rows = [json.loads(line) for line in req.content.decode().splitlines()]
+        assert [r["id"] for r in rows] == ["d1", "d2"]
+        assert all(r.get("_deleted") is True for r in rows)
+        assert req.url.params["object_type"] == "Document"
         return httpx.Response(200, json={"inserted": 2})
 
     client = _mock_client(handler)
     out = client.namespace("Document").delete_all()
     assert out["deleted"] == 2
-    assert calls == ["/v1/query", "/v1/ingest/auto"]
+    # /v1/ingest (typed tombstone path), not /v1/ingest/auto which has no tombstone semantics
+    assert calls == ["/v1/query", "/v1/ingest"]
 
 
 def test_namespace_delete_all_empty_is_noop() -> None:

@@ -56,6 +56,22 @@ def _validate_namespace(name: str) -> None:
         )
 
 
+
+def _tombstone_path(name: str, purpose: str | None) -> str:
+    from urllib.parse import urlencode
+
+    params = {"object_type": name}
+    if purpose:
+        params["purpose"] = purpose
+    return "/v1/ingest?" + urlencode(params)
+
+
+def _tombstone_body(ids: list[Any]) -> str:
+    import json
+
+    return "\n".join(json.dumps({"id": i, "_deleted": True}) for i in ids)
+
+
 class Namespace:
     """Synchronous handle bound to one object type (a "namespace").
 
@@ -159,12 +175,12 @@ class Namespace:
         ids = [row["id"] for row in result.rows if row.get("id") is not None]
         if not ids:
             return {"deleted": 0}
-        tombstones = [{"id": i, "_deleted": True} for i in ids]
+        # `/v1/ingest/auto` has no tombstone semantics (it appended a new `{id}` row and left
+        # the original live); the tombstone path is the typed `/v1/ingest` one ObjectClient.delete uses.
         eff_purpose = purpose or self._client._default_purpose  # noqa: SLF001
-        payload: dict[str, Any] = {"object_type": self.name, "rows": tombstones}
-        if eff_purpose:
-            payload["purpose"] = eff_purpose
-        self._client._sync.post("/v1/ingest/auto", payload)  # noqa: SLF001
+        self._client._sync.post_raw(  # noqa: SLF001
+            _tombstone_path(self.name, eff_purpose), _tombstone_body(ids)
+        )
         return {"deleted": len(ids)}
 
 class AsyncNamespace:
@@ -230,10 +246,8 @@ class AsyncNamespace:
         ids = [row["id"] for row in result.rows if row.get("id") is not None]
         if not ids:
             return {"deleted": 0}
-        tombstones = [{"id": i, "_deleted": True} for i in ids]
         eff_purpose = purpose or self._client._default_purpose  # noqa: SLF001
-        payload: dict[str, Any] = {"object_type": self.name, "rows": tombstones}
-        if eff_purpose:
-            payload["purpose"] = eff_purpose
-        await self._client._async.post("/v1/ingest/auto", payload)  # noqa: SLF001
+        await self._client._async.post_raw(  # noqa: SLF001
+            _tombstone_path(self.name, eff_purpose), _tombstone_body(ids)
+        )
         return {"deleted": len(ids)}
