@@ -677,6 +677,8 @@ class HttpTransport:
         raw = self._read_capped(resp)
         raw_text = raw.decode("utf-8", errors="replace") if raw else ""
         if resp.is_success:
+            if not raw.strip():  # 204 / empty success body (e.g. DELETE)
+                return {}
             return json.loads(raw)  # type: ignore[no-any-return]
         try:
             body: dict[str, Any] = json.loads(raw)
@@ -969,6 +971,8 @@ class AsyncHttpTransport:
         raw = await self._read_capped(resp)
         raw_text = raw.decode("utf-8", errors="replace") if raw else ""
         if resp.is_success:
+            if not raw.strip():  # 204 / empty success body (e.g. DELETE)
+                return {}
             return json.loads(raw)  # type: ignore[no-any-return]
         try:
             body: dict[str, Any] = json.loads(raw)
