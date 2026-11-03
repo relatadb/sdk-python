@@ -8,14 +8,57 @@ the server exposes it as a SQL statement, not a dedicated HTTP route.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
-from relata._http import AsyncHttpTransport, HttpTransport
+from relata._http import AsyncHttpTransport, HttpTransport, path_segment
 
 if TYPE_CHECKING:
     import httpx
 
     from relata.client import RelataClient
+
+
+_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _register_lookup_statement(
+    name: str, server_path: str, key_column: str, value_columns: list[str] | None
+) -> str:
+    cols = [key_column, *(value_columns or [])]
+    if not _IDENT.fullmatch(name) or not all(_IDENT.fullmatch(c) for c in cols):
+        raise ValueError(
+            "register_lookup: name and column names must be identifiers ([A-Za-z_][A-Za-z0-9_]*)"
+        )
+    if not server_path or any(ch in server_path for ch in "'\r\n"):
+        raise ValueError(
+            "register_lookup: server_path must be a non-empty path without quotes or newlines"
+        )
+    fields = f" FIELDS ({', '.join(value_columns)})" if value_columns else ""
+    return f"REGISTER LOOKUP {name} FROM '{server_path}' KEY ({key_column}){fields}"
+
+
+def _lookup_names(data: dict[str, Any]) -> list[dict[str, Any]]:
+    names = data.get("lookup_tables")
+    return [{"name": n} for n in names] if isinstance(names, list) else []
+
+
+def _uncertainty_query(
+    identity: str,
+    reason: str,
+    suggested_alternatives: list[str] | None,
+    candidates: list[str] | None,
+    k: int | None,
+) -> str:
+    params: dict[str, str] = {"identity": identity, "reason": reason}
+    if suggested_alternatives:
+        params["suggested_alternatives"] = ",".join(suggested_alternatives)
+    if candidates:
+        params["candidates"] = ",".join(candidates)
+    if k is not None:
+        params["k"] = str(k)
+    return urlencode(params)
 
 
 class IdentityClient:
@@ -47,23 +90,17 @@ class IdentityClient:
     # Identity (#79)
     # ------------------------------------------------------------------
 
-    def label(
-        self,
-        identity: str,
-        label: str,
-        *,
-        confidence: float = 1.0,
-        source_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Assign a canonical label to an identity."""
-        payload: dict[str, Any] = {
-            "identity": identity,
-            "label": label,
-            "confidence": confidence,
-        }
-        if source_id is not None:
-            payload["source_id"] = source_id
-        return self._t.post("/v1/identity/label", payload)
+    def label(self, left: str, right: str, *, is_match: bool = True) -> dict[str, Any]:
+        """Record a human label on a candidate identity pair.
+
+        ``is_match`` says whether ``left`` and ``right`` refer to the same entity.
+        The server takes one learning step on the caller's tenant resolver weights
+        and persists the labelled history. Wraps ``POST /v1/identity/label`` with
+        ``{left, right, is_match}``.
+        """
+        return self._t.post(
+            "/v1/identity/label", {"left": left, "right": right, "is_match": is_match}
+        )
 
     def record_uncertainty(
         self,
@@ -71,16 +108,16 @@ class IdentityClient:
         reason: str,
         *,
         suggested_alternatives: list[str] | None = None,
+        candidates: list[str] | None = None,
+        k: int | None = None,
     ) -> dict[str, Any]:
-        """Record uncertainty about an identity match. The server surfaces
-        these for human review."""
-        payload: dict[str, Any] = {"identity": identity, "reason": reason}
-        if suggested_alternatives is not None:
-            payload["suggested_alternatives"] = suggested_alternatives
-        # Server exposes uncertainty as GET with query params — adapt.
-        from urllib.parse import urlencode
-
-        return self._t.get("/v1/identity/uncertainty?" + urlencode(payload))
+        """Record uncertainty about an identity match. The server ranks
+        ``candidates`` (``a|b`` pairs) and returns the top ``k`` most uncertain;
+        ``identity``/``reason`` are sent for audit only."""
+        return self._t.get(
+            "/v1/identity/uncertainty?"
+            + _uncertainty_query(identity, reason, suggested_alternatives, candidates, k)
+        )
 
     # ------------------------------------------------------------------
     # Lookup tables (#79) — Splunk `lookup` parity
@@ -89,32 +126,34 @@ class IdentityClient:
     def register_lookup(
         self,
         name: str,
-        csv_data: str,
+        server_path: str,
         *,
         key_column: str,
         value_columns: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Register a lookup table (CSV). Matches Splunk's ``lookup`` semantics."""
-        payload: dict[str, Any] = {
-            "name": name,
-            "csv_data": csv_data,
-            "key_column": key_column,
-        }
-        if value_columns is not None:
-            payload["value_columns"] = value_columns
-        return self._t.post("/v1/lookup/register", payload)
+        """Register a lookup table from a CSV file that already exists ON THE SERVER.
+
+        The file must live under ``<data dir>/lookups`` (files elsewhere, or over
+        16 MiB, are refused). Wraps ``POST /v1/lookup/register`` with a
+        ``text/plain`` ``REGISTER LOOKUP <name> FROM '<path>' KEY (<col>) FIELDS
+        (<cols>)`` statement -- the only body the server accepts; it cannot receive
+        CSV text. Returns ``{registered, rows}``.
+        """
+        statement = _register_lookup_statement(name, server_path, key_column, value_columns)
+        return self._t.post_raw("/v1/lookup/register", statement, content_type="text/plain")
 
     def list_lookups(self) -> list[dict[str, Any]]:
-        """List registered lookup tables."""
-        data = self._t.get("/v1/lookup")
-        lookups = data.get("lookups") if isinstance(data, dict) else data
-        return lookups if isinstance(lookups, list) else []
+        """List registered lookup tables as ``[{"name": ...}]`` (the route returns
+        ``{"lookup_tables": [names]}``)."""
+        return _lookup_names(self._t.get("/v1/lookup"))
 
     def invoke_lookup(self, name: str, key: str) -> dict[str, Any]:
-        """Invoke a registered lookup. Returns the row(s) matching ``key``."""
-        from urllib.parse import urlencode
+        """Fetch the enrichment row for ``key`` in lookup table ``name``.
 
-        return self._t.get("/v1/lookup?" + urlencode({"name": name, "key": key}))
+        Wraps ``GET /v1/lookup/{name}/{key}``; returns ``{name, key, row}`` and
+        raises a not-found error when the table or key is absent.
+        """
+        return self._t.get(f"/v1/lookup/{path_segment(name)}/{path_segment(key)}")
 
     # ------------------------------------------------------------------
     # ERASE SUBJECT (#79, #61) — SQL path
@@ -195,22 +234,10 @@ class AsyncIdentityClient:
             extra_headers=client._extra_headers,
         )
 
-    async def label(
-        self,
-        identity: str,
-        label: str,
-        *,
-        confidence: float = 1.0,
-        source_id: str | None = None,
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "identity": identity,
-            "label": label,
-            "confidence": confidence,
-        }
-        if source_id is not None:
-            payload["source_id"] = source_id
-        return await self._t.post("/v1/identity/label", payload)
+    async def label(self, left: str, right: str, *, is_match: bool = True) -> dict[str, Any]:
+        return await self._t.post(
+            "/v1/identity/label", {"left": left, "right": right, "is_match": is_match}
+        )
 
     async def record_uncertainty(
         self,
@@ -218,40 +245,30 @@ class AsyncIdentityClient:
         reason: str,
         *,
         suggested_alternatives: list[str] | None = None,
+        candidates: list[str] | None = None,
+        k: int | None = None,
     ) -> dict[str, Any]:
-        from urllib.parse import urlencode
-
-        payload: dict[str, Any] = {"identity": identity, "reason": reason}
-        if suggested_alternatives is not None:
-            payload["suggested_alternatives"] = suggested_alternatives
-        return await self._t.get("/v1/identity/uncertainty?" + urlencode(payload))
+        return await self._t.get(
+            "/v1/identity/uncertainty?"
+            + _uncertainty_query(identity, reason, suggested_alternatives, candidates, k)
+        )
 
     async def register_lookup(
         self,
         name: str,
-        csv_data: str,
+        server_path: str,
         *,
         key_column: str,
         value_columns: list[str] | None = None,
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "name": name,
-            "csv_data": csv_data,
-            "key_column": key_column,
-        }
-        if value_columns is not None:
-            payload["value_columns"] = value_columns
-        return await self._t.post("/v1/lookup/register", payload)
+        statement = _register_lookup_statement(name, server_path, key_column, value_columns)
+        return await self._t.post_raw("/v1/lookup/register", statement, content_type="text/plain")
 
     async def list_lookups(self) -> list[dict[str, Any]]:
-        data = await self._t.get("/v1/lookup")
-        lookups = data.get("lookups") if isinstance(data, dict) else data
-        return lookups if isinstance(lookups, list) else []
+        return _lookup_names(await self._t.get("/v1/lookup"))
 
     async def invoke_lookup(self, name: str, key: str) -> dict[str, Any]:
-        from urllib.parse import urlencode
-
-        return await self._t.get("/v1/lookup?" + urlencode({"name": name, "key": key}))
+        return await self._t.get(f"/v1/lookup/{path_segment(name)}/{path_segment(key)}")
 
     async def erase_subject(
         self,

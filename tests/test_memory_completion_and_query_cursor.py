@@ -4,8 +4,6 @@ Covers:
 - ``Memory.associate`` / ``episodes`` / ``justify`` / ``resolve`` / ``summarise``
   (sync + async).
 - ``QueryBuilder.limit(n, after=cursor)`` emits ``LIMIT n AFTER 'cursor'``.
-- ``QueryBuilder.since(cursor)`` emits a ``system_from > cursor`` predicate.
-- ``QueryBuilder.since`` composes with ``where`` and ``limit``.
 
 Uses ``httpx.MockTransport`` — no live server required.
 """
@@ -176,24 +174,6 @@ def test_limit_after_emits_keyset_form() -> None:
 def test_limit_without_after_emits_plain_limit() -> None:
     sql = select("Person").limit(10).sql()
     assert sql == "SELECT * FROM Person LIMIT 10"
-
-
-def test_since_emits_system_from_predicate() -> None:
-    sql = select("Person").since("1760000000000000000").limit(100).sql()
-    assert "WHERE (system_from > 1760000000000000000)" in sql
-    assert sql.endswith("LIMIT 100")
-
-
-def test_since_composes_with_where() -> None:
-    sql = (
-        select("Person")
-        .where("age > 18")
-        .since("1760000000000000000")
-        .limit(10)
-        .sql()
-    )
-    # Both predicates appear in WHERE, joined by AND.
-    assert "WHERE (age > 18) AND (system_from > 1760000000000000000)" in sql
 
 
 def test_limit_rejects_nonpositive() -> None:

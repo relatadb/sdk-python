@@ -6,13 +6,15 @@ at plan time. Classic use case: enriching a country code or currency code into
 a human-readable label without denormalising it into every row.
 
 Flow:
-    1. `register_lookup`  — upload name + CSV (key_column + value_columns)
+    1. `register_lookup`  — register a CSV that already exists ON THE SERVER under
+                            `<data dir>/lookups` (key_column + value_columns)
     2. `list_lookups`     — confirm it landed
-    3. `invoke_lookup`    — read back one value by key (same path the query
-                            planner uses internally for LOOKUP() JOINs)
+    3. `invoke_lookup`    — read back one row by key (`GET /v1/lookup/{name}/{key}`)
 
 Run:
-    RELATA_TOKEN=secret python -m examples.lookups
+    # country_alpha3.csv: alpha2,alpha3,name / PK,PAK,Pakistan / IN,IND,India ...
+    RELATA_LOOKUP_PATH=/var/lib/relata/lookups/country_alpha3.csv RELATA_TOKEN=secret \
+        python -m examples.lookups
 """
 
 from __future__ import annotations
@@ -23,12 +25,8 @@ from relata import RelataClient
 from relata.exceptions import RelataError
 from relata.identity import IdentityClient
 
-COUNTRY_CSV = """alpha2,alpha3,name
-PK,PAK,Pakistan
-IN,IND,India
-AE,ARE,United Arab Emirates
-SA,SAU,Saudi Arabia
-"""
+# The CSV must already exist on the server, under <data dir>/lookups.
+LOOKUP_PATH = os.getenv("RELATA_LOOKUP_PATH", "/var/lib/relata/lookups/country_alpha3.csv")
 
 
 def main() -> None:
@@ -42,7 +40,7 @@ def main() -> None:
         print("=== 1. register_lookup: country_alpha3 ===")
         registered = identity.register_lookup(
             "country_alpha3",
-            COUNTRY_CSV,
+            LOOKUP_PATH,
             key_column="alpha2",
             value_columns=["alpha3", "name"],
         )
@@ -53,8 +51,7 @@ def main() -> None:
         lookups = identity.list_lookups()
         print(f"  {len(lookups)} lookup(s) registered:")
         for entry in lookups[:10]:
-            size = entry.get("size", entry.get("entries", "?"))
-            print(f"    - {entry.get('name')} (size={size})")
+            print(f"    - {entry.get('name')}")
 
         # ── 3. Invoke a lookup by key ──────────────────────────────────────
         print("\n=== 3. invoke_lookup: country_alpha3['PK'] ===")

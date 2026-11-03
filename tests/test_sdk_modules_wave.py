@@ -209,33 +209,82 @@ def test_audit_entries_wrappers_are_removed() -> None:
         assert not hasattr(cls, "find_by_request_id")
 
 
-def test_identity_label_posts_payload() -> None:
+def test_identity_label_posts_left_right_is_match() -> None:
     from relata.identity import IdentityClient
 
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/identity/label"
         body = json.loads(req.content)
-        assert body == {"identity": "alice@example.com", "label": "Alice", "confidence": 0.9}
-        return httpx.Response(200, json={"identity": "alice@example.com", "label": "Alice"})
+        assert body == {"left": "alice@x.com", "right": "alice@y.com", "is_match": False}
+        return httpx.Response(200, json={"status": "recorded"})
 
     c = IdentityClient(BASE, transport=_wrap(handler))
-    out = c.label("alice@example.com", "Alice", confidence=0.9)
-    assert out["label"] == "Alice"
+    assert c.label("alice@x.com", "alice@y.com", is_match=False)["status"] == "recorded"
 
 
-def test_identity_register_lookup_posts_csv() -> None:
+def test_identity_register_lookup_posts_register_statement() -> None:
     from relata.identity import IdentityClient
 
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/lookup/register"
-        body = json.loads(req.content)
-        assert body["name"] == "country_codes"
-        assert "KE,Kenya" in body["csv_data"]
-        return httpx.Response(200, json={"name": "country_codes", "rows": 1})
+        assert req.headers["content-type"].startswith("text/plain")
+        assert req.content.decode() == (
+            "REGISTER LOOKUP country_codes FROM '/data/lookups/cc.csv' KEY (code) FIELDS (name, iso3)"
+        )
+        return httpx.Response(200, json={"registered": "country_codes", "rows": 1})
 
     c = IdentityClient(BASE, transport=_wrap(handler))
-    out = c.register_lookup("country_codes", "code,name\nKE,Kenya", key_column="code")
+    out = c.register_lookup(
+        "country_codes", "/data/lookups/cc.csv", key_column="code", value_columns=["name", "iso3"]
+    )
     assert out["rows"] == 1
+
+
+def test_identity_register_lookup_rejects_injection() -> None:
+    from relata.identity import IdentityClient
+
+    c = IdentityClient(BASE, transport=_wrap(lambda r: httpx.Response(200, json={})))
+    with pytest.raises(ValueError):
+        c.register_lookup("a b", "/x.csv", key_column="k")
+    with pytest.raises(ValueError):
+        c.register_lookup("ok", "/x.csv' KEY (k)", key_column="k")
+    with pytest.raises(ValueError):
+        c.register_lookup("ok", "/x.csv", key_column="k; DROP")
+
+
+def test_identity_invoke_lookup_hits_name_key_route_and_list_reads_lookup_tables() -> None:
+    from relata.identity import IdentityClient
+
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.url.raw_path.decode())
+        if req.url.path == "/v1/lookup":
+            return httpx.Response(200, json={"lookup_tables": ["cc"]})
+        return httpx.Response(200, json={"name": "cc", "key": "a/b", "row": {"name": "x"}})
+
+    c = IdentityClient(BASE, transport=_wrap(handler))
+    assert c.invoke_lookup("cc", "a/b")["row"] == {"name": "x"}
+    assert seen[0] == "/v1/lookup/cc/a%2Fb"
+    assert c.list_lookups() == [{"name": "cc"}]
+
+
+def test_governance_list_alerts_page_exposes_cursor_and_order() -> None:
+    from relata.governance import GovernanceClient
+
+    seen: list[dict[str, str]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(dict(req.url.params))
+        return httpx.Response(
+            200, json={"items": [{"alert_id": "a1"}], "alerts": [{"alert_id": "a1"}], "total": 3, "nextCursor": "ff"}
+        )
+
+    c = GovernanceClient(BASE, transport=_wrap(handler))
+    page = c.list_alerts_page(limit=1, cursor="00", newest_first=True, since_ns=5)
+    assert page == {"items": [{"alert_id": "a1"}], "total": 3, "next_cursor": "ff"}
+    assert seen[0] == {"limit": "1", "cursor": "00", "order": "desc", "since_ns": "5"}
+    assert c.list_alerts(limit=1) == [{"alert_id": "a1"}]
 
 
 def test_identity_erase_subject_builds_sql() -> None:
