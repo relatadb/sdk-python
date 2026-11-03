@@ -176,3 +176,48 @@ def test_where_param_chains_with_where() -> None:
     )
     assert "updated_ms > 0" in sql
     assert "id = 'biosec.ioc_search'" in sql
+
+
+# ---------------------------------------------------------------------------
+# ObjectClient.delete_where() (#5742): parity with Go DeleteWhere / TS deleteWhere
+# ---------------------------------------------------------------------------
+
+
+def test_delete_where_sends_predicate_body_and_refuses_blank() -> None:
+    from relata.objects import ObjectClient
+
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(200, json={"deleted": 3, "type": "Doc"})
+
+    c = ObjectClient(BASE, transport=_mock(handler))
+    out = c.delete_where("Doc", "status = 'stale'")
+    assert out["deleted"] == 3
+    assert seen[0].method == "DELETE" and seen[0].url.path == "/v1/objects/Doc"
+    assert json.loads(seen[0].content) == {"where": "status = 'stale'"}
+    for blank in ("", "   "):
+        with pytest.raises(ValueError):
+            c.delete_where("Doc", blank)
+    with pytest.raises(ValueError):
+        c.delete_where("Doc; DROP", "x = 1")
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_async_delete_where_matches_sync() -> None:
+    from relata.objects import AsyncObjectClient
+
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(200, json={"deleted": 1, "type": "Doc"})
+
+    c = AsyncObjectClient(BASE, transport=_mock(handler))
+    out = await c.delete_where("Doc", "n = 1")
+    assert out["deleted"] == 1
+    assert json.loads(seen[0].content) == {"where": "n = 1"}
+    with pytest.raises(ValueError):
+        await c.delete_where("Doc", "")
