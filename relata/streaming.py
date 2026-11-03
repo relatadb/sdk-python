@@ -425,42 +425,14 @@ class AsyncStreamingClient:
         from urllib.parse import urlencode
 
         params = urlencode({"sql": sql, "purpose": purpose})
-        async_transport = self._client._async  # noqa: SLF001
-
-        async def _gen() -> Any:  # noqa: ANN401
-            async with async_transport._client.stream(  # noqa: SLF001
-                "GET", f"/v1/watch/stream?{params}"
-            ) as resp:
-                if not resp.is_success:
-                    # Classify like the sync consumers (bounded read, #3214) instead of
-                    # silently yielding an empty stream on 401/403/404.
-                    await _aclassify_capped_error(async_transport, resp)
-                event_type: str | None = None
-                data_lines: list[str] = []
-                async for line in resp.aiter_lines():
-                    if line.startswith("event:"):
-                        event_type = line[6:].strip()
-                    elif line.startswith("data:"):
-                        data_lines.append(line[5:].strip())
-                    elif line == "" and data_lines:
-                        raw = "\n".join(data_lines)
-                        try:
-                            payload = json.loads(raw)
-                        except json.JSONDecodeError:
-                            payload = {"raw": raw}
-                        if event_type:
-                            payload["event"] = event_type
-                        yield payload
-                        event_type = None
-                        data_lines = []
-
-        return _gen()
+        return self._sse_events(f"/v1/watch/stream?{params}", reconnect=reconnect)
 
     async def watch_stream(
         self,
         type: str,  # noqa: A002
         *,
         since: str | None = None,
+        reconnect: bool = True,
     ) -> Any:  # noqa: ANN401
         """Convenience wrapper building a SELECT for ``watch(sql, purpose)``.
 
@@ -468,100 +440,94 @@ class AsyncStreamingClient:
         ``RowsAppended`` changes. ``since`` adds a ``system_from`` predicate
         to the generated SELECT; it is not a durable resume cursor and cannot
         resume a watch after a gap or server restart.
+
+        Args:
+            type: Object type to watch (e.g. ``"HmDispute"``).
+            since: Optional system_from cursor; only events after this timestamp.
+            reconnect: Reconnect on disconnect with exponential back-off.
         """
         from urllib.parse import urlencode
 
         sql = _watch_stream_sql(type, since)
         params = urlencode({"sql": sql, "purpose": "watch"})
-        async_transport = self._client._async  # noqa: SLF001
-
-        async def _gen() -> Any:  # noqa: ANN401
-            async with async_transport._client.stream(  # noqa: SLF001
-                "GET", f"/v1/watch/stream?{params}"
-            ) as resp:
-                if not resp.is_success:
-                    # Classify like the sync consumers (bounded read, #3214) instead of
-                    # silently yielding an empty stream on 401/403/404.
-                    await _aclassify_capped_error(async_transport, resp)
-                event_type: str | None = None
-                data_lines: list[str] = []
-                async for line in resp.aiter_lines():
-                    if line.startswith("event:"):
-                        event_type = line[6:].strip()
-                    elif line.startswith("data:"):
-                        data_lines.append(line[5:].strip())
-                    elif line == "" and data_lines:
-                        raw = "\n".join(data_lines)
-                        try:
-                            payload = json.loads(raw)
-                        except json.JSONDecodeError:
-                            payload = {"raw": raw}
-                        if event_type:
-                            payload["event"] = event_type
-                        yield payload
-                        event_type = None
-                        data_lines = []
-
-        return _gen()
+        return self._sse_events(f"/v1/watch/stream?{params}", reconnect=reconnect)
 
     async def alerts(self, *, reconnect: bool = True) -> Any:  # noqa: ANN401
         """Async SSE consumer for ``GET /v1/alerts/stream``."""
-        async_transport = self._client._async  # noqa: SLF001
-
-        async def _gen() -> Any:  # noqa: ANN401
-            async with async_transport._client.stream(  # noqa: SLF001
-                "GET", "/v1/alerts/stream"
-            ) as resp:
-                if not resp.is_success:
-                    # Classify like the sync consumers (bounded read, #3214) instead of
-                    # silently yielding an empty stream on 401/403/404.
-                    await _aclassify_capped_error(async_transport, resp)
-                async for line in resp.aiter_lines():
-                    if line.startswith("data:"):
-                        try:
-                            yield json.loads(line[5:].strip())
-                        except json.JSONDecodeError:
-                            yield {"raw": line[5:].strip()}
-
-        return _gen()
+        return self._sse_events("/v1/alerts/stream", reconnect=reconnect)
 
     async def graph_changes(
         self,
         *,
         type: str | None = None,  # noqa: A002
         tenant_id: str | None = None,
+        reconnect: bool = True,
     ) -> Any:  # noqa: ANN401
         """Async SSE consumer for ``GET /v1/graph/changes``."""
-        return self._sse_events(_graph_changes_path(type, tenant_id))
+        return self._sse_events(_graph_changes_path(type, tenant_id), reconnect=reconnect)
 
-    async def a2a_task_stream(self, task_id: str) -> Any:  # noqa: ANN401
-        """Async SSE consumer for ``GET /v1/a2a/tasks/:id/stream``."""
-        return self._sse_events(f"/v1/a2a/tasks/{path_segment(task_id)}/stream")
+    async def a2a_task_stream(self, task_id: str, *, reconnect: bool = False) -> Any:  # noqa: ANN401
+        """Async SSE consumer for ``GET /v1/a2a/tasks/:id/stream``.
 
-    def _sse_events(self, path: str) -> Any:  # noqa: ANN401
+        A task stream is finite, so ``reconnect`` defaults to ``False``.
+        """
+        return self._sse_events(
+            f"/v1/a2a/tasks/{path_segment(task_id)}/stream", reconnect=reconnect
+        )
+
+    def _sse_events(
+        self,
+        path: str,
+        *,
+        reconnect: bool = False,
+        max_retries: int = 5,
+        base_backoff: float = 1.0,
+    ) -> Any:  # noqa: ANN401
+        """Async SSE consumer with the same optional exponential-backoff
+        reconnect as the sync :meth:`StreamingClient._sse_stream`."""
+        import asyncio
+
+        import httpx
+
         async_transport = self._client._async  # noqa: SLF001
 
         async def _gen() -> Any:  # noqa: ANN401
-            async with async_transport._client.stream("GET", path) as resp:  # noqa: SLF001
-                if not resp.is_success:
-                    await _aclassify_capped_error(async_transport, resp)
-                event_type: str | None = None
-                data_lines: list[str] = []
-                async for line in resp.aiter_lines():
-                    if line.startswith("event:"):
-                        event_type = line[6:].strip()
-                    elif line.startswith("data:"):
-                        data_lines.append(line[5:].strip())
-                    elif line == "" and data_lines:
-                        raw = "\n".join(data_lines)
-                        try:
-                            payload = json.loads(raw)
-                        except json.JSONDecodeError:
-                            payload = {"raw": raw}
-                        if event_type:
-                            payload["event"] = event_type
-                        yield payload
-                        event_type = None
-                        data_lines = []
+            retries = 0
+            while True:
+                try:
+                    async with async_transport._client.stream("GET", path) as resp:  # noqa: SLF001
+                        if not resp.is_success:
+                            # Classified errors are not retried (a 401/403/404 will not heal).
+                            await _aclassify_capped_error(async_transport, resp)
+                        event_type: str | None = None
+                        data_lines: list[str] = []
+                        async for line in resp.aiter_lines():
+                            if line.startswith("event:"):
+                                event_type = line[6:].strip()
+                            elif line.startswith("data:"):
+                                data_lines.append(line[5:].strip())
+                            elif line == "" and data_lines:
+                                raw = "\n".join(data_lines)
+                                try:
+                                    payload = json.loads(raw)
+                                except json.JSONDecodeError:
+                                    payload = {"raw": raw}
+                                if event_type:
+                                    payload["event"] = event_type
+                                yield payload
+                                event_type = None
+                                data_lines = []
+                    # Stream ended without error -- if reconnect is on, retry.
+                    if not reconnect:
+                        return
+                    retries += 1
+                    if retries > max_retries:
+                        return
+                    await asyncio.sleep(base_backoff * (2 ** min(retries - 1, 5)))
+                except (ConnectionError, OSError, httpx.TransportError):
+                    if not reconnect or retries >= max_retries:
+                        return
+                    retries += 1
+                    await asyncio.sleep(base_backoff * (2 ** min(retries - 1, 5)))
 
         return _gen()

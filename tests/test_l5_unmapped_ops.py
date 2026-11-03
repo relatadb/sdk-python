@@ -197,9 +197,31 @@ async def test_graph_changes_and_a2a_stream_async() -> None:
         BASE, None, 30.0, transport=httpx.MockTransport(_sse(seen)), extra_headers=None,
     )
     stream = AsyncStreamingClient(client)
-    out = [e async for e in await stream.graph_changes(tenant_id="acme")]
+    out = [e async for e in await stream.graph_changes(tenant_id="acme", reconnect=False)]
     assert out == [{"id": 1, "event": "change"}]
     assert dict(seen[0].url.params) == {"tenant_id": "acme"}
     out = [e async for e in await stream.a2a_task_stream("t1")]
     assert seen[1].url.path == "/v1/a2a/tasks/t1/stream"
     assert out == [{"id": 1, "event": "change"}]
+
+
+@pytest.mark.asyncio
+async def test_async_streams_reconnect_after_stream_end_and_accept_reconnect_param() -> None:
+    import inspect
+
+    for name in ("watch", "watch_stream", "alerts", "graph_changes"):
+        assert "reconnect" in inspect.signature(getattr(AsyncStreamingClient, name)).parameters
+    seen: Seen = []
+    client = RelataClient(BASE, purpose="analytics")
+    from relata._http import AsyncHttpTransport
+
+    client._RelataClient__async_transport = AsyncHttpTransport(  # type: ignore[attr-defined]
+        BASE, None, 30.0, transport=httpx.MockTransport(_sse(seen)), extra_headers=None,
+    )
+    stream = AsyncStreamingClient(client)
+    inner = stream._sse_events("/v1/graph/changes", reconnect=True, max_retries=2, base_backoff=0.0)
+    out = [e async for e in inner]
+    # first connect + 2 reconnects, each delivering the same single event
+    assert len(out) == 3 and len(seen) == 3
+    once = [e async for e in stream._sse_events("/v1/graph/changes", reconnect=False)]
+    assert len(once) == 1
