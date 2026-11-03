@@ -78,6 +78,14 @@ def _object_path(object_type: str, object_id: str, purpose: str | None = None) -
     return f"{path}?{urlencode({'purpose': purpose})}" if purpose else path
 
 
+def _delete_where_request(object_type: str, where: str) -> tuple[str, dict[str, Any]]:
+    """Path and body of a delete-by-predicate; a blank predicate is a ``ValueError``."""
+    if not isinstance(where, str) or not where.strip():
+        raise ValueError("where must be a non-empty SQL WHERE expression")
+    path = f"/v1/objects/{path_segment(_validate_object_type(object_type))}"
+    return path, {"where": where}
+
+
 def _precondition_headers(expected_version: int | None, if_absent: bool) -> dict[str, str]:
     """``If-Match`` / ``If-None-Match`` for a conditional write (#5766)."""
     if expected_version is not None and if_absent:
@@ -370,6 +378,20 @@ class ObjectClient:
             body,
             content_type="application/x-ndjson",
         )
+
+    def delete_where(self, object_type: str, where: str) -> dict[str, Any]:
+        """Tombstone every live row of ``object_type`` matching ``where``.
+
+        Wraps ``DELETE /v1/objects/{type}`` with ``{"where": ...}`` (the same
+        door the Go and TypeScript ``delete_where`` use). ``where`` is a SQL
+        WHERE expression such as ``"status = 'stale'"``, not a statement. An
+        empty or blank ``where`` is refused client-side: this method can never
+        delete every row of a type by accident.
+
+        Returns:
+            The server receipt, e.g. ``{"deleted": 3, "type": "Doc"}``.
+        """
+        return self._t.delete(*_delete_where_request(object_type, where))
 
     def get_versioned(
         self,
@@ -674,6 +696,20 @@ class AsyncObjectClient:
             body,
             content_type="application/x-ndjson",
         )
+
+    async def delete_where(self, object_type: str, where: str) -> dict[str, Any]:
+        """Async equivalent of :meth:`ObjectClient.delete_where`.
+
+        Wraps ``DELETE /v1/objects/{type}`` with ``{"where": ...}`` (the same
+        door the Go and TypeScript ``delete_where`` use). ``where`` is a SQL
+        WHERE expression such as ``"status = 'stale'"``, not a statement. An
+        empty or blank ``where`` is refused client-side: this method can never
+        delete every row of a type by accident.
+
+        Returns:
+            The server receipt, e.g. ``{"deleted": 3, "type": "Doc"}``.
+        """
+        return await self._t.delete(*_delete_where_request(object_type, where))
 
     async def get_versioned(
         self,
