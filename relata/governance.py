@@ -57,6 +57,40 @@ def _optional_str_or_none(v: object) -> str | None:
 
 
 
+def _alerts_query(
+    severity: str | None,
+    since_ns: int | None,
+    limit: int,
+    cursor: str | None,
+    newest_first: bool,
+) -> str:
+    from urllib.parse import urlencode
+
+    params: dict[str, str] = {"limit": str(limit)}
+    if severity:
+        params["severity"] = severity
+    if since_ns is not None:
+        params["since_ns"] = str(since_ns)
+    if cursor:
+        params["cursor"] = cursor
+    if newest_first:
+        params["order"] = "desc"
+    return urlencode(params)
+
+
+def _alerts_page(data: dict[str, Any]) -> dict[str, Any]:
+    raw = data.get("items")
+    if not isinstance(raw, list):
+        raw = data.get("alerts")
+    items: list[dict[str, Any]] = raw if isinstance(raw, list) else []
+    total = data.get("total")
+    return {
+        "items": items,
+        "total": total if isinstance(total, int) else len(items),
+        "next_cursor": data.get("nextCursor") or None,
+    }
+
+
 def _worm_policies(data: Any) -> list[dict[str, Any]]:
     """Normalise ``GET /v1/retention/worm`` (``{"worm_types": [...], "total": n}``).
 
@@ -329,18 +363,43 @@ class GovernanceClient(_BaseGovernance):
         severity: str | None = None,
         since_ns: int | None = None,
         limit: int = 100,
+        cursor: str | None = None,
+        newest_first: bool = False,
     ) -> list[dict[str, Any]]:
-        """List alerts, optionally filtered by severity / since-cursor."""
-        params: dict[str, str] = {"limit": str(limit)}
-        if severity:
-            params["severity"] = severity
-        if since_ns is not None:
-            params["since_ns"] = str(since_ns)
-        from urllib.parse import urlencode
+        """List one page of alerts (see :meth:`list_alerts_page` for paging).
 
-        data = self._t.get("/v1/alerts?" + urlencode(params))
-        alerts = data.get("alerts") if isinstance(data, dict) else data
-        return alerts if isinstance(alerts, list) else []
+        The server returns alerts oldest-first by default and caps a page at
+        ``limit`` (max 1000); pass ``newest_first=True`` for the newest alerts, or
+        ``cursor`` (a page's ``next_cursor``) to continue.
+        """
+        page = self.list_alerts_page(
+            severity=severity,
+            since_ns=since_ns,
+            limit=limit,
+            cursor=cursor,
+            newest_first=newest_first,
+        )
+        items: list[dict[str, Any]] = page["items"]
+        return items
+
+    def list_alerts_page(
+        self,
+        *,
+        severity: str | None = None,
+        since_ns: int | None = None,
+        limit: int = 100,
+        cursor: str | None = None,
+        newest_first: bool = False,
+    ) -> dict[str, Any]:
+        """List one page of alerts as ``{"items", "total", "next_cursor"}``.
+
+        ``next_cursor`` is ``None`` on the last page; pass it back as ``cursor``
+        to continue in the same order.
+        """
+        data = self._t.get(
+            "/v1/alerts?" + _alerts_query(severity, since_ns, limit, cursor, newest_first)
+        )
+        return _alerts_page(data)
 
     def update_alert(
         self,
@@ -581,17 +640,32 @@ class AsyncGovernanceClient(_BaseGovernance):
         severity: str | None = None,
         since_ns: int | None = None,
         limit: int = 100,
+        cursor: str | None = None,
+        newest_first: bool = False,
     ) -> list[dict[str, Any]]:
-        from urllib.parse import urlencode
+        page = await self.list_alerts_page(
+            severity=severity,
+            since_ns=since_ns,
+            limit=limit,
+            cursor=cursor,
+            newest_first=newest_first,
+        )
+        items: list[dict[str, Any]] = page["items"]
+        return items
 
-        params: dict[str, str] = {"limit": str(limit)}
-        if severity:
-            params["severity"] = severity
-        if since_ns is not None:
-            params["since_ns"] = str(since_ns)
-        data = await self._t.get("/v1/alerts?" + urlencode(params))
-        alerts = data.get("alerts") if isinstance(data, dict) else data
-        return alerts if isinstance(alerts, list) else []
+    async def list_alerts_page(
+        self,
+        *,
+        severity: str | None = None,
+        since_ns: int | None = None,
+        limit: int = 100,
+        cursor: str | None = None,
+        newest_first: bool = False,
+    ) -> dict[str, Any]:
+        data = await self._t.get(
+            "/v1/alerts?" + _alerts_query(severity, since_ns, limit, cursor, newest_first)
+        )
+        return _alerts_page(data)
 
     async def submit_dsar(
         self,
