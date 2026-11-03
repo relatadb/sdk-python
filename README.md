@@ -480,7 +480,7 @@ items with `MediaWorkClient.get()`. The separate new `FilesClient` and
 `AsyncFilesClient` wrap `/v1/files/content` for opaque file bytes (including `HEAD` and `GET /v1/files` listing); they do not
 start media processing or document extraction.
 
-### Governed Files clients — v3.0 candidate, SDK 2.7.1
+### Governed Files clients — v3.0 candidate, SDK 3.0.0
 
 For the v3.0 candidate (engine source `57e11676c`), version-aligned SDK source
 `8924d6ce8` (TypeScript test-only fixture correction `5212045`) builds cleanly;
