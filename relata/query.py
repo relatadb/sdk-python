@@ -106,7 +106,6 @@ class QueryBuilder:
     - ``PATHS_BETWEEN(src, dst, max_hops => N)`` — graph traversal
     - ``MATCH_FACE(face_col, candidate_col, threshold)`` — face similarity
     - ``LOOKUP_IDENTITY('value')`` — universal identity resolution
-    - ``HYBRID_SCORE(query_text)`` — BM25 + vector hybrid search
     """
 
     def __init__(self, *, client: RelataClient) -> None:
@@ -118,7 +117,6 @@ class QueryBuilder:
         self._with_provenance: bool = False
         self._limit_val: int | None = None
         self._limit_after_cursor: str | None = None
-        self._since_cursor: str | None = None
         self._offset_val: int | None = None
         self._order_by_cols: list[str] = []
         self._purpose_override: str | None = None
@@ -126,7 +124,6 @@ class QueryBuilder:
         self._paths_between: tuple[str, str, int] | None = None
         self._match_face: tuple[str, str, float] | None = None
         self._lookup_identity: str | None = None
-        self._hybrid_score: str | None = None
         self._raw_sql: str | None = None
 
     # ------------------------------------------------------------------
@@ -271,22 +268,6 @@ class QueryBuilder:
             raise ValueError(f"limit must be a positive integer, got {n}")
         self._limit_val = n
         self._limit_after_cursor = after
-        return self
-
-    def since(self, cursor: str) -> QueryBuilder:
-        """Apply a since-cursor for incremental reads (partner §10).
-
-        Emits a ``WHERE system_from > '<cursor>'`` predicate so the query
-        returns only rows committed after the cursor. Compose with
-        :meth:`limit` for incremental tailing.
-
-        Args:
-            cursor: Decimal ``system_from`` ns from a prior result.
-
-        Returns:
-            ``self``
-        """
-        self._since_cursor = cursor
         return self
 
     def offset(self, n: int) -> QueryBuilder:
@@ -456,18 +437,6 @@ class QueryBuilder:
         self._lookup_identity = value
         return self
 
-    def hybrid_score(self, query_text: str) -> QueryBuilder:
-        """Add a ``HYBRID_SCORE`` (BM25 + vector) ranking clause.
-
-        Args:
-            query_text: Free-text query for hybrid retrieval.
-
-        Returns:
-            ``self``
-        """
-        self._hybrid_score = query_text
-        return self
-
     # ------------------------------------------------------------------
     # Raw SQL escape hatch
     # ------------------------------------------------------------------
@@ -510,10 +479,6 @@ class QueryBuilder:
         cols = ", ".join(self._select_cols) if self._select_cols else "*"
         parts.append(f"SELECT {cols}")
 
-        # HYBRID_SCORE wraps the column list
-        if self._hybrid_score:
-            parts.append(f", HYBRID_SCORE({_quote(self._hybrid_score)}) AS score")
-
         # FROM — graph operators override the standard FROM
         if self._paths_between:
             src, dst, hops = self._paths_between
@@ -539,8 +504,6 @@ class QueryBuilder:
         if self._match_face:
             fc, cc, th = self._match_face
             where_clauses.append(f"MATCH_FACE({fc}, {cc}, {th})")
-        if self._since_cursor:
-            where_clauses.append(f"system_from > {self._since_cursor}")
 
         # WHERE
         if where_clauses:

@@ -575,7 +575,6 @@ Unknown types return `400` on both ingest and read — fail-closed by design.
 | Method | Description |
 |---|---|
 | `.limit(n, after="cursor")` | Keyset pagination (`LIMIT n AFTER 'cursor'`) |
-| `.since(cursor)` | Incremental reads (`WHERE system_from > cursor`) |
 
 The builder also validates identifiers (`from_()`, `select()`) and refuses
 dangerous tokens in `where()` (SQL-injection stopgap). For user-supplied
@@ -612,7 +611,6 @@ with safely-typed literals (str → single-quoted + escaped, int/float → numer
 | `.order_by(*cols)` | ORDER BY |
 | `.paths_between(src, dst, max_hops)` | PATHS_BETWEEN graph operator |
 | `.lookup_identity(value)` | LOOKUP_IDENTITY operator |
-| `.hybrid_score(text)` | HYBRID_SCORE ranking |
 | `.raw(sql)` | Raw SQL escape hatch |
 | `.sql()` | Return assembled SQL without executing |
 | `.execute()` | Execute (sync) |
