@@ -15,7 +15,8 @@ The v3 SDK accepts prepared detection rules through `GovernanceClient.create_rul
 or MCP `create_rule`. Raw Sigma YAML parsing/import is no longer an SDK or MCP
 server method. Convert YAML in OpenETL (the former `relata-connectors import-sigma`
 was removed), or convert externally and submit the prepared
-`name`, `condition_sql`, and `target_type` JSON fields through `/v1/rules`.
+`name`, `condition_sql`, and `target_type` JSON fields through `/v1/rules`
+(`POST /v1/rules/sigma` answers `410 sigma-import-removed`; see the [Sigma target contract](../../docs/src/openetl-handoff/sigma-target-contract.md)).
 
 Relata DB is a Rust-native, ontology-driven engine built for bi-temporal, governed knowledge workloads: link analysis, identity resolution, full-text and vector search, access-scoped restricted data, and provenance-tracked analytics.
 
