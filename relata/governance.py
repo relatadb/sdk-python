@@ -92,18 +92,28 @@ def _alerts_page(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _worm_policies(data: Any) -> list[dict[str, Any]]:
-    """Normalise ``GET /v1/retention/worm`` (``{"worm_types": [...], "total": n}``).
+    """Normalise ``GET /v1/retention/worm`` (#6045).
 
-    Each WORM type becomes ``{"object_type": <name>, "worm": True}``, the same
-    shape :meth:`GovernanceClient.set_worm_policy` returns. A legacy
-    ``policies`` list is passed through.
+    The server answers ``{"policies": [{"object_type", "worm": true,
+    "retention": "indefinite", "retention_secs": null}, ...], "worm_types":
+    [...], "total": n}``; the ``policies`` list is returned as is. A server
+    that only sends ``worm_types`` is still read: each name becomes
+    ``{"object_type": <name>, "worm": True}``.
     """
     if isinstance(data, dict):
+        policies = data.get("policies")
+        if isinstance(policies, list):
+            return policies
         types = data.get("worm_types")
         if isinstance(types, list):
-            return [{"object_type": t, "worm": True} for t in types]
-        data = data.get("policies")
+            return [{"object_type": t, "worm": True} for t in types if isinstance(t, str)]
+        return []
     return data if isinstance(data, list) else []
+
+
+def _worm_body(retention_secs: int | None) -> dict[str, Any]:
+    """``{}`` (indefinite lock) unless a finite retention is requested."""
+    return {} if retention_secs is None else {"retention_secs": retention_secs}
 
 
 class _BaseGovernance:
@@ -344,13 +354,22 @@ class GovernanceClient(_BaseGovernance):
         self,
         object_type: str,
         *,
-        retention_secs: int,
+        retention_secs: int | None = None,
     ) -> dict[str, Any]:
-        """Set WORM retention for ``object_type``. Rows cannot be mutated or
-        purged until ``retention_secs`` elapses from their ``system_from``."""
+        """Put ``object_type`` under WORM (``POST /v1/retention/worm/{type}``, #6045).
+
+        The lock is indefinite: rows of the type cannot be mutated or purged,
+        and the server stores no finite retention (``retention_secs`` in the
+        reply is always ``None``). ``retention_secs`` is optional and only
+        recorded as a request: a fresh type echoes it as
+        ``requested_retention_secs``. A finite value on a type already under
+        WORM is refused with 409 ``worm-retention-cannot-shorten``
+        (:class:`~relata.exceptions.ConflictError`); omit it (or pass ``None``)
+        to re-assert the lock.
+        """
         return self._t.post(
             f"/v1/retention/worm/{path_segment(object_type)}",
-            {"retention_secs": retention_secs},
+            _worm_body(retention_secs),
         )
 
     # ------------------------------------------------------------------
@@ -628,10 +647,16 @@ class AsyncGovernanceClient(_BaseGovernance):
     async def list_worm_policies(self) -> list[dict[str, Any]]:
         return _worm_policies(await self._t.get("/v1/retention/worm"))
 
-    async def set_worm_policy(self, object_type: str, *, retention_secs: int) -> dict[str, Any]:
+    async def set_worm_policy(
+        self,
+        object_type: str,
+        *,
+        retention_secs: int | None = None,
+    ) -> dict[str, Any]:
+        """Async :meth:`GovernanceClient.set_worm_policy`."""
         return await self._t.post(
             f"/v1/retention/worm/{path_segment(object_type)}",
-            {"retention_secs": retention_secs},
+            _worm_body(retention_secs),
         )
 
     async def list_alerts(
