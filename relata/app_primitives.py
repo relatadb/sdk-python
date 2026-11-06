@@ -22,6 +22,10 @@ if TYPE_CHECKING:
     from relata.client import RelataClient
 
 
+#: Lease applied when a claim or renew names none; the server requires one.
+DEFAULT_LEASE_MS = 30_000
+
+
 class AppPrimitivesClient:
     """Synchronous client for sequences and the durable job queue."""
 
@@ -99,8 +103,8 @@ class AppPrimitivesClient:
     ) -> list[dict[str, Any]]:
         """Lease up to ``max`` ready jobs; each carries its ``fencingToken``."""
         body: dict[str, Any] = {"workerId": worker_id}
-        if lease_ms is not None:
-            body["leaseMs"] = lease_ms
+        # The server rejects a claim or renew without leaseMs; default to 30s.
+        body["leaseMs"] = DEFAULT_LEASE_MS if lease_ms is None else lease_ms
         if max is not None:
             body["max"] = max
         resp = self._t.post(f"/v1/queues/{path_segment(queue)}/claim", body)
@@ -111,8 +115,8 @@ class AppPrimitivesClient:
     ) -> dict[str, Any]:
         """Extend a held lease. A stale token is rejected with 409."""
         body: dict[str, Any] = {"fencingToken": fencing_token}
-        if lease_ms is not None:
-            body["leaseMs"] = lease_ms
+        # The server rejects a claim or renew without leaseMs; default to 30s.
+        body["leaseMs"] = DEFAULT_LEASE_MS if lease_ms is None else lease_ms
         return self._t.post(f"/v1/jobs/{path_segment(job_id)}/renew", body)
 
     def complete(self, job_id: str, fencing_token: int, *, result: object = None) -> dict[str, Any]:

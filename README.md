@@ -8,6 +8,13 @@ Python SDK for the [Relata DB](https://relatadb.dev) governed temporal data engi
 
 For the v3.0 platform boundary and SDK migration plan, see the
 [SDK migration guide](../README-v3-migration.md).
+
+**Server compatibility.** SDK 3.0.x pairs with a Relata DB 3.0.x server and
+calls its `/v1` routes. Earlier SDK releases (2.x, including the 2.6.2 on
+the registries as of 2026-11-06) call the unversioned routes and get 404 on
+every data-plane call against a 3.0 server; the server has no compatibility
+alias. Keep the SDK and server on the same major.minor version. See
+[version pairing](../README-v3-migration.md#server-and-sdk-version-pairing).
 Python is one of the three supported consumer SDKs (Python, TypeScript, Go).
 Other languages use the HTTP API and its OpenAPI reference at `GET /openapi.json`.
 
