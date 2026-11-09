@@ -1,9 +1,28 @@
 name: Publish to PyPI
 
+# Two release channels (sdks/README-v3-migration.md, "Release channels"):
+#   main -> 2.x line. Push or dispatch: bump the patch and publish (unchanged).
+#   v3   -> 3.x line. Dispatch ONLY, with an explicit 3.x `version` input.
+#           PyPI has no dist-tags: a final 3.x release becomes what a bare
+#           `pip install relata-sdk` resolves to for every user, so the v3
+#           channel accepts only a pre-release (3.0.0rc1, 3.0.0b1, ...) unless
+#           `allow_final` is set deliberately at 3.0 GA.
+# A push to `v3` (the mirror) publishes nothing: only `main` is a push trigger.
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "v3 branch only: exact 3.x PEP 440 version, e.g. 3.0.0rc1"
+        required: false
+        default: ""
+      allow_final:
+        description: "v3 branch only: allow a final (non pre-release) 3.x version; makes it the default pip install for everyone"
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: publish-pypi
@@ -29,8 +48,36 @@ jobs:
       - name: Install tools
         run: pip install hatch tomli
 
-      - name: Bump patch version
+      - name: Select release channel
+        id: channel
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          ALLOW_FINAL: ${{ inputs.allow_final }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            main)
+              echo "channel=main" >> "$GITHUB_OUTPUT"
+              ;;
+            v3)
+              if ! printf '%s' "$INPUT_VERSION" | grep -Eq '^3\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$'; then
+                echo "::error::The v3 channel needs a 3.x PEP 440 'version' input, e.g. 3.0.0rc1 (got '${INPUT_VERSION}')."
+                exit 1
+              fi
+              if ! printf '%s' "$INPUT_VERSION" | grep -Eq '(a|b|rc)[0-9]+$' && [ "$ALLOW_FINAL" != "true" ]; then
+                echo "::error::'${INPUT_VERSION}' is a final release; it would become the default pip install for 2.x users. Use a pre-release, or set allow_final at 3.0 GA."
+                exit 1
+              fi
+              echo "channel=v3" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Publishing runs only from main (2.x) or v3 (3.x), not '${GITHUB_REF_NAME}'."
+              exit 1
+              ;;
+          esac
+
+      - name: Bump patch version (main)
         id: bump
+        if: steps.channel.outputs.channel == 'main'
         run: |
           python3 - <<'EOF'
           import tomli, urllib.request, sys, os, re
@@ -76,7 +123,7 @@ jobs:
           EOF
 
       - name: Commit version bump
-        if: steps.bump.outputs.skip != 'true'
+        if: steps.channel.outputs.channel == 'main' && steps.bump.outputs.skip != 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -84,18 +131,47 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: bump version [skip ci]"
           git push
 
+      - name: Set requested version (v3)
+        id: v3ver
+        if: steps.channel.outputs.channel == 'v3'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'EOF'
+          import os, re, sys, tomli, urllib.request, urllib.error
+          v = os.environ["INPUT_VERSION"]
+          out = open(os.environ["GITHUB_OUTPUT"], "a")
+          try:
+              urllib.request.urlopen(f"https://pypi.org/pypi/relata-sdk/{v}/json")
+              print(f"Version {v} already on PyPI — skipping.")
+              out.write("skip=true\n")
+              sys.exit(0)
+          except urllib.error.HTTPError as e:
+              if e.code != 404:
+                  raise
+          # Not committed back: the mirror force-pushes this branch from the
+          # monorepo, whose canonical version stays in lockstep with Cargo.toml.
+          text = open("pyproject.toml", encoding="utf-8").read()
+          new_text, n = re.subn(r'(?m)^version = "[^"]*"$', f'version = "{v}"', text, count=1)
+          if n != 1 or tomli.loads(new_text)["project"]["version"] != v:
+              print("could not rewrite the [project] version line unambiguously", file=sys.stderr)
+              sys.exit(1)
+          open("pyproject.toml", "w", encoding="utf-8").write(new_text)
+          out.write("skip=false\n")
+          EOF
+
       - name: Run tests
-        if: steps.bump.outputs.skip != 'true'
+        if: steps.bump.outputs.skip != 'true' && steps.v3ver.outputs.skip != 'true'
         run: |
           pip install -e ".[dev]" 2>/dev/null || pip install -e .
           pytest tests/ -q --tb=short
 
       - name: Build
-        if: steps.bump.outputs.skip != 'true'
+        if: steps.bump.outputs.skip != 'true' && steps.v3ver.outputs.skip != 'true'
         run: hatch build --clean
 
       - name: Publish
-        if: steps.bump.outputs.skip != 'true'
+        if: steps.bump.outputs.skip != 'true' && steps.v3ver.outputs.skip != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
