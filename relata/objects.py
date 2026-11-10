@@ -186,6 +186,10 @@ class ObjectClient:
         Args:
             on_conflict: ``"upsert"`` (default) overwrites; ``"skip"`` ignores
                 existing rows; ``"error"`` raises on conflict (HTTP 409).
+                ``"skip"`` and ``"error"`` are decided atomically by the
+                synchronous ``POST /v1/ingest/bulk`` door, so those calls
+                return its receipt (``inserted``/``updated``/``skipped``)
+                instead of a queue acknowledgement (#6147).
             expected_version: #5766 — replace only if the object is at this
                 version (``If-Match``); a different version raises
                 :class:`~relata.exceptions.PreconditionFailedError`. Switches
@@ -232,6 +236,12 @@ class ObjectClient:
             ))
         row = dict(fields)
         row["id"] = object_id
+        if on_conflict != "upsert":
+            # #6147: the queued door refuses skip/error (it cannot decide them
+            # atomically); the synchronous bulk door decides them per id.
+            return self.batch_upsert(
+                object_type, [row], purpose=purpose, source=source, on_conflict=on_conflict
+            )
         if source is not None:
             row["_source"] = source
         body = _row_to_ndjson([row])
@@ -239,8 +249,6 @@ class ObjectClient:
         params: dict[str, str] = {"object_type": object_type}
         if eff_purpose:
             params["purpose"] = eff_purpose
-        if on_conflict != "upsert":
-            params["on_conflict"] = on_conflict
         return self._t.post_raw(
             "/v1/ingest?" + urlencode(params),
             body,
@@ -597,6 +605,12 @@ class AsyncObjectClient:
             ))
         row = dict(fields)
         row["id"] = object_id
+        if on_conflict != "upsert":
+            # #6147: the queued door refuses skip/error (it cannot decide them
+            # atomically); the synchronous bulk door decides them per id.
+            return await self.batch_upsert(
+                object_type, [row], purpose=purpose, source=source, on_conflict=on_conflict
+            )
         if source is not None:
             row["_source"] = source
         body = _row_to_ndjson([row])
@@ -604,8 +618,6 @@ class AsyncObjectClient:
         params: dict[str, str] = {"object_type": object_type}
         if eff_purpose:
             params["purpose"] = eff_purpose
-        if on_conflict != "upsert":
-            params["on_conflict"] = on_conflict
         return await self._t.post_raw(
             "/v1/ingest?" + urlencode(params),
             body,
