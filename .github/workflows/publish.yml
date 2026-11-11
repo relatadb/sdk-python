@@ -157,6 +157,15 @@ jobs:
               print("could not rewrite the [project] version line unambiguously", file=sys.stderr)
               sys.exit(1)
           open("pyproject.toml", "w", encoding="utf-8").write(new_text)
+          # relata/_version.py carries the runtime __version__ (User-Agent);
+          # tests/test_async_parity_2757.py pins it to pyproject, so a
+          # pyproject-only rewrite fails `pytest` and blocks the publish (#6039).
+          vtext = open("relata/_version.py", encoding="utf-8").read()
+          new_vtext, n = re.subn(r'(?m)^__version__ = "[^"]*"$', f'__version__ = "{v}"', vtext, count=1)
+          if n != 1:
+              print("could not rewrite __version__ in relata/_version.py", file=sys.stderr)
+              sys.exit(1)
+          open("relata/_version.py", "w", encoding="utf-8").write(new_vtext)
           out.write("skip=false\n")
           EOF
 
