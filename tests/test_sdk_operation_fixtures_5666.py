@@ -24,7 +24,7 @@ from relata.memory import Memory
 from relata.objects import ObjectClient
 
 FIXTURES = json.loads(
-    (Path(__file__).resolve().parents[2] / "shared" / "sdk-operation-fixtures.json").read_text()
+    (Path(__file__).resolve().parent / "fixtures" / "sdk-operation-fixtures.json").read_text()
 )
 BASE = "http://relata.invalid"
 SDK = "python"

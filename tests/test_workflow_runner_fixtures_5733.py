@@ -27,7 +27,7 @@ from relata.exceptions import (
 from relata.mcp import McpClient
 
 FIXTURES = json.loads(
-    (Path(__file__).resolve().parents[2] / "shared" / "workflow-runner-fixtures.json").read_text()
+    (Path(__file__).resolve().parent / "fixtures" / "workflow-runner-fixtures.json").read_text()
 )
 BASE = "http://relata.invalid"
 KINDS: dict[str, type[Exception]] = {

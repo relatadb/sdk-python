@@ -1,0 +1,189 @@
+{
+ "contract": "relata.query-operation-fixtures/v1",
+ "about": "The query operation (POST /v1/query) across Python, TypeScript and Go: for each case the SDK call must put exactly `request` on the wire (method, path, JSON body) and decode the `wire` response to the normalized `expect`. Cases with a `live` marker have their wire member set and member types checked against a real server by http_e2e::contract_matrix::query_operation_fixtures_match_live_server. The wire `rows` member is a count (the row data is in `data`); a count-only response yields no rows. `next_cursor_present` distinguishes an explicit `null` (exhausted) from an older server that omits the member.",
+ "cases": [
+  {
+   "name": "query_basic",
+   "live": "query_basic",
+   "call": {
+    "sql": "SELECT name FROM Item LIMIT 2",
+    "purpose": "analytics"
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/query",
+    "body": {
+     "purpose": "analytics",
+     "sql": "SELECT name FROM Item LIMIT 2"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "rows": 2,
+     "columns": [
+      "name"
+     ],
+     "data": [
+      {
+       "name": "n00000"
+      },
+      {
+       "name": "n00001"
+      }
+     ],
+     "query_id": "q-fixture-0001",
+     "next_cursor": "opaque-cursor-0",
+     "processing_time_ms": 1
+    }
+   },
+   "expect": {
+    "rows": [
+     {
+      "name": "n00000"
+     },
+     {
+      "name": "n00001"
+     }
+    ],
+    "columns": [
+     "name"
+    ],
+    "row_count": 2,
+    "query_id": "q-fixture-0001",
+    "next_cursor_present": true,
+    "next_cursor": "opaque-cursor-0",
+    "truncated": false
+   }
+  },
+  {
+   "name": "query_page_with_cursor_and_truncation",
+   "call": {
+    "sql": "SELECT name FROM Item ORDER BY name LIMIT 1",
+    "purpose": "analytics"
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/query",
+    "body": {
+     "purpose": "analytics",
+     "sql": "SELECT name FROM Item ORDER BY name LIMIT 1"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "rows": 1,
+     "columns": [
+      "name"
+     ],
+     "data": [
+      {
+       "name": "n00000"
+      }
+     ],
+     "query_id": "q-fixture-0002",
+     "elapsed_ms": 1,
+     "next_cursor": "opaque-cursor-1",
+     "truncated": true
+    }
+   },
+   "expect": {
+    "rows": [
+     {
+      "name": "n00000"
+     }
+    ],
+    "columns": [
+     "name"
+    ],
+    "row_count": 1,
+    "query_id": "q-fixture-0002",
+    "next_cursor_present": true,
+    "next_cursor": "opaque-cursor-1",
+    "truncated": true
+   }
+  },
+  {
+   "name": "query_with_ready_embedding",
+   "call": {
+    "sql": "SELECT name FROM Doc WHERE HYBRID_SEARCH('x') LIMIT 1",
+    "purpose": "analytics",
+    "query_vector": [
+     0.25,
+     -0.5
+    ],
+    "query_vector_model": "model-a"
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/query",
+    "body": {
+     "purpose": "analytics",
+     "sql": "SELECT name FROM Doc WHERE HYBRID_SEARCH('x') LIMIT 1",
+     "query_vector": [
+      0.25,
+      -0.5
+     ],
+     "query_vector_model": "model-a"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "rows": 0,
+     "columns": [
+      "name"
+     ],
+     "data": [],
+     "query_id": "q-fixture-0003",
+     "elapsed_ms": 2,
+     "next_cursor": null
+    }
+   },
+   "expect": {
+    "rows": [],
+    "columns": [
+     "name"
+    ],
+    "row_count": 0,
+    "query_id": "q-fixture-0003",
+    "next_cursor_present": true,
+    "next_cursor": null,
+    "truncated": false
+   }
+  },
+  {
+   "name": "query_count_only_legacy_response_without_cursor_member",
+   "call": {
+    "sql": "SELECT name FROM Item",
+    "purpose": "analytics"
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/query",
+    "body": {
+     "purpose": "analytics",
+     "sql": "SELECT name FROM Item"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "rows": 3,
+     "query_id": "q-fixture-0004",
+     "elapsed_ms": 4
+    }
+   },
+   "expect": {
+    "rows": [],
+    "columns": [],
+    "row_count": 0,
+    "query_id": "q-fixture-0004",
+    "next_cursor_present": false,
+    "next_cursor": null,
+    "truncated": false
+   }
+  }
+ ]
+}

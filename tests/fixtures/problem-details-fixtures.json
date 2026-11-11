@@ -1,0 +1,653 @@
+{
+ "contract": "relata.problem-details-fixtures/v1",
+ "about": "Wire-exact RFC 9457 responses captured from a live relata serve (non-synthetic cases carry a `live` request that the Rust test http_e2e::contract_matrix::problem_fixtures_match_live_server replays against the real binary), plus a few synthetic shapes. Every SDK (python, typescript, go) must map each case to the same error kind, status, code, type, retryable flag, request id and retry delay. kinds: purpose|auth|forbidden|not_found|conflict|precondition_failed|validation|rate_limited|server|bad_request|other. Go has no sentinel for purpose/bad_request/other. Env groups: default={}, queue_full={RELATA_OTLP_ENABLED=true,RELATA_INGEST_QUEUE_MAX_BYTES=1}, disk_pressure={RELATA_OTLP_ENABLED=true,RELATA_MIN_FREE_DISK_MB=1073741824}. The 410 case is the tombstone of a removed surface: an old client keeps the server's remediation text (the replacement route), tested in all three SDKs and replayed live.",
+ "cases": [
+  {
+   "name": "unauthorized_401",
+   "live": {
+    "method": "GET",
+    "path": "/v1/audit/count",
+    "authed": false,
+    "group": "default"
+   },
+   "wire": {
+    "status": 401,
+    "headers": {
+     "content-type": "application/problem+json",
+     "www-authenticate": "Bearer realm=\"relata\"",
+     "x-request-id": "req-unauthorized_401"
+    },
+    "body": {
+     "type": "about:blank",
+     "title": "Unauthorized",
+     "status": 401,
+     "detail": "Unauthorized",
+     "code": "about:blank",
+     "request_id": "req-unauthorized_401"
+    }
+   },
+   "expect": {
+    "kind": "auth",
+    "status": 401,
+    "code": "about:blank",
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-unauthorized_401",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "forbidden_403_org_not_entitled",
+   "live": {
+    "method": "POST",
+    "path": "/v1/query",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Organization-Id": "tenant-b"
+    },
+    "body": "{\"purpose\": \"analytics\", \"sql\": \"SELECT 1\"}",
+    "group": "default"
+   },
+   "wire": {
+    "status": 403,
+    "headers": {
+     "content-type": "application/problem+json"
+    },
+    "body": {
+     "type": "https://relatadb.dev/errors/org-not-entitled",
+     "title": "Forbidden",
+     "status": 403,
+     "detail": "tenant 'tenant-b' is not available: this deployment is single-tenant and only the tenant 'default' exists; omit the tenant header or use 'default' (#5804)",
+     "code": "org-not-entitled"
+    }
+   },
+   "expect": {
+    "kind": "forbidden",
+    "status": 403,
+    "code": "org-not-entitled",
+    "type": "https://relatadb.dev/errors/org-not-entitled",
+    "retryable": false,
+    "request_id": null,
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "not_found_404_unknown_route",
+   "live": {
+    "method": "GET",
+    "path": "/no/such/route",
+    "group": "default"
+   },
+   "wire": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-not_found_404_unknown_route"
+    },
+    "body": {
+     "type": "about:blank",
+     "status": 404,
+     "title": "Not Found",
+     "detail": "",
+     "request_id": "req-not_found_404_unknown_route"
+    }
+   },
+   "expect": {
+    "kind": "not_found",
+    "status": 404,
+    "code": null,
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-not_found_404_unknown_route",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "method_not_allowed_405",
+   "live": {
+    "method": "DELETE",
+    "path": "/health",
+    "group": "default"
+   },
+   "wire": {
+    "status": 405,
+    "headers": {
+     "content-type": "application/problem+json",
+     "allow": "GET,HEAD",
+     "x-request-id": "req-method_not_allowed_405"
+    },
+    "body": {
+     "type": "about:blank",
+     "status": 405,
+     "title": "Method Not Allowed",
+     "detail": "",
+     "request_id": "req-method_not_allowed_405"
+    }
+   },
+   "expect": {
+    "kind": "other",
+    "status": 405,
+    "code": null,
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-method_not_allowed_405",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "gone_410_retired_route",
+   "live": {
+    "method": "POST",
+    "path": "/ingest/media",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "{}",
+    "group": "default"
+   },
+   "wire": {
+    "status": 410,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-gone_410_retired_route"
+    },
+    "body": {
+     "type": "https://relatadb.dev/errors/media-ingest-removed",
+     "title": "Media ingest endpoint removed",
+     "status": 410,
+     "detail": "POST /ingest/media and GET /ingest/media/{task_id} were removed. Upload the file with POST /v1/files/uploads (process=true) and follow the work item at GET /v1/media/work/{work_id}; OpenETL does the decoding, hashing and embedding. See docs/src/guides/media-processing-migration.md.",
+     "code": "media-ingest-removed",
+     "request_id": "req-gone_410_retired_route"
+    }
+   },
+   "expect": {
+    "kind": "other",
+    "status": 410,
+    "code": "media-ingest-removed",
+    "type": "https://relatadb.dev/errors/media-ingest-removed",
+    "retryable": false,
+    "request_id": "req-gone_410_retired_route",
+    "retry_after_seconds": null,
+    "message_contains": [
+     "POST /v1/files/uploads",
+     "GET /v1/media/work/{work_id}"
+    ]
+   }
+  },
+  {
+   "name": "bad_request_400_empty_body",
+   "live": {
+    "method": "POST",
+    "path": "/v1/query",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "",
+    "group": "default"
+   },
+   "wire": {
+    "status": 400,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-bad_request_400_empty_body"
+    },
+    "body": {
+     "type": "about:blank",
+     "status": 400,
+     "title": "Bad Request",
+     "detail": "Failed to parse the request body as JSON: EOF while parsing a value at line 1 column 0",
+     "request_id": "req-bad_request_400_empty_body"
+    }
+   },
+   "expect": {
+    "kind": "bad_request",
+    "status": 400,
+    "code": null,
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-bad_request_400_empty_body",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "purpose_400_invalid_purpose",
+   "live": {
+    "method": "POST",
+    "path": "/v1/query",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "{\"purpose\": \"bad purpose!\", \"sql\": \"SELECT 1\"}",
+    "group": "default"
+   },
+   "wire": {
+    "status": 400,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-purpose_400_invalid_purpose"
+    },
+    "body": {
+     "type": "about:blank",
+     "title": "Bad Request",
+     "status": 400,
+     "detail": "invalid purpose 'bad purpose!': character ' ' at position 3 is not allowed in a purpose token (only ASCII letters, digits, '_', ':', '.', '-' are permitted, and the first character must be a letter or '_')",
+     "code": "about:blank",
+     "request_id": "req-purpose_400_invalid_purpose"
+    }
+   },
+   "expect": {
+    "kind": "purpose",
+    "status": 400,
+    "code": "about:blank",
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-purpose_400_invalid_purpose",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "unsupported_media_415_text_plain",
+   "live": {
+    "method": "POST",
+    "path": "/v1/query",
+    "headers": {
+     "Content-Type": "text/plain"
+    },
+    "body": "{\"purpose\": \"analytics\", \"sql\": \"SELECT 1\"}",
+    "group": "default"
+   },
+   "wire": {
+    "status": 415,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-unsupported_media_415_text_plain"
+    },
+    "body": {
+     "type": "about:blank",
+     "status": 415,
+     "title": "Unsupported Media Type",
+     "detail": "Expected request with `Content-Type: application/json`",
+     "request_id": "req-unsupported_media_415_text_plain"
+    }
+   },
+   "expect": {
+    "kind": "other",
+    "status": 415,
+    "code": null,
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-unsupported_media_415_text_plain",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "unprocessable_422_missing_field",
+   "live": {
+    "method": "POST",
+    "path": "/v1/query",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "{\"purpose\": \"analytics\"}",
+    "group": "default"
+   },
+   "wire": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-unprocessable_422_missing_field"
+    },
+    "body": {
+     "type": "about:blank",
+     "status": 422,
+     "title": "Unprocessable Entity",
+     "detail": "Failed to deserialize the JSON body into the target type: missing field `sql` at line 1 column 24",
+     "request_id": "req-unprocessable_422_missing_field"
+    }
+   },
+   "expect": {
+    "kind": "validation",
+    "status": 422,
+    "code": null,
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-unprocessable_422_missing_field",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "parse_error_400_rel_parse",
+   "live": {
+    "method": "POST",
+    "path": "/v1/query",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "{\"purpose\": \"analytics\", \"sql\": \"SELEC\"}",
+    "group": "default"
+   },
+   "wire": {
+    "status": 400,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-parse_error_400_rel_parse"
+    },
+    "body": {
+     "type": "https://relatadb.dev/errors/REL_PARSE",
+     "title": "Bad Request",
+     "status": 400,
+     "detail": "parse error: expected 'SELECT', got 'SELEC'\nLINE 1, COLUMN 1\nPURPOSE 'analytics' SELEC\n^\nLINE 1, COLUMN 1\nPURPOSE 'analytics' SELEC\n^",
+     "instance": "/query",
+     "code": "REL_PARSE",
+     "request_id": "req-parse_error_400_rel_parse",
+     "retryable": false
+    }
+   },
+   "expect": {
+    "kind": "bad_request",
+    "status": 400,
+    "code": "REL_PARSE",
+    "type": "https://relatadb.dev/errors/REL_PARSE",
+    "retryable": false,
+    "request_id": "req-parse_error_400_rel_parse",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "payload_too_large_413",
+   "live": {
+    "method": "POST",
+    "path": "/v1/query",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": {
+     "repeat": "x",
+     "bytes": 2097152
+    },
+    "group": "default"
+   },
+   "wire": {
+    "status": 413,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-payload_too_large_413"
+    },
+    "body": {
+     "type": "about:blank",
+     "status": 413,
+     "title": "Payload Too Large",
+     "detail": "Failed to buffer the request body: length limit exceeded",
+     "request_id": "req-payload_too_large_413"
+    }
+   },
+   "expect": {
+    "kind": "other",
+    "status": 413,
+    "code": null,
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-payload_too_large_413",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "precondition_failed_412",
+   "live": {
+    "method": "PUT",
+    "path": "/v1/objects/CondDoc/fixture-a",
+    "headers": {
+     "Content-Type": "application/json",
+     "If-None-Match": "*"
+    },
+    "body": "{\"n\":\"two\"}",
+    "setup": [
+     {
+      "method": "PUT",
+      "path": "/v1/objects/CondDoc/fixture-a",
+      "headers": {
+       "Content-Type": "application/json",
+       "If-None-Match": "*"
+      },
+      "body": "{\"n\":\"one\"}"
+     }
+    ],
+    "group": "default"
+   },
+   "wire": {
+    "status": 412,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-precondition_failed_412"
+    },
+    "body": {
+     "type": "https://relatadb.dev/errors/precondition-failed",
+     "title": "Precondition Failed",
+     "status": 412,
+     "detail": "'CondDoc/fixture-a' already exists",
+     "code": "precondition-failed",
+     "current_version": 1,
+     "failed_operation": 0,
+     "request_id": "req-precondition_failed_412"
+    }
+   },
+   "expect": {
+    "kind": "precondition_failed",
+    "status": 412,
+    "code": "precondition-failed",
+    "type": "https://relatadb.dev/errors/precondition-failed",
+    "retryable": false,
+    "request_id": "req-precondition_failed_412",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "otlp_disabled_404",
+   "live": {
+    "method": "POST",
+    "path": "/v1/traces?purpose=investigation",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "{}",
+    "group": "default"
+   },
+   "wire": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-otlp_disabled_404"
+    },
+    "body": {
+     "type": "https://relatadb.dev/errors/otlp-disabled",
+     "title": "OTLP Ingest Disabled",
+     "status": 404,
+     "detail": "set RELATA_OTLP_ENABLED=true to enable native OTLP ingest",
+     "code": "otlp-disabled",
+     "request_id": "req-otlp_disabled_404"
+    }
+   },
+   "expect": {
+    "kind": "not_found",
+    "status": 404,
+    "code": "otlp-disabled",
+    "type": "https://relatadb.dev/errors/otlp-disabled",
+    "retryable": false,
+    "request_id": "req-otlp_disabled_404",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "rate_limited_429_ingest_queue_full",
+   "live": {
+    "method": "POST",
+    "path": "/v1/traces?purpose=investigation",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "{}",
+    "group": "queue_full"
+   },
+   "wire": {
+    "status": 429,
+    "headers": {
+     "content-type": "application/problem+json",
+     "retry-after": "1",
+     "x-request-id": "req-rate_limited_429_ingest_queue_full"
+    },
+    "body": {
+     "type": "about:blank",
+     "title": "Too Many Requests",
+     "status": 429,
+     "detail": "ingest queue full \u2014 retry later",
+     "retryable": true,
+     "retry_after_secs": 1,
+     "queue_depth": 0,
+     "request_id": "req-rate_limited_429_ingest_queue_full"
+    }
+   },
+   "expect": {
+    "kind": "rate_limited",
+    "status": 429,
+    "code": null,
+    "type": "about:blank",
+    "retryable": true,
+    "request_id": "req-rate_limited_429_ingest_queue_full",
+    "retry_after_seconds": 1.0
+   }
+  },
+  {
+   "name": "server_503_disk_pressure",
+   "live": {
+    "method": "POST",
+    "path": "/v1/traces?purpose=investigation",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "{}",
+    "group": "disk_pressure"
+   },
+   "wire": {
+    "status": 503,
+    "headers": {
+     "content-type": "application/problem+json",
+     "retry-after": "5",
+     "x-request-id": "req-server_503_disk_pressure"
+    },
+    "body": {
+     "type": "about:blank",
+     "status": 503,
+     "title": "Service Unavailable",
+     "detail": "insufficient disk space \u2014 data dir under disk pressure; writes shed to protect the WAL. Free space or set RELATA_MIN_FREE_DISK_MB lower, then retry.",
+     "request_id": "req-server_503_disk_pressure"
+    }
+   },
+   "expect": {
+    "kind": "server",
+    "status": 503,
+    "code": null,
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": "req-server_503_disk_pressure",
+    "retry_after_seconds": 5.0
+   }
+  },
+  {
+   "name": "synthetic_legacy_error_shape_500",
+   "live": null,
+   "wire": {
+    "status": 500,
+    "headers": {
+     "content-type": "application/json",
+     "x-request-id": "req-legacy"
+    },
+    "body": {
+     "error": "boom"
+    }
+   },
+   "expect": {
+    "kind": "server",
+    "status": 500,
+    "code": null,
+    "type": null,
+    "retryable": false,
+    "request_id": "req-legacy",
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "synthetic_plain_text_502",
+   "live": null,
+   "wire": {
+    "status": 502,
+    "headers": {
+     "content-type": "text/plain"
+    },
+    "body": "Bad Gateway"
+   },
+   "expect": {
+    "kind": "server",
+    "status": 502,
+    "code": null,
+    "type": null,
+    "retryable": false,
+    "request_id": null,
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "synthetic_429_retry_after_in_body_only",
+   "live": null,
+   "wire": {
+    "status": 429,
+    "headers": {
+     "content-type": "application/problem+json"
+    },
+    "body": {
+     "type": "about:blank",
+     "title": "Too Many Requests",
+     "status": 429,
+     "detail": "slow down",
+     "retry_after": 7
+    }
+   },
+   "expect": {
+    "kind": "rate_limited",
+    "status": 429,
+    "code": null,
+    "type": "about:blank",
+    "retryable": false,
+    "request_id": null,
+    "retry_after_seconds": 7.0
+   }
+  },
+  {
+   "name": "synthetic_409_conflict_problem",
+   "live": null,
+   "wire": {
+    "status": 409,
+    "headers": {
+     "content-type": "application/problem+json"
+    },
+    "body": {
+     "type": "https://relatadb.dev/errors/conflict",
+     "title": "Conflict",
+     "status": 409,
+     "detail": "already exists",
+     "code": "conflict",
+     "request_id": "req-409",
+     "retryable": false
+    }
+   },
+   "expect": {
+    "kind": "conflict",
+    "status": 409,
+    "code": "conflict",
+    "type": "https://relatadb.dev/errors/conflict",
+    "retryable": false,
+    "request_id": "req-409",
+    "retry_after_seconds": null
+   }
+  }
+ ]
+}

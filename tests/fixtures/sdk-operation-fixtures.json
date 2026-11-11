@@ -1,0 +1,1342 @@
+{
+ "contract": "relata.sdk-operation-fixtures/v1",
+ "about": "The objects, search, memory and assertions operations across Python, TypeScript and Go (#5666). For each case the SDK call `call.op(call.args)` must put exactly `request` on the wire (method, path, query as a parsed map, the listed headers, and a JSON `body` or `ndjson` lines) and decode the `wire` response to `expect.result` (or raise an error carrying `expect.error`). `sdks` limits a case to the SDKs that expose the operation (default: all); `request_override` / `expect_override` record a per-SDK difference that is deliberate and pinned (Go's recall sends the `query` alias of `q`, which the server accepts; Python's delete returns nothing). Cases with `live: true` are replayed against a real server by http_e2e::sdk_ops_matrix::sdk_operation_fixtures_match_live_server in file order: request accepted, status equal, response member set and member types equal; `live_capture` maps a placeholder in the fixture to a value the live response produced (a version, an id), substituted into later live requests. The search view is {hit ids, hit `data` rows, scores, highlight spans, total, estimatedTotalHits}; the wire hit carries its row under `data` and highlight spans as an array.",
+ "sdks": [
+  "python",
+  "typescript",
+  "go"
+ ],
+ "cases": [
+  {
+   "family": "objects",
+   "name": "objects_put_if_absent",
+   "live": true,
+   "live_capture": {
+    "4242": "/version"
+   },
+   "call": {
+    "op": "objects.put",
+    "args": {
+     "object_type": "FxDoc",
+     "object_id": "fx-1",
+     "fields": {
+      "name": "alpha",
+      "score": 7
+     },
+     "if_absent": true
+    }
+   },
+   "request": {
+    "method": "PUT",
+    "path": "/v1/objects/FxDoc/fx-1",
+    "query": {
+     "purpose": "analytics"
+    },
+    "headers": {
+     "If-None-Match": "*"
+    },
+    "body": {
+     "name": "alpha",
+     "score": 7
+    }
+   },
+   "wire": {
+    "status": 201,
+    "body": {
+     "type": "FxDoc",
+     "id": "fx-1",
+     "version": 4242,
+     "commitId": "01a19de4-4299-7f70-b4a2-f4695e2b74f4",
+     "replayed": false,
+     "operation": {
+      "id": "op_1793650344619127000",
+      "version": 1793650344619127000,
+      "stage": "durable",
+      "token": "fv1.5a7c8af1.d.2e5bbde9.1793650344619127000",
+      "contract": "relata.freshness/v1"
+     }
+    }
+   },
+   "expect": {
+    "result": {
+     "type": "FxDoc",
+     "id": "fx-1",
+     "version": 4242,
+     "commitId": "01a19de4-4299-7f70-b4a2-f4695e2b74f4",
+     "replayed": false,
+     "operation": {
+      "id": "op_1793650344619127000",
+      "version": 1793650344619127000,
+      "stage": "durable",
+      "token": "fv1.5a7c8af1.d.2e5bbde9.1793650344619127000",
+      "contract": "relata.freshness/v1"
+     }
+    }
+   }
+  },
+  {
+   "family": "objects",
+   "name": "objects_get",
+   "live": true,
+   "call": {
+    "op": "objects.get",
+    "args": {
+     "object_type": "FxDoc",
+     "object_id": "fx-1"
+    }
+   },
+   "request": {
+    "method": "GET",
+    "path": "/v1/objects/FxDoc/fx-1"
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "name": "alpha",
+     "score": 7,
+     "id": "fx-1",
+     "created_by": "system",
+     "_pk": "01a19de4-4299-7f70-b4a2-f45a7d2c046e",
+     "_version": 4242
+    }
+   },
+   "expect": {
+    "result": {
+     "name": "alpha",
+     "score": 7,
+     "id": "fx-1",
+     "created_by": "system",
+     "_pk": "01a19de4-4299-7f70-b4a2-f45a7d2c046e",
+     "_version": 4242
+    }
+   }
+  },
+  {
+   "family": "objects",
+   "name": "objects_get_missing",
+   "live": true,
+   "call": {
+    "op": "objects.get",
+    "args": {
+     "object_type": "FxDoc",
+     "object_id": "nope"
+    }
+   },
+   "request": {
+    "method": "GET",
+    "path": "/v1/objects/FxDoc/nope"
+   },
+   "wire": {
+    "status": 404,
+    "body": {
+     "type": "about:blank",
+     "title": "Not Found",
+     "status": 404,
+     "detail": "row not found",
+     "code": "about:blank",
+     "request_id": "req-fixture-404"
+    }
+   },
+   "expect": {
+    "result": null
+   }
+  },
+  {
+   "family": "objects",
+   "name": "objects_list",
+   "sdks": [
+    "typescript"
+   ],
+   "live": true,
+   "call": {
+    "op": "objects.list",
+    "args": {
+     "object_type": "Item",
+     "limit": 2
+    }
+   },
+   "request": {
+    "method": "GET",
+    "path": "/v1/objects/Item",
+    "query": {
+     "limit": "2"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "items": [
+      {
+       "name": "n00000",
+       "score": "0",
+       "_version": 4
+      },
+      {
+       "name": "n00001",
+       "score": "1",
+       "_version": 5
+      }
+     ],
+     "total": 3,
+     "cursor": "00000000-0000-0005-0000-000000000000"
+    }
+   },
+   "expect": {
+    "result": {
+     "items": [
+      {
+       "name": "n00000",
+       "score": "0",
+       "_version": 4
+      },
+      {
+       "name": "n00001",
+       "score": "1",
+       "_version": 5
+      }
+     ],
+     "total": 3,
+     "cursor": "00000000-0000-0005-0000-000000000000"
+    }
+   }
+  },
+  {
+   "family": "objects",
+   "name": "objects_put_if_match",
+   "live": true,
+   "live_capture": {
+    "4243": "/version"
+   },
+   "call": {
+    "op": "objects.put",
+    "args": {
+     "object_type": "FxDoc",
+     "object_id": "fx-1",
+     "fields": {
+      "name": "alpha2",
+      "score": 8
+     },
+     "expected_version": 4242
+    }
+   },
+   "request": {
+    "method": "PUT",
+    "path": "/v1/objects/FxDoc/fx-1",
+    "query": {
+     "purpose": "analytics"
+    },
+    "headers": {
+     "If-Match": "\"4242\""
+    },
+    "body": {
+     "name": "alpha2",
+     "score": 8
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "type": "FxDoc",
+     "id": "fx-1",
+     "version": 4243,
+     "commitId": "01a19de4-4299-7f70-b4a2-f4695e2b74f4",
+     "replayed": false,
+     "operation": {
+      "id": "op_1793650344619127000",
+      "version": 1793650344619127000,
+      "stage": "durable",
+      "token": "fv1.5a7c8af1.d.2e5bbde9.1793650344619127000",
+      "contract": "relata.freshness/v1"
+     }
+    }
+   },
+   "expect": {
+    "result": {
+     "type": "FxDoc",
+     "id": "fx-1",
+     "version": 4243,
+     "commitId": "01a19de4-4299-7f70-b4a2-f4695e2b74f4",
+     "replayed": false,
+     "operation": {
+      "id": "op_1793650344619127000",
+      "version": 1793650344619127000,
+      "stage": "durable",
+      "token": "fv1.5a7c8af1.d.2e5bbde9.1793650344619127000",
+      "contract": "relata.freshness/v1"
+     }
+    }
+   }
+  },
+  {
+   "family": "objects",
+   "name": "objects_put_stale_412",
+   "live": true,
+   "call": {
+    "op": "objects.put",
+    "args": {
+     "object_type": "FxDoc",
+     "object_id": "fx-1",
+     "fields": {
+      "name": "alpha3"
+     },
+     "expected_version": 4242
+    }
+   },
+   "request": {
+    "method": "PUT",
+    "path": "/v1/objects/FxDoc/fx-1",
+    "query": {
+     "purpose": "analytics"
+    },
+    "headers": {
+     "If-Match": "\"4242\""
+    },
+    "body": {
+     "name": "alpha3"
+    }
+   },
+   "wire": {
+    "status": 412,
+    "body": {
+     "type": "https://relatadb.dev/errors/precondition-failed",
+     "title": "Precondition Failed",
+     "status": 412,
+     "detail": "'FxDoc/fx-1' is at version 4243, expected 4242",
+     "code": "precondition-failed",
+     "current_version": 4243,
+     "failed_operation": 0,
+     "request_id": "req-fixture-412"
+    }
+   },
+   "expect": {
+    "error": {
+     "status": 412,
+     "code": "precondition-failed",
+     "current_version": 4243
+    }
+   }
+  },
+  {
+   "family": "objects",
+   "name": "objects_delete_if_match",
+   "live": true,
+   "call": {
+    "op": "objects.delete",
+    "args": {
+     "object_type": "FxDoc",
+     "object_id": "fx-1",
+     "expected_version": 4243
+    }
+   },
+   "request": {
+    "method": "DELETE",
+    "path": "/v1/objects/FxDoc/fx-1",
+    "query": {
+     "purpose": "analytics"
+    },
+    "headers": {
+     "If-Match": "\"4243\""
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "deleted": true,
+     "version": 4244,
+     "commitId": "01a19de4-4299-7f70-b4a2-f4695e2b74f4",
+     "operation": {
+      "id": "op_1793650344619127000",
+      "version": 1793650344619127000,
+      "stage": "durable",
+      "token": "fv1.5a7c8af1.d.2e5bbde9.1793650344619127000",
+      "contract": "relata.freshness/v1"
+     }
+    }
+   },
+   "expect": {
+    "result": {
+     "deleted": true,
+     "version": 4244,
+     "commitId": "01a19de4-4299-7f70-b4a2-f4695e2b74f4",
+     "operation": {
+      "id": "op_1793650344619127000",
+      "version": 1793650344619127000,
+      "stage": "durable",
+      "token": "fv1.5a7c8af1.d.2e5bbde9.1793650344619127000",
+      "contract": "relata.freshness/v1"
+     }
+    }
+   },
+   "expect_override": {
+    "python": {
+     "result": null
+    }
+   }
+  },
+  {
+   "family": "objects",
+   "name": "objects_upsert_ingest",
+   "live": true,
+   "call": {
+    "op": "objects.upsert_ingest",
+    "args": {
+     "object_type": "FxDoc",
+     "object_id": "fx-2",
+     "fields": {
+      "name": "bravo",
+      "score": 1
+     }
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/ingest",
+    "query": {
+     "object_type": "FxDoc",
+     "purpose": "analytics"
+    },
+    "headers": {
+     "Content-Type": "application/x-ndjson"
+    },
+    "ndjson": [
+     {
+      "id": "fx-2",
+      "name": "bravo",
+      "score": 1
+     }
+    ]
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "durability": "queued",
+     "rows_queued": 1,
+     "rows_rejected": 0,
+     "task_id": "itsk_fixture-0001",
+     "connector": "direct",
+     "errors": [],
+     "queue_depth": 0,
+     "embed_queue_depth": 0
+    }
+   },
+   "expect": {
+    "result": {
+     "durability": "queued",
+     "rows_queued": 1,
+     "rows_rejected": 0,
+     "task_id": "itsk_fixture-0001",
+     "connector": "direct",
+     "errors": [],
+     "queue_depth": 0,
+     "embed_queue_depth": 0
+    }
+   }
+  },
+  {
+   "family": "search",
+   "name": "search_hits",
+   "live": true,
+   "call": {
+    "op": "search.query",
+    "args": {
+     "query": "apple",
+     "type": "Doc",
+     "limit": 5
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/search",
+    "body": {
+     "query": "apple",
+     "type": "Doc",
+     "highlight": false,
+     "limit": 5
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "hits": [
+      {
+       "id": "d0",
+       "score": 1.0,
+       "tenant_id": null,
+       "data": {
+        "id": "d0",
+        "body": "red apple pie"
+       }
+      },
+      {
+       "id": "d1",
+       "score": 1.0,
+       "tenant_id": null,
+       "data": {
+        "id": "d1",
+        "body": "green apple tart"
+       }
+      }
+     ],
+     "count": 2,
+     "total": 2,
+     "estimatedTotalHits": 2,
+     "processing_time_ms": 1,
+     "query": "apple",
+     "lastTermIsPrefix": true
+    }
+   },
+   "expect": {
+    "result": {
+     "hit_ids": [
+      "d0",
+      "d1"
+     ],
+     "hit_fields": [
+      {
+       "id": "d0",
+       "body": "red apple pie"
+      },
+      {
+       "id": "d1",
+       "body": "green apple tart"
+      }
+     ],
+     "hit_scores": [
+      1.0,
+      1.0
+     ],
+     "hit_highlight_spans": [
+      [],
+      []
+     ],
+     "total": 2,
+     "estimated_total_hits": 2
+    }
+   }
+  },
+  {
+   "family": "search",
+   "name": "search_highlight_spans",
+   "live": true,
+   "call": {
+    "op": "search.query",
+    "args": {
+     "query": "apple",
+     "type": "Doc",
+     "limit": 5,
+     "highlight": true
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/search",
+    "body": {
+     "query": "apple",
+     "type": "Doc",
+     "highlight": true,
+     "limit": 5
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "hits": [
+      {
+       "id": "d0",
+       "score": 1.0,
+       "tenant_id": null,
+       "data": {
+        "id": "d0",
+        "body": "red apple pie"
+       },
+       "snippet": "red <mark>apple</mark> pie",
+       "highlights": [
+        {
+         "start": 4,
+         "end": 22,
+         "term": "apple"
+        }
+       ]
+      },
+      {
+       "id": "d1",
+       "score": 1.0,
+       "tenant_id": null,
+       "data": {
+        "id": "d1",
+        "body": "green apple tart"
+       },
+       "snippet": "green <mark>apple</mark> tart",
+       "highlights": [
+        {
+         "start": 6,
+         "end": 24,
+         "term": "apple"
+        }
+       ]
+      }
+     ],
+     "count": 2,
+     "total": 2,
+     "estimatedTotalHits": 2,
+     "processing_time_ms": 1,
+     "query": "apple",
+     "lastTermIsPrefix": true
+    }
+   },
+   "expect": {
+    "result": {
+     "hit_ids": [
+      "d0",
+      "d1"
+     ],
+     "hit_fields": [
+      {
+       "id": "d0",
+       "body": "red apple pie"
+      },
+      {
+       "id": "d1",
+       "body": "green apple tart"
+      }
+     ],
+     "hit_scores": [
+      1.0,
+      1.0
+     ],
+     "hit_highlight_spans": [
+      [
+       {
+        "start": 4,
+        "end": 22,
+        "term": "apple"
+       }
+      ],
+      [
+       {
+        "start": 6,
+        "end": 24,
+        "term": "apple"
+       }
+      ]
+     ],
+     "total": 2,
+     "estimated_total_hits": 2
+    }
+   }
+  },
+  {
+   "family": "search",
+   "name": "search_no_hits",
+   "live": true,
+   "call": {
+    "op": "search.query",
+    "args": {
+     "query": "zzzzqq",
+     "type": "Doc",
+     "limit": 5
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/search",
+    "body": {
+     "query": "zzzzqq",
+     "type": "Doc",
+     "highlight": false,
+     "limit": 5
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "hits": [],
+     "count": 0,
+     "total": 0,
+     "estimatedTotalHits": 0,
+     "processing_time_ms": 1,
+     "query": "apple",
+     "lastTermIsPrefix": true
+    }
+   },
+   "expect": {
+    "result": {
+     "hit_ids": [],
+     "hit_fields": [],
+     "hit_scores": [],
+     "hit_highlight_spans": [],
+     "total": 0,
+     "estimated_total_hits": 0
+    }
+   }
+  },
+  {
+   "family": "memory",
+   "name": "memory_add",
+   "live": true,
+   "live_capture": {
+    "mem-fixture-1": "/id"
+   },
+   "call": {
+    "op": "memory.add",
+    "args": {
+     "content": "alpha vault code 111",
+     "confidence": 0.9
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/memory/remember",
+    "body": {
+     "content": "alpha vault code 111",
+     "purpose": "analytics",
+     "confidence": 0.9,
+     "memory_class": "semantic",
+     "session_id": ""
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "stored": "MemoryItem",
+     "id": "mem-fixture-1",
+     "session_id": "",
+     "confidence": 0.9,
+     "preview": "alpha vault code 111",
+     "processing_time_ms": 18
+    }
+   },
+   "expect": {
+    "result": "mem-fixture-1"
+   }
+  },
+  {
+   "family": "memory",
+   "name": "memory_search",
+   "live": true,
+   "call": {
+    "op": "memory.search",
+    "args": {
+     "query": "vault",
+     "top_k": 3
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/memory/recall",
+    "body": {
+     "q": "vault",
+     "purpose": "analytics",
+     "top_k": 3
+    }
+   },
+   "request_override": {
+    "go": {
+     "body": {
+      "query": "vault",
+      "purpose": "analytics",
+      "top_k": 3
+     }
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "rows": [
+      {
+       "id": "mem-fixture-1",
+       "content": "alpha vault code 111",
+       "confidence": 0.9,
+       "score": 0.8999966130067917,
+       "memory_class": "semantic",
+       "session_id": "",
+       "recall_cost_tokens": 6
+      }
+     ],
+     "count": 1,
+     "type": "MemoryItem",
+     "query": "vault",
+     "recall_cost_tokens": 6,
+     "cancelled": false,
+     "mode": "hybrid_lexical_hash",
+     "semantic": false,
+     "processing_time_ms": 18
+    }
+   },
+   "expect": {
+    "result": [
+     {
+      "id": "mem-fixture-1",
+      "content": "alpha vault code 111",
+      "confidence": 0.9,
+      "score": 0.8999966130067917,
+      "memory_class": "semantic",
+      "session_id": "",
+      "recall_cost_tokens": 6
+     }
+    ]
+   }
+  },
+  {
+   "family": "memory",
+   "name": "memory_get",
+   "live": true,
+   "call": {
+    "op": "memory.get",
+    "args": {
+     "memory_id": "mem-fixture-1"
+    }
+   },
+   "request": {
+    "method": "GET",
+    "path": "/v1/memory/recognize/mem-fixture-1",
+    "query": {
+     "purpose": "analytics"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "content": [
+      {
+       "type": "text",
+       "text": "{\n  \"recognized\": true,\n  \"memory\": {\n    \"type\": \"MemoryItem\",\n    \"id\": \"mem-fixture-1\",\n    \"content\": \"alpha vault code 111\",\n    \"confidence\": 0.9,\n    \"purpose\": \"analytics\",\n    \"recorded_at_ns\": 1793650386483353000,\n    \"prov_hex\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n    \"chain_length\": 0,\n    \"chain\": []\n  }\n}"
+      }
+     ],
+     "isError": false
+    }
+   },
+   "expect": {
+    "result": {
+     "type": "MemoryItem",
+     "id": "mem-fixture-1",
+     "content": "alpha vault code 111",
+     "confidence": 0.9,
+     "purpose": "analytics",
+     "recorded_at_ns": 1793650386483353000,
+     "prov_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+     "chain_length": 0,
+     "chain": []
+    }
+   }
+  },
+  {
+   "family": "memory",
+   "name": "memory_get_missing",
+   "live": true,
+   "call": {
+    "op": "memory.get",
+    "args": {
+     "memory_id": "mem-missing"
+    }
+   },
+   "request": {
+    "method": "GET",
+    "path": "/v1/memory/recognize/mem-missing",
+    "query": {
+     "purpose": "analytics"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "content": [
+      {
+       "type": "text",
+       "text": "{\n  \"raw\": \"mem-missing\",\n  \"matches\": [],\n  \"match_count\": 0,\n  \"processing_time_ms\": 1\n}"
+      }
+     ],
+     "isError": false
+    }
+   },
+   "expect": {
+    "result": null
+   }
+  },
+  {
+   "family": "assertions",
+   "name": "assertions_record",
+   "live": true,
+   "live_capture": {
+    "asr-fixture-1": "/assertion/id"
+   },
+   "call": {
+    "op": "assertions.record",
+    "args": {
+     "assertion": {
+      "subject": {
+       "type": "Person",
+       "id": "p1"
+      },
+      "predicate": "city",
+      "value": "Paris",
+      "source": {
+       "id": "registry",
+       "version": "1"
+      },
+      "valid_from": 100,
+      "derivation": {
+       "kind": "extraction",
+       "name": "ner",
+       "version": "1"
+      }
+     }
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/assertions",
+    "body": {
+     "subject": {
+      "type": "Person",
+      "id": "p1"
+     },
+     "predicate": "city",
+     "value": "Paris",
+     "source": {
+      "id": "registry",
+      "version": "1"
+     },
+     "valid_from": 100,
+     "derivation": {
+      "kind": "extraction",
+      "name": "ner",
+      "version": "1"
+     }
+    }
+   },
+   "wire": {
+    "status": 201,
+    "body": {
+     "assertion": {
+      "id": "asr-fixture-1",
+      "content_key": "9da942ffae53cb5f",
+      "subject": {
+       "type": "Person",
+       "id": "p1"
+      },
+      "predicate": "city",
+      "value": "Paris",
+      "source": {
+       "id": "registry",
+       "version": "1"
+      },
+      "valid_from": 100,
+      "valid_to": null,
+      "recorded_ns": 1793650388474359000,
+      "derivation": {
+       "kind": "extraction",
+       "name": "ner",
+       "version": "1"
+      },
+      "state": "suggested",
+      "review": {
+       "state": "suggested",
+       "history": []
+      }
+     },
+     "created": true
+    }
+   },
+   "expect": {
+    "result": {
+     "assertion": {
+      "id": "asr-fixture-1",
+      "content_key": "9da942ffae53cb5f",
+      "subject": {
+       "type": "Person",
+       "id": "p1"
+      },
+      "predicate": "city",
+      "value": "Paris",
+      "source": {
+       "id": "registry",
+       "version": "1"
+      },
+      "valid_from": 100,
+      "valid_to": null,
+      "recorded_ns": 1793650388474359000,
+      "derivation": {
+       "kind": "extraction",
+       "name": "ner",
+       "version": "1"
+      },
+      "state": "suggested",
+      "review": {
+       "state": "suggested",
+       "history": []
+      }
+     },
+     "created": true
+    }
+   }
+  },
+  {
+   "family": "assertions",
+   "name": "assertions_get",
+   "live": true,
+   "call": {
+    "op": "assertions.get",
+    "args": {
+     "id": "asr-fixture-1"
+    }
+   },
+   "request": {
+    "method": "GET",
+    "path": "/v1/assertions/asr-fixture-1"
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "id": "asr-fixture-1",
+     "content_key": "9da942ffae53cb5f",
+     "subject": {
+      "type": "Person",
+      "id": "p1"
+     },
+     "predicate": "city",
+     "value": "Paris",
+     "source": {
+      "id": "registry",
+      "version": "1"
+     },
+     "valid_from": 100,
+     "valid_to": null,
+     "recorded_ns": 1793650388474359000,
+     "derivation": {
+      "kind": "extraction",
+      "name": "ner",
+      "version": "1"
+     },
+     "state": "suggested",
+     "review": {
+      "state": "suggested",
+      "history": []
+     }
+    }
+   },
+   "expect": {
+    "result": {
+     "id": "asr-fixture-1",
+     "content_key": "9da942ffae53cb5f",
+     "subject": {
+      "type": "Person",
+      "id": "p1"
+     },
+     "predicate": "city",
+     "value": "Paris",
+     "source": {
+      "id": "registry",
+      "version": "1"
+     },
+     "valid_from": 100,
+     "valid_to": null,
+     "recorded_ns": 1793650388474359000,
+     "derivation": {
+      "kind": "extraction",
+      "name": "ner",
+      "version": "1"
+     },
+     "state": "suggested",
+     "review": {
+      "state": "suggested",
+      "history": []
+     }
+    }
+   }
+  },
+  {
+   "family": "assertions",
+   "name": "assertions_list",
+   "live": true,
+   "call": {
+    "op": "assertions.list",
+    "args": {
+     "subject_type": "Person",
+     "subject_id": "p1",
+     "predicate": "city",
+     "limit": 5
+    }
+   },
+   "request": {
+    "method": "GET",
+    "path": "/v1/assertions",
+    "query": {
+     "subject_type": "Person",
+     "subject_id": "p1",
+     "predicate": "city",
+     "limit": "5"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "total": 1,
+     "items": [
+      {
+       "id": "asr-fixture-1",
+       "content_key": "9da942ffae53cb5f",
+       "subject": {
+        "type": "Person",
+        "id": "p1"
+       },
+       "predicate": "city",
+       "value": "Paris",
+       "source": {
+        "id": "registry",
+        "version": "1"
+       },
+       "valid_from": 100,
+       "valid_to": null,
+       "recorded_ns": 1793650388474359000,
+       "derivation": {
+        "kind": "extraction",
+        "name": "ner",
+        "version": "1"
+       },
+       "state": "suggested",
+       "review": {
+        "state": "suggested",
+        "history": []
+       }
+      }
+     ]
+    }
+   },
+   "expect": {
+    "result": {
+     "total": 1,
+     "items": [
+      {
+       "id": "asr-fixture-1",
+       "content_key": "9da942ffae53cb5f",
+       "subject": {
+        "type": "Person",
+        "id": "p1"
+       },
+       "predicate": "city",
+       "value": "Paris",
+       "source": {
+        "id": "registry",
+        "version": "1"
+       },
+       "valid_from": 100,
+       "valid_to": null,
+       "recorded_ns": 1793650388474359000,
+       "derivation": {
+        "kind": "extraction",
+        "name": "ner",
+        "version": "1"
+       },
+       "state": "suggested",
+       "review": {
+        "state": "suggested",
+        "history": []
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "family": "assertions",
+   "name": "assertions_confirm",
+   "live": true,
+   "call": {
+    "op": "assertions.confirm",
+    "args": {
+     "id": "asr-fixture-1",
+     "reason": "checked"
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/assertions/asr-fixture-1/decision",
+    "body": {
+     "decision": "confirm",
+     "reason": "checked"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "assertion": {
+      "id": "asr-fixture-1",
+      "content_key": "9da942ffae53cb5f",
+      "subject": {
+       "type": "Person",
+       "id": "p1"
+      },
+      "predicate": "city",
+      "value": "Paris",
+      "source": {
+       "id": "registry",
+       "version": "1"
+      },
+      "valid_from": 100,
+      "valid_to": null,
+      "recorded_ns": 1793650388474359000,
+      "derivation": {
+       "kind": "extraction",
+       "name": "ner",
+       "version": "1"
+      },
+      "state": "confirmed",
+      "review": {
+       "state": "confirmed",
+       "history": [
+        {
+         "from": "suggested",
+         "to": "confirmed",
+         "reason": "checked",
+         "at_ns": 1793650388533187000
+        }
+       ]
+      }
+     },
+     "idempotent": false
+    }
+   },
+   "expect": {
+    "result": {
+     "assertion": {
+      "id": "asr-fixture-1",
+      "content_key": "9da942ffae53cb5f",
+      "subject": {
+       "type": "Person",
+       "id": "p1"
+      },
+      "predicate": "city",
+      "value": "Paris",
+      "source": {
+       "id": "registry",
+       "version": "1"
+      },
+      "valid_from": 100,
+      "valid_to": null,
+      "recorded_ns": 1793650388474359000,
+      "derivation": {
+       "kind": "extraction",
+       "name": "ner",
+       "version": "1"
+      },
+      "state": "confirmed",
+      "review": {
+       "state": "confirmed",
+       "history": [
+        {
+         "from": "suggested",
+         "to": "confirmed",
+         "reason": "checked",
+         "at_ns": 1793650388533187000
+        }
+       ]
+      }
+     },
+     "idempotent": false
+    }
+   }
+  },
+  {
+   "family": "assertions",
+   "name": "assertions_revoke",
+   "live": true,
+   "call": {
+    "op": "assertions.revoke",
+    "args": {
+     "id": "asr-fixture-1",
+     "reason": "wrong"
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/assertions/asr-fixture-1/revoke",
+    "body": {
+     "reason": "wrong"
+    }
+   },
+   "wire": {
+    "status": 200,
+    "body": {
+     "id": "asr-fixture-1",
+     "revoked": true,
+     "idempotent": false
+    }
+   },
+   "expect": {
+    "result": {
+     "id": "asr-fixture-1",
+     "revoked": true,
+     "idempotent": false
+    }
+   }
+  },
+  {
+   "family": "assertions",
+   "name": "assertions_record_subject_missing_404",
+   "live": true,
+   "call": {
+    "op": "assertions.record",
+    "args": {
+     "assertion": {
+      "subject": {
+       "type": "Person",
+       "id": "ghost"
+      },
+      "predicate": "city",
+      "value": "Paris",
+      "source": {
+       "id": "registry",
+       "version": "1"
+      },
+      "valid_from": 100,
+      "derivation": {
+       "kind": "extraction",
+       "name": "ner",
+       "version": "1"
+      }
+     }
+    }
+   },
+   "request": {
+    "method": "POST",
+    "path": "/v1/assertions",
+    "body": {
+     "subject": {
+      "type": "Person",
+      "id": "ghost"
+     },
+     "predicate": "city",
+     "value": "Paris",
+     "source": {
+      "id": "registry",
+      "version": "1"
+     },
+     "valid_from": 100,
+     "derivation": {
+      "kind": "extraction",
+      "name": "ner",
+      "version": "1"
+     }
+    }
+   },
+   "wire": {
+    "status": 404,
+    "body": {
+     "type": "https://relatadb.dev/errors/assertion-subject-missing",
+     "title": "Assertion Subject Missing",
+     "status": 404,
+     "detail": "no Person record ghost is visible to the caller",
+     "code": "assertion-subject-missing",
+     "request_id": "req-fixture-subj"
+    }
+   },
+   "expect": {
+    "error": {
+     "status": 404,
+     "code": "assertion-subject-missing"
+    }
+   }
+  }
+ ]
+}

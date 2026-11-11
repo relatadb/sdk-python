@@ -1,0 +1,301 @@
+{
+ "contract": "relata.task-receipt-fixtures/v1",
+ "about": "Queue acknowledgement and task-status wire bodies for POST /v1/ingest/bulk and GET /v1/ingest/tasks/{id}. Cases with a `live` marker are replayed against a real server by the Rust test http_e2e::contract_matrix::task_receipt_fixtures_match_live_server (field set and types must match). Python, TypeScript and Go must decode each case to the same normalized `expect`: typed fields exact, unknown fields preserved (extension_keys), unknown status strings never coerced. A queue acknowledgement is not a durable-write confirmation.",
+ "cases": [
+  {
+   "name": "queue_ack",
+   "kind": "queue_ack",
+   "live": "bulk_ack",
+   "note": "POST /v1/ingest/bulk (queued). A queue acknowledgement: rows are in memory only; poll task_id for the outcome.",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0001",
+     "rows_queued": 2,
+     "rows_rejected": 0,
+     "errors": [],
+     "queue_depth": 2
+    }
+   },
+   "expect": {
+    "task_id": "itsk_fixture-0001",
+    "rows_queued": 2,
+    "rows_rejected": 0,
+    "errors": [],
+    "queue_depth": 2,
+    "extension_keys": []
+   }
+  },
+  {
+   "name": "queue_ack_additive_fields",
+   "kind": "queue_ack",
+   "note": "A newer server adds receipt fields; every SDK must keep them out of the typed fields and preserve them.",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0002",
+     "rows_queued": 1,
+     "rows_rejected": 1,
+     "errors": [
+      "row 1: missing _type"
+     ],
+     "queue_depth": 1,
+     "durability": "queued",
+     "future_field": {
+      "a": 1
+     }
+    }
+   },
+   "expect": {
+    "task_id": "itsk_fixture-0002",
+    "rows_queued": 1,
+    "rows_rejected": 1,
+    "errors": [
+     "row 1: missing _type"
+    ],
+    "queue_depth": 1,
+    "extension_keys": [
+     "durability",
+     "future_field"
+    ]
+   }
+  },
+  {
+   "name": "task_pending",
+   "kind": "task_status",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0001",
+     "status": "pending",
+     "rows_total": 2,
+     "rows_written": 0,
+     "rows_dropped": 0,
+     "drop_reasons": []
+    }
+   },
+   "expect": {
+    "outcome_uncertain": null,
+    "code": null,
+    "derived_error": null,
+    "retryable": null,
+    "write_token": null,
+    "extension_keys": [],
+    "task_id": "itsk_fixture-0001",
+    "status": "pending",
+    "rows_total": 2,
+    "rows_written": 0,
+    "rows_dropped": 0,
+    "drop_reasons": []
+   }
+  },
+  {
+   "name": "task_complete",
+   "kind": "task_status",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0001",
+     "status": "complete",
+     "rows_total": 2,
+     "rows_written": 2,
+     "rows_dropped": 0,
+     "drop_reasons": [],
+     "_relata_write_token": {
+      "wall_ns": 1700000000000000000,
+      "counter": 3
+     }
+    }
+   },
+   "expect": {
+    "outcome_uncertain": null,
+    "code": null,
+    "derived_error": null,
+    "retryable": null,
+    "write_token": {
+     "wall_ns": 1700000000000000000,
+     "counter": 3
+    },
+    "extension_keys": [],
+    "task_id": "itsk_fixture-0001",
+    "status": "complete",
+    "rows_total": 2,
+    "rows_written": 2,
+    "rows_dropped": 0,
+    "drop_reasons": []
+   }
+  },
+  {
+   "name": "task_partial_with_drops",
+   "kind": "task_status",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0003",
+     "status": "partial",
+     "rows_total": 4,
+     "rows_written": 3,
+     "rows_dropped": 1,
+     "drop_reasons": [
+      "write rejected: invalid row"
+     ]
+    }
+   },
+   "expect": {
+    "outcome_uncertain": null,
+    "code": null,
+    "derived_error": null,
+    "retryable": null,
+    "write_token": null,
+    "extension_keys": [],
+    "task_id": "itsk_fixture-0003",
+    "status": "partial",
+    "rows_total": 4,
+    "rows_written": 3,
+    "rows_dropped": 1,
+    "drop_reasons": [
+     "write rejected: invalid row"
+    ]
+   }
+  },
+  {
+   "name": "task_failed",
+   "kind": "task_status",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0004",
+     "status": "failed",
+     "rows_total": 2,
+     "rows_written": 0,
+     "rows_dropped": 2,
+     "drop_reasons": [
+      "write rejected: invalid row"
+     ]
+    }
+   },
+   "expect": {
+    "outcome_uncertain": null,
+    "code": null,
+    "derived_error": null,
+    "retryable": null,
+    "write_token": null,
+    "extension_keys": [],
+    "task_id": "itsk_fixture-0004",
+    "status": "failed",
+    "rows_total": 2,
+    "rows_written": 0,
+    "rows_dropped": 2,
+    "drop_reasons": [
+     "write rejected: invalid row"
+    ]
+   }
+  },
+  {
+   "name": "task_uncertain_recovered",
+   "kind": "task_status",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0005",
+     "status": "uncertain",
+     "rows_total": 4,
+     "rows_written": 1,
+     "rows_dropped": 0,
+     "drop_reasons": [
+      "interrupted by restart"
+     ],
+     "outcome_uncertain": true,
+     "retryable": false,
+     "recovered": true,
+     "receipt_durability": "durable"
+    }
+   },
+   "expect": {
+    "outcome_uncertain": true,
+    "code": null,
+    "derived_error": null,
+    "retryable": false,
+    "write_token": null,
+    "extension_keys": [
+     "receipt_durability",
+     "recovered"
+    ],
+    "task_id": "itsk_fixture-0005",
+    "status": "uncertain",
+    "rows_total": 4,
+    "rows_written": 1,
+    "rows_dropped": 0,
+    "drop_reasons": [
+     "interrupted by restart"
+    ]
+   },
+   "note": "After a restart unresolved work is uncertain, never complete, and must not be blindly replayed."
+  },
+  {
+   "name": "task_incomplete_derived_failure",
+   "kind": "task_status",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0006",
+     "status": "incomplete",
+     "rows_total": 2,
+     "rows_written": 2,
+     "rows_dropped": 0,
+     "drop_reasons": [],
+     "code": "derived-write-incomplete",
+     "derived_error": "vector projection failed",
+     "retryable": false
+    }
+   },
+   "expect": {
+    "outcome_uncertain": null,
+    "code": "derived-write-incomplete",
+    "derived_error": "vector projection failed",
+    "retryable": false,
+    "write_token": null,
+    "extension_keys": [],
+    "task_id": "itsk_fixture-0006",
+    "status": "incomplete",
+    "rows_total": 2,
+    "rows_written": 2,
+    "rows_dropped": 0,
+    "drop_reasons": []
+   }
+  },
+  {
+   "name": "task_future_status_is_not_coerced",
+   "kind": "task_status",
+   "wire": {
+    "status": 200,
+    "body": {
+     "task_id": "itsk_fixture-0007",
+     "status": "quarantined",
+     "rows_total": 2,
+     "rows_written": 0,
+     "rows_dropped": 0,
+     "drop_reasons": [],
+     "quarantine_ref": "q-1"
+    }
+   },
+   "expect": {
+    "outcome_uncertain": null,
+    "code": null,
+    "derived_error": null,
+    "retryable": null,
+    "write_token": null,
+    "extension_keys": [
+     "quarantine_ref"
+    ],
+    "task_id": "itsk_fixture-0007",
+    "status": "quarantined",
+    "rows_total": 2,
+    "rows_written": 0,
+    "rows_dropped": 0,
+    "drop_reasons": []
+   },
+   "note": "Old-client upgrade rule: an unknown status string and unknown fields are surfaced verbatim, never mapped to complete."
+  }
+ ]
+}

@@ -18,7 +18,7 @@ from relata import RelataClient
 from relata._http import HttpTransport
 
 FIXTURES = json.loads(
-    (Path(__file__).resolve().parents[2] / "shared" / "query-operation-fixtures.json").read_text()
+    (Path(__file__).resolve().parent / "fixtures" / "query-operation-fixtures.json").read_text()
 )
 BASE = "http://relata.invalid"
 

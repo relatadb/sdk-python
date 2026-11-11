@@ -20,7 +20,7 @@ from relata import exceptions as ex
 from relata._http import HttpTransport
 
 FIXTURES = json.loads(
-    (Path(__file__).resolve().parents[2] / "shared" / "problem-details-fixtures.json").read_text()
+    (Path(__file__).resolve().parent / "fixtures" / "problem-details-fixtures.json").read_text()
 )
 
 # fixture kind -> exact exception class for this SDK. 400 non-purpose and the unmapped statuses

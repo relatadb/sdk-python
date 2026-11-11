@@ -1,0 +1,76 @@
+{
+  "contract": "relata.workflow-runner-fixtures/v1",
+  "description": "Shared step-level wire contract for an external durable workflow runner (#5733). The engine holds no workflow state: a runner reaches it only through an authenticated governed SELECT (POST /v1/query) and the MCP schedule_job tool (POST /v1/mcp/tools/call). Each case is one engine response a runner step can see and the normalized outcome every consumer must agree on: the Python, TypeScript and Go SDKs (McpClient.call_tool / client.query) and the Rust apps/relata-workflow-runner (request shape). 'requests' is how many wire requests the call may send: a mutating step is never replayed by a transport. A 'reset' or undecodable 200 is an uncertain effect: the caller must reconcile, not resend.",
+  "requests": {
+    "job": {
+      "method": "POST",
+      "path": "/v1/mcp/tools/call",
+      "body": {
+        "name": "schedule_job",
+        "arguments": {"name": "sequence_correlation", "purpose": "qualification"}
+      }
+    },
+    "query": {
+      "method": "POST",
+      "path": "/v1/query",
+      "sql": "SELECT 1",
+      "purpose": "qualification"
+    }
+  },
+  "cases": [
+    {
+      "name": "job_scheduled",
+      "step": "job",
+      "wire": {"status": 200, "body": {"content": [{"type": "text", "text": "{\"job\":\"sequence_correlation\",\"alerts_emitted\":0}"}], "isError": false}},
+      "expect": {"outcome": "ok", "requests": 1}
+    },
+    {
+      "name": "job_unknown_name_is_not_found",
+      "step": "job",
+      "wire": {"status": 404, "body": {"content": [{"type": "text", "text": "unknown detection job: 'sequence_correlation'"}], "isError": true}},
+      "expect": {"outcome": "error", "error": "not_found", "status": 404, "retry_after_seconds": null, "requests": 1}
+    },
+    {
+      "name": "job_shed_429_carries_retry_after",
+      "step": "job",
+      "wire": {"status": 429, "headers": {"Content-Type": "application/problem+json", "Retry-After": "3"}, "body": {"detail": "ingest queue full", "code": "rate-limited", "retryable": true}},
+      "expect": {"outcome": "error", "error": "rate_limited", "status": 429, "retry_after_seconds": 3, "requests": 1}
+    },
+    {
+      "name": "job_shed_503_carries_retry_after_and_is_not_replayed",
+      "step": "job",
+      "wire": {"status": 503, "headers": {"Content-Type": "application/problem+json", "Retry-After": "5"}, "body": {"detail": "memory pressure", "code": "overloaded", "retryable": true}},
+      "expect": {"outcome": "error", "error": "server_error", "status": 503, "retry_after_seconds": 5, "requests": 1}
+    },
+    {
+      "name": "job_denied_is_forbidden_and_not_retryable",
+      "step": "job",
+      "wire": {"status": 403, "headers": {"Content-Type": "application/problem+json"}, "body": {"detail": "purpose 'qualification' is not registered", "code": "access-denied", "retryable": false}},
+      "expect": {"outcome": "error", "error": "forbidden", "status": 403, "retry_after_seconds": null, "requests": 1}
+    },
+    {
+      "name": "job_connection_reset_after_send_is_uncertain",
+      "step": "job",
+      "wire": {"reset": true},
+      "expect": {"outcome": "error", "error": "connection", "status": null, "retry_after_seconds": null, "requests": 1}
+    },
+    {
+      "name": "query_rows",
+      "step": "query",
+      "wire": {"status": 200, "body": {"rows": 1, "data": [{"value": 1}], "columns": ["value"]}},
+      "expect": {"outcome": "ok", "requests": 1}
+    },
+    {
+      "name": "query_denied_is_forbidden",
+      "step": "query",
+      "wire": {"status": 403, "headers": {"Content-Type": "application/problem+json"}, "body": {"detail": "denied", "code": "access-denied", "retryable": false}},
+      "expect": {"outcome": "error", "error": "forbidden", "status": 403, "retry_after_seconds": null, "requests": 1}
+    },
+    {
+      "name": "query_shed_503_carries_retry_after",
+      "step": "query",
+      "wire": {"status": 503, "headers": {"Content-Type": "application/problem+json", "Retry-After": "2"}, "body": {"detail": "busy", "code": "overloaded", "retryable": true}},
+      "expect": {"outcome": "error", "error": "server_error", "status": 503, "retry_after_seconds": 2, "requests": 1}
+    }
+  ]
+}
