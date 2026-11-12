@@ -1,6 +1,6 @@
 {
  "contract": "relata.problem-details-fixtures/v1",
- "about": "Wire-exact RFC 9457 responses captured from a live relata serve (non-synthetic cases carry a `live` request that the Rust test http_e2e::contract_matrix::problem_fixtures_match_live_server replays against the real binary), plus a few synthetic shapes. Every SDK (python, typescript, go) must map each case to the same error kind, status, code, type, retryable flag, request id and retry delay. kinds: purpose|auth|forbidden|not_found|conflict|precondition_failed|validation|rate_limited|server|bad_request|other. Go has no sentinel for purpose/bad_request/other. Env groups: default={}, queue_full={RELATA_OTLP_ENABLED=true,RELATA_INGEST_QUEUE_MAX_BYTES=1}, disk_pressure={RELATA_OTLP_ENABLED=true,RELATA_MIN_FREE_DISK_MB=1073741824}. The 410 case is the tombstone of a removed surface: an old client keeps the server's remediation text (the replacement route), tested in all three SDKs and replayed live.",
+ "about": "Wire-exact RFC 9457 responses captured from a live relata serve (non-synthetic cases carry a `live` request that the Rust test http_e2e::contract_matrix::problem_fixtures_match_live_server replays against the real binary), plus a few synthetic shapes. Every SDK (python, typescript, go) must map each case to the same error kind, status, code, type, retryable flag, request id and retry delay. kinds: purpose|auth|forbidden|not_found|conflict|precondition_failed|validation|rate_limited|server|bad_request|other. Go has no sentinel for purpose/bad_request/other. Env groups: default={}, queue_full={RELATA_OTLP_ENABLED=true,RELATA_INGEST_QUEUE_MAX_BYTES=1}, disk_pressure={RELATA_OTLP_ENABLED=true,RELATA_MIN_FREE_DISK_MB=1073741824}, acl_denied={RELATA_ACL_GRANT_HTTP=PermittedDoc:read,AclFixtureDoc:write} (the caller may write but not read AclFixtureDoc, #5696). The 410 case is the tombstone of a removed surface: an old client keeps the server's remediation text (the replacement route), tested in all three SDKs and replayed live.",
  "cases": [
   {
    "name": "unauthorized_401",
@@ -68,6 +68,54 @@
     "type": "https://relatadb.dev/errors/org-not-entitled",
     "retryable": false,
     "request_id": null,
+    "retry_after_seconds": null
+   }
+  },
+  {
+   "name": "forbidden_403_acl_denied",
+   "live": {
+    "method": "POST",
+    "path": "/v1/query",
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "{\"purpose\": \"analytics\", \"sql\": \"SELECT * FROM AclFixtureDoc\"}",
+    "setup": [
+     {
+      "method": "POST",
+      "path": "/v1/ingest/bulk",
+      "headers": {
+       "Content-Type": "application/json"
+      },
+      "body": "{\"purpose\": \"analytics\", \"objects\": [{\"_type\": \"AclFixtureDoc\", \"_pk\": \"a\", \"n\": 1}]}"
+     }
+    ],
+    "group": "acl_denied"
+   },
+   "wire": {
+    "status": 403,
+    "headers": {
+     "content-type": "application/problem+json",
+     "x-request-id": "req-forbidden_403_acl_denied"
+    },
+    "body": {
+     "type": "https://relatadb.dev/errors/REL_ACL",
+     "title": "Forbidden",
+     "status": 403,
+     "detail": "access denied: principal 'http-client' cannot perform 'read' on 'AclFixtureDoc'",
+     "instance": "/v1/query",
+     "code": "REL_ACL",
+     "request_id": "req-forbidden_403_acl_denied",
+     "retryable": false
+    }
+   },
+   "expect": {
+    "kind": "forbidden",
+    "status": 403,
+    "code": "REL_ACL",
+    "type": "https://relatadb.dev/errors/REL_ACL",
+    "retryable": false,
+    "request_id": "req-forbidden_403_acl_denied",
     "retry_after_seconds": null
    }
   },
@@ -499,7 +547,7 @@
      "type": "about:blank",
      "title": "Too Many Requests",
      "status": 429,
-     "detail": "ingest queue full \u2014 retry later",
+     "detail": "ingest queue full — retry later",
      "retryable": true,
      "retry_after_secs": 1,
      "queue_depth": 0,
@@ -538,7 +586,7 @@
      "type": "about:blank",
      "status": 503,
      "title": "Service Unavailable",
-     "detail": "insufficient disk space \u2014 data dir under disk pressure; writes shed to protect the WAL. Free space or set RELATA_MIN_FREE_DISK_MB lower, then retry.",
+     "detail": "insufficient disk space — data dir under disk pressure; writes shed to protect the WAL. Free space or set RELATA_MIN_FREE_DISK_MB lower, then retry.",
      "request_id": "req-server_503_disk_pressure"
     }
    },
