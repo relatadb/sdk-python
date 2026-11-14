@@ -269,6 +269,8 @@ class IngestClient:
         timeout: float = 60.0,
         extra_headers: dict[str, str] | None = None,
         transport: httpx.BaseTransport | None = None,
+        max_retries: int = 0,
+        retry_backoff_secs: float = 0.5,
     ) -> None:
         self._purpose = purpose
         self._tenant = tenant
@@ -277,8 +279,15 @@ class IngestClient:
             extra["X-Relata-Tenant-Id"] = tenant
         if extra_headers:
             extra.update(extra_headers)
+        # #5689 D06: retries re-send a bulk request with its Idempotency-Key.
         self._t = HttpTransport(
-            base_url, bearer_token, timeout, transport=transport, extra_headers=extra or None
+            base_url,
+            bearer_token,
+            timeout,
+            transport=transport,
+            extra_headers=extra or None,
+            max_retries=max_retries,
+            retry_backoff=retry_backoff_secs,
         )
 
     @classmethod
@@ -290,6 +299,8 @@ class IngestClient:
             tenant=client._tenant,
             timeout=client._timeout,
             extra_headers=client._extra_headers,
+            max_retries=client._max_retries,
+            retry_backoff_secs=client._retry_backoff,
         )
 
     def _params(self, object_type: str, purpose: str | None) -> str:
@@ -327,7 +338,10 @@ class IngestClient:
         - ``tenant_id`` — tenant scope (only honoured on the ``/v1/ingest/bulk`` door).
         - ``idempotency_key`` — ``Idempotency-Key`` header (#5689): a retry with
           the same key and rows replays the recorded response without a second
-          write; a different body is ``409 idempotency-conflict``.
+          write; a different body is ``409 idempotency-conflict``. Every
+          ``/v1/ingest/bulk`` request gets an automatic key when none is given,
+          reused by the transport's retries (``max_retries``); pass your own key
+          to retry exactly-once across separate calls.
         - ``durability`` — ``"sync"`` sends ``X-Relata-Durability: sync`` (WAL
           fsynced before the response).
         - ``source_checkpoint`` — ``{"source", "position", "expected_position"?}``;
@@ -503,6 +517,8 @@ class AsyncIngestClient:
         timeout: float = 60.0,
         extra_headers: dict[str, str] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        max_retries: int = 0,
+        retry_backoff_secs: float = 0.5,
     ) -> None:
         self._purpose = purpose
         self._tenant = tenant
@@ -511,8 +527,15 @@ class AsyncIngestClient:
             extra["X-Relata-Tenant-Id"] = tenant
         if extra_headers:
             extra.update(extra_headers)
+        # #5689 D06: retries re-send a bulk request with its Idempotency-Key.
         self._t = AsyncHttpTransport(
-            base_url, bearer_token, timeout, transport=transport, extra_headers=extra or None
+            base_url,
+            bearer_token,
+            timeout,
+            transport=transport,
+            extra_headers=extra or None,
+            max_retries=max_retries,
+            retry_backoff=retry_backoff_secs,
         )
 
     @classmethod
@@ -524,6 +547,8 @@ class AsyncIngestClient:
             tenant=client._tenant,
             timeout=client._timeout,
             extra_headers=client._extra_headers,
+            max_retries=client._max_retries,
+            retry_backoff_secs=client._retry_backoff,
         )
 
     def _params(self, object_type: str, purpose: str | None) -> str:

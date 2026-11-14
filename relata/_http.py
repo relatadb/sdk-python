@@ -117,6 +117,44 @@ def _is_idempotent(method: str) -> bool:
     return method in _IDEMPOTENT_METHODS
 
 
+# #5689 (owner decision D06): every bulk ingest request carries an
+# ``Idempotency-Key`` so a retry cannot duplicate keyless rows.
+_BULK_INGEST_PATH = "/v1/ingest/bulk"
+_IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
+
+
+def _is_bulk_ingest(method: str, path: str) -> bool:
+    """Whether this request is a ``POST /v1/ingest/bulk``."""
+    return method == "POST" and path.split("?", 1)[0].rstrip("/").endswith(_BULK_INGEST_PATH)
+
+
+def _status_retryable(
+    status: int, retry_on: frozenset[int], idempotent: bool, keyed_bulk: bool
+) -> bool:
+    """Whether a response status is retried. A keyed bulk ingest is retried on
+    gateway statuses (502/504) but never on a 503 from Relata itself, which
+    carries its own ``retryable`` verdict and ``Retry-After`` (#5689)."""
+    if status not in retry_on or not idempotent:
+        return False
+    return not (keyed_bulk and status == 503)
+
+
+def _with_ingest_idempotency_key(
+    method: str, path: str, headers: dict[str, str] | None
+) -> dict[str, str] | None:
+    """Add an automatic ``Idempotency-Key`` (a random UUID) to a bulk ingest
+    request that does not already carry one (#5689 D06, the Kafka/Stripe
+    pattern). Called once per call, before the retry loop, so every attempt of
+    the call reuses the same key and the server replays or converges instead of
+    writing twice. An explicit key is never replaced; other requests are
+    returned unchanged."""
+    if not _is_bulk_ingest(method, path):
+        return headers
+    if headers and any(k.lower() == "idempotency-key" for k in headers):
+        return headers
+    return {**(headers or {}), _IDEMPOTENCY_KEY_HEADER: str(uuid.uuid4())}
+
+
 def _opt_float_header(headers: Mapping[str, str], name: str) -> float | None:
     """Parse a numeric response header to float, returning ``None`` when absent/unparseable."""
     raw = headers.get(name)
@@ -478,14 +516,21 @@ class HttpTransport:
         Retry policy (#2490): only idempotent verbs (GET/HEAD/OPTIONS) are
         retried, and only on transport errors (connect/timeout) or response
         status codes in ``self._retry_on`` (502/503/504 by default). POST and
-        other non-idempotent verbs are never retried — parity with the Rust
-        and Go SDKs.
+        other non-idempotent verbs are never retried — parity with the
+        TypeScript and Go SDKs. The one exception is ``POST /v1/ingest/bulk``,
+        which always carries an ``Idempotency-Key`` (automatic when the caller
+        sent none, #5689) reused on every attempt: it is retried on transport
+        errors and 502/504, but not on a 503 from Relata (see
+        :func:`_status_retryable`).
         """
         client = self._client_for(path)
         # If the caller already set X-Request-ID in the default headers bag,
         # respect it — only generate a per-attempt UUID when no default exists.
         has_default_rid = "x-request-id" in {k.lower() for k in client.headers}
-        idempotent = _is_idempotent(method)
+        headers = _with_ingest_idempotency_key(method, path, headers)
+        # A keyed bulk ingest is safe to re-send: the server dedupes by key.
+        keyed_bulk = _is_bulk_ingest(method, path)
+        idempotent = _is_idempotent(method) or keyed_bulk
         last_exc: RelataError | None = None
         for attempt in range(self._max_retries + 1):
             req_headers: dict[str, str] = {}
@@ -537,8 +582,7 @@ class HttpTransport:
                 # verbs only — non-idempotent verbs fall through to _handle which
                 # raises the classified ServerError.
                 if (
-                    idempotent
-                    and resp.status_code in self._retry_on
+                    _status_retryable(resp.status_code, self._retry_on, idempotent, keyed_bulk)
                     and attempt < self._max_retries
                 ):
                     time.sleep(self._retry_backoff * (2**attempt))
@@ -792,7 +836,10 @@ class AsyncHttpTransport:
         import asyncio
 
         client = self._client_for(path)
-        idempotent = _is_idempotent(method)
+        headers = _with_ingest_idempotency_key(method, path, headers)
+        # A keyed bulk ingest is safe to re-send: the server dedupes by key.
+        keyed_bulk = _is_bulk_ingest(method, path)
+        idempotent = _is_idempotent(method) or keyed_bulk
         last_exc: RelataError | None = None
         for attempt in range(self._max_retries + 1):
             req_headers: dict[str, str] = {"X-Request-ID": self._request_id()}
@@ -839,8 +886,7 @@ class AsyncHttpTransport:
                 raise last_exc from exc
             try:
                 if (
-                    idempotent
-                    and resp.status_code in self._retry_on
+                    _status_retryable(resp.status_code, self._retry_on, idempotent, keyed_bulk)
                     and attempt < self._max_retries
                 ):
                     await asyncio.sleep(self._retry_backoff * (2**attempt))
