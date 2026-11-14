@@ -402,6 +402,7 @@ RelataClient(
     headers: dict[str, str] | None = None,  # arbitrary header overlay
     max_retries: int = 0,             # retry on connection errors
     retry_backoff_secs: float = 0.5,  # exponential backoff base
+    pause_retry_budget_secs: float = 30.0,  # maintenance-pause resends per call (0 disables)
 )
 ```
 
@@ -543,6 +544,7 @@ confusing plain 404.
 - **RFC 7807 problem+json parsing** — every error carries `code`, `type_url`, `retryable`, `request_id`.
 - **Typed exceptions** — `ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409), `ValidationError` (422), `RateLimitedError` (429, with `retry_after`).
 - **Retry** — `RelataClient(..., max_retries=3, retry_backoff_secs=0.5)`.
+- **Maintenance pauses** (#6302) — a `503` whose body names `pause_reason` `rollover_begin`, `rollover_commit`, `backup` or `restore` with `retryable: true` reached no handler, so it is resent for every verb after its `Retry-After` (at most 5 s per wait), independently of `max_retries`, until `pause_retry_budget_secs` (default 30 per call) is spent. `0` disables it.
 - **X-Request-ID** — auto-generated per request; caller-supplied IDs respected; server's response ID stamped on exceptions.
 
 ### Custom object types

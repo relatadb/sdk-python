@@ -34,6 +34,7 @@ from urllib.parse import urlencode
 
 from relata._http import (
     DEFAULT_MAX_RESPONSE_BYTES,
+    DEFAULT_PAUSE_RETRY_BUDGET,
     AsyncHttpTransport,
     HttpTransport,
     path_segment,
@@ -245,6 +246,13 @@ class RelataClient:
             client will buffer (default ~64 MiB, #3214). A larger body raises
             :class:`~relata.exceptions.ResponseTooLargeError` instead of being
             read — defending the client from OOM via a malicious/buggy server.
+        pause_retry_budget_secs: Total seconds one call may spend waiting out
+            a node maintenance pause (default 30, #6302). A ``503`` whose body
+            names ``pause_reason`` ``rollover_begin``, ``rollover_commit``,
+            ``backup`` or ``restore`` with ``retryable: true`` was refused
+            before any handler ran, so it is retried for every verb after its
+            ``Retry-After`` (at most 5 s per wait), independently of
+            ``max_retries``. ``0`` disables this and raises the 503 at once.
 
     Raises:
         :class:`~relata.exceptions.AuthError`: When the server rejects the
@@ -292,6 +300,7 @@ class RelataClient:
         compress: bool = False,
         admin_base_url: str | None = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        pause_retry_budget_secs: float = DEFAULT_PAUSE_RETRY_BUDGET,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         # #2321 (ADR-0261): /admin/* is mounted only on the loopbound admin
@@ -313,6 +322,7 @@ class RelataClient:
         # #3214: per-response buffering cap — a malicious/buggy server cannot
         # OOM the client (default ~64 MiB; parity with Rust #3198).
         self._max_response_bytes = max_response_bytes
+        self._pause_retry_budget = pause_retry_budget_secs
 
         # Compose the static extra-headers bag: tenant/delegation first, then
         # caller-supplied headers win. Per-call overrides (acting_as=, request_id=)
@@ -351,6 +361,7 @@ class RelataClient:
                 compress=self._compress,
                 admin_base_url=self._admin_base_url,
                 max_response_bytes=self._max_response_bytes,
+                pause_retry_budget=self._pause_retry_budget,
             )
         return self.__sync_transport
 
@@ -367,6 +378,7 @@ class RelataClient:
                 compress=self._compress,
                 admin_base_url=self._admin_base_url,
                 max_response_bytes=self._max_response_bytes,
+                pause_retry_budget=self._pause_retry_budget,
             )
         return self.__async_transport
 

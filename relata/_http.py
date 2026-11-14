@@ -112,6 +112,63 @@ _DEFAULT_RETRY_BACKOFF = 0.5
 _IDEMPOTENT_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
+# #6302: a 503 whose body names one of these maintenance pauses and says
+# ``retryable: true`` was refused before any handler ran (the router-wide
+# admission gate, or a bulk group that wrote nothing), so it is retried
+# transparently for every verb, honouring ``Retry-After``, within
+# ``pause_retry_budget`` seconds of total waiting. ``poisoned`` and
+# ``storage_recovering`` are not maintenance pauses and are never retried here.
+_MAINTENANCE_PAUSE_REASONS: frozenset[str] = frozenset(
+    {"rollover_begin", "rollover_commit", "backup", "restore"}
+)
+#: Default total seconds spent waiting out maintenance pauses per request.
+DEFAULT_PAUSE_RETRY_BUDGET = 30.0
+# Longest single wait between pause retries, whatever ``Retry-After`` says.
+_PAUSE_RETRY_MAX_DELAY = 5.0
+# Wait used when a pause 503 carries no retry hint.
+_PAUSE_RETRY_DEFAULT_DELAY = 1.0
+# Shortest wait, so a ``Retry-After: 0`` cannot spin.
+_PAUSE_RETRY_MIN_DELAY = 0.1
+
+
+def _maintenance_pause_delay(status: int, headers: Mapping[str, str], raw: bytes) -> float | None:
+    """Seconds to wait before retrying a maintenance-pause 503, or ``None``
+    when the response is not one (#6302)."""
+    if status != 503:
+        return None
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return None
+    if (
+        not isinstance(body, dict)
+        or body.get("pause_reason") not in _MAINTENANCE_PAUSE_REASONS
+        or body.get("retryable") is not True
+    ):
+        return None
+    delay = _parse_retry_after(headers.get("retry-after"))
+    if delay is None:
+        delay = _PAUSE_RETRY_DEFAULT_DELAY
+        hint = body.get("retry_after_secs")
+        if (
+            isinstance(hint, int | float)
+            and not isinstance(hint, bool)
+            and math.isfinite(hint)
+            and hint >= 0
+        ):
+            delay = float(hint)
+    return min(max(delay, _PAUSE_RETRY_MIN_DELAY), _PAUSE_RETRY_MAX_DELAY)
+
+
+class _MaintenancePause(Exception):
+    """Internal signal: the attempt hit a retryable maintenance pause (#6302)."""
+
+    def __init__(self, delay: float, error: RelataError) -> None:
+        super().__init__(str(error))
+        self.delay = delay
+        self.error = error
+
+
 def _is_idempotent(method: str) -> bool:
     """Whether ``method`` is safe to retry (GET/HEAD/OPTIONS only)."""
     return method in _IDEMPOTENT_METHODS
@@ -448,6 +505,7 @@ class HttpTransport:
         compress: bool = False,
         admin_base_url: str | None = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        pause_retry_budget: float = DEFAULT_PAUSE_RETRY_BUDGET,
     ) -> None:
         headers = _build_headers(bearer_token, extra_headers, compress=compress)
         self._client = httpx.Client(
@@ -475,6 +533,8 @@ class HttpTransport:
         self._retry_on = retry_on
         # #3214: response-body cap enforced on every buffered read.
         self._max_response_bytes = max_response_bytes
+        # #6302: total wait for maintenance-pause retries; 0 disables them.
+        self._pause_retry_budget = pause_retry_budget
 
     def _request_id(self) -> str:
         return str(uuid.uuid4())
@@ -502,6 +562,37 @@ class HttpTransport:
     ) -> _RawHttpResponse: ...
 
     def _send_with_retry(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_payload: dict[str, Any] | None = None,
+        content: str | bytes | None = None,
+        headers: dict[str, str] | None = None,
+        raw_response: bool = False,
+    ) -> dict[str, Any] | _RawHttpResponse:
+        """Send with retry, waiting out maintenance pauses (#6302).
+
+        A 503 maintenance pause (see :func:`_maintenance_pause_delay`) is
+        retried for any verb, sleeping its ``Retry-After`` (at most 5 s) until
+        ``pause_retry_budget`` seconds have been spent; then its error is
+        raised. Pause retries do not count against ``max_retries``.
+        """
+        waited = 0.0
+        while True:
+            try:
+                return self._send_attempts(
+                    method, path, json_payload=json_payload, content=content,
+                    headers=headers, raw_response=raw_response,
+                )
+            except _MaintenancePause as pause:
+                delay = min(pause.delay, self._pause_retry_budget - waited)
+                if delay <= 0:
+                    raise pause.error from None
+                time.sleep(delay)
+                waited += delay
+
+    def _send_attempts(
         self,
         method: str,
         path: str,
@@ -587,6 +678,16 @@ class HttpTransport:
                 ):
                     time.sleep(self._retry_backoff * (2**attempt))
                     continue
+
+                if resp.status_code == 503 and self._pause_retry_budget > 0:
+                    raw = self._read_capped(resp)
+                    delay = _maintenance_pause_delay(resp.status_code, resp.headers, raw)
+                    if delay is not None:
+                        try:
+                            self._handle(resp, raw)
+                        except RelataError as err:
+                            raise _MaintenancePause(delay, err) from None
+                    return self._handle(resp, raw)
 
                 # Success or non-retryable error — return / raise via _handle.
                 if raw_response and resp.is_success:
@@ -717,8 +818,9 @@ class HttpTransport:
             chunks.append(chunk)
         return b"".join(chunks)
 
-    def _handle(self, resp: httpx.Response) -> dict[str, Any]:
-        raw = self._read_capped(resp)
+    def _handle(self, resp: httpx.Response, raw: bytes | None = None) -> dict[str, Any]:
+        if raw is None:
+            raw = self._read_capped(resp)
         raw_text = raw.decode("utf-8", errors="replace") if raw else ""
         if resp.is_success:
             if not raw.strip():  # 204 / empty success body (e.g. DELETE)
@@ -770,6 +872,7 @@ class AsyncHttpTransport:
         compress: bool = False,
         admin_base_url: str | None = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        pause_retry_budget: float = DEFAULT_PAUSE_RETRY_BUDGET,
     ) -> None:
         headers = _build_headers(bearer_token, extra_headers, compress=compress)
         self._client = httpx.AsyncClient(
@@ -794,6 +897,8 @@ class AsyncHttpTransport:
         self._retry_on = retry_on
         # #3214: response-body cap enforced on every buffered read.
         self._max_response_bytes = max_response_bytes
+        # #6302: total wait for maintenance-pause retries; 0 disables them.
+        self._pause_retry_budget = pause_retry_budget
 
     def _request_id(self) -> str:
         return str(uuid.uuid4())
@@ -819,6 +924,33 @@ class AsyncHttpTransport:
     ) -> _RawHttpResponse: ...
 
     async def _send_with_retry(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_payload: dict[str, Any] | None = None,
+        content: bytes | str | None = None,
+        headers: dict[str, str] | None = None,
+        raw_response: bool = False,
+    ) -> dict[str, Any] | _RawHttpResponse:
+        """Async twin of :meth:`HttpTransport._send_with_retry` (#6302)."""
+        import asyncio
+
+        waited = 0.0
+        while True:
+            try:
+                return await self._send_attempts(
+                    method, path, json_payload=json_payload, content=content,
+                    headers=headers, raw_response=raw_response,
+                )
+            except _MaintenancePause as pause:
+                delay = min(pause.delay, self._pause_retry_budget - waited)
+                if delay <= 0:
+                    raise pause.error from None
+                await asyncio.sleep(delay)
+                waited += delay
+
+    async def _send_attempts(
         self,
         method: str,
         path: str,
@@ -891,6 +1023,15 @@ class AsyncHttpTransport:
                 ):
                     await asyncio.sleep(self._retry_backoff * (2**attempt))
                     continue
+                if resp.status_code == 503 and self._pause_retry_budget > 0:
+                    raw = await self._read_capped(resp)
+                    delay = _maintenance_pause_delay(resp.status_code, resp.headers, raw)
+                    if delay is not None:
+                        try:
+                            await self._handle(resp, raw)
+                        except RelataError as err:
+                            raise _MaintenancePause(delay, err) from None
+                    return await self._handle(resp, raw)
                 if raw_response and resp.is_success:
                     return _RawHttpResponse(
                         resp.status_code, dict(resp.headers), await self._read_capped(resp)
@@ -1013,8 +1154,9 @@ class AsyncHttpTransport:
             chunks.append(chunk)
         return b"".join(chunks)
 
-    async def _handle(self, resp: httpx.Response) -> dict[str, Any]:
-        raw = await self._read_capped(resp)
+    async def _handle(self, resp: httpx.Response, raw: bytes | None = None) -> dict[str, Any]:
+        if raw is None:
+            raw = await self._read_capped(resp)
         raw_text = raw.decode("utf-8", errors="replace") if raw else ""
         if resp.is_success:
             if not raw.strip():  # 204 / empty success body (e.g. DELETE)
