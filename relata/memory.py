@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from relata._http import AsyncHttpTransport, HttpTransport, path_segment
+from relata.embedding_flag import warn_if_lexical
 
 if TYPE_CHECKING:
     import httpx
@@ -352,7 +353,10 @@ class Memory:
             stability_days=stability_days,
             cancel_threshold=cancel_threshold,
         )
-        return _unwrap(self._t.post("/v1/memory/recall", body))
+        result = _unwrap(self._t.post("/v1/memory/recall", body))
+        if isinstance(result, dict):
+            warn_if_lexical(result.get("embedding"))  # #5726
+        return result
 
     def batch_search(self, queries: list[str], *, top_k: int = 5) -> list[list[dict[str, Any]]]:
         """Run multiple recall queries and return merged results (#967 Tier 4c)."""
@@ -739,7 +743,10 @@ class AsyncMemory:
             stability_days=stability_days,
             cancel_threshold=cancel_threshold,
         )
-        return _unwrap(await self._t.post("/v1/memory/recall", body))
+        result = _unwrap(await self._t.post("/v1/memory/recall", body))
+        if isinstance(result, dict):
+            warn_if_lexical(result.get("embedding"))  # #5726
+        return result
 
     async def get(self, memory_id: str) -> dict[str, Any] | None:
         """Fetch a single memory by id, or ``None`` if not found."""

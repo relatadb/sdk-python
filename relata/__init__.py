@@ -46,6 +46,7 @@ from relata.backup import AsyncBackupClient, BackupClient
 from relata.client import RelataClient
 from relata.coref import AsyncCorefResolver, CorefResolver, subject_from_hit
 from relata.domain_summary import summarize_domain
+from relata.embedding_flag import EmbeddingFlag
 from relata.embedding_migration import (
     Embedder,
     EmbeddingMigrationClient,
@@ -372,6 +373,7 @@ __all__ = [
     "select",
     # Models
     "QueryResult",
+    "EmbeddingFlag",
     "HealthResponse",
     "StatusResponse",
     "AuditCountResponse",

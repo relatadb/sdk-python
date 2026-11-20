@@ -13,6 +13,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from relata.embedding_flag import EmbeddingFlag, warn_if_lexical
+
 # ---------------------------------------------------------------------------
 # Query
 # ---------------------------------------------------------------------------
@@ -65,6 +67,10 @@ class QueryResult(BaseModel):
         default=None,
         description="PROV-O records the server attaches when the statement ends WITH PROVENANCE",
     )
+    embedding: EmbeddingFlag | None = Field(
+        default=None,
+        description="Query-embedding flag on HYBRID_SEARCH/SIMILAR/RAG_RETRIEVE results (#5726)",
+    )
 
     @property
     def has_next_cursor_metadata(self) -> bool:
@@ -93,6 +99,7 @@ class QueryResult(BaseModel):
     @model_validator(mode="after")
     def _sync_row_count(self) -> QueryResult:
         self.row_count = len(self.rows)
+        warn_if_lexical(self.embedding)
         return self
 
     # Make QueryResult iterable so callers can do `for row in result:`.
@@ -704,10 +711,14 @@ class RagQueryResponse(BaseModel):
     low_confidence_reason: str | None = Field(
         default=None, description="Explanation for low_confidence, when set"
     )
+    embedding: EmbeddingFlag | None = Field(
+        default=None, description="Query-embedding flag of the retrieval (#5726)"
+    )
 
     @model_validator(mode="after")
     def _sync_total(self) -> RagQueryResponse:
         self.total = len(self.hits)
+        warn_if_lexical(self.embedding)
         return self
 
     @property
