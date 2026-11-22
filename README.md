@@ -649,6 +649,7 @@ See the `examples/` directory:
 | `hybrid_search.py` | `VectorClient.hybrid_search()` — embed, ingest, BM25-only vs. vector-only vs. fused (RRF) search |
 | `graph_traversal.py` | PATHS_BETWEEN, temporal network shift, hub detection |
 | `audit.py` | Chain verification, audit summary, anomaly detection |
+| `investigation.py` | Alert to archive: ingest fixed events, window rule and alert, evidence and reproduction query, timeline, authorized pivot, saved search, archived export with its SHA-256. Run: `RELATA_URL=http://localhost:9090 RELATA_TOKEN=<token> python -m examples.investigation` |
 
 ## Deployment
 
