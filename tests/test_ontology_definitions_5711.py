@@ -120,3 +120,22 @@ def test_search_hit_carries_the_definition_version() -> None:
     assert (
         SearchHit.model_validate({"id": "p", "object_type": "T", "score": 1.0}).definition is None
     )
+
+
+def test_ossie_export_and_import_hit_their_routes_6400_6401() -> None:
+    seen: list[tuple[str, str, str, Any]] = []
+    c = _client(seen)
+    doc = {"version": "0.3.0.dev0", "name": "crm", "datasets": [{"name": "P", "source": "P"}]}
+    c.export_ossie("crm")
+    c.export_ossie("crm", version=2, base_iri="https://example.org/o")
+    c.import_ossie("crm", doc)
+    assert seen == [
+        ("GET", "/v1/ontology/definitions/crm/export", "format=ossie", None),
+        (
+            "GET",
+            "/v1/ontology/definitions/crm/export",
+            "format=ossie&version=2&base_iri=https%3A%2F%2Fexample.org%2Fo",
+            None,
+        ),
+        ("POST", "/v1/ontology/definitions/crm/import", "format=ossie", doc),
+    ]

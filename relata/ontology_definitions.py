@@ -6,6 +6,10 @@ real row impact), ``publish`` under an ``expected_version`` precondition and,
 when rows must be rewritten, ``run_migration`` until it completes. A publish
 that races another gets HTTP 412 ``ontology-version-conflict``; one that needs
 consent gets 409 until ``accept_migration``/``accept_breaking`` is set.
+
+``export_ossie`` and ``import_ossie`` (experimental, #6400/#6401) exchange a
+definition with an Apache Ossie 0.3.0.dev0 semantic model; an import only
+creates review-queue suggestions.
 """
 
 from __future__ import annotations
@@ -53,6 +57,19 @@ def _run_body(max_rows: int | None, retry_failed: bool) -> dict[str, Any]:
     if retry_failed:
         body["retry_failed"] = True
     return body
+
+
+def _export_path(name: str, version: int | None, base_iri: str | None) -> str:
+    query = {"format": "ossie"}
+    if version is not None:
+        query["version"] = str(int(version))
+    if base_iri is not None:
+        query["base_iri"] = base_iri
+    return _p(name, "export") + f"?{urlencode(query)}"
+
+
+def _import_path(name: str) -> str:
+    return _p(name, "import") + "?format=ossie"
 
 
 def _compare_path(name: str, from_version: int | str | None, to: int | str | None) -> str:
@@ -156,6 +173,16 @@ class OntologyDefinitionsClient:
         path = _p(name, "migrations", str(int(version)), "run")
         return dict(self._t.post(path, _run_body(max_rows, retry_failed)))
 
+    def export_ossie(
+        self, name: str, *, version: int | None = None, base_iri: str | None = None
+    ) -> dict[str, Any]:
+        """``GET .../export?format=ossie`` (experimental): the Ossie model as JSON."""
+        return dict(self._t.get(_export_path(name, version, base_iri)))
+
+    def import_ossie(self, name: str, document: dict[str, Any]) -> dict[str, Any]:
+        """``POST .../import?format=ossie`` (experimental): suggestions plus a report."""
+        return dict(self._t.post(_import_path(name), document))
+
     def close(self) -> None:
         self._t.close()
 
@@ -246,6 +273,14 @@ class AsyncOntologyDefinitionsClient:
     ) -> dict[str, Any]:
         path = _p(name, "migrations", str(int(version)), "run")
         return dict(await self._t.post(path, _run_body(max_rows, retry_failed)))
+
+    async def export_ossie(
+        self, name: str, *, version: int | None = None, base_iri: str | None = None
+    ) -> dict[str, Any]:
+        return dict(await self._t.get(_export_path(name, version, base_iri)))
+
+    async def import_ossie(self, name: str, document: dict[str, Any]) -> dict[str, Any]:
+        return dict(await self._t.post(_import_path(name), document))
 
     async def close(self) -> None:
         await self._t.aclose()
