@@ -43,6 +43,10 @@ class FileMetadata(BaseModel):
     modified_ns: int
     is_folder: bool
     download_url: str
+    #: Set by an upload committed with ``process=True`` (#5938): either
+    #: ``{work_id, state, created, status_url}`` for a queued OpenETL media work
+    #: item, or ``{queued: False, reason, status?}`` when none was queued.
+    media_work: dict[str, Any] | None = None
 
 
 class UploadSession(BaseModel):
@@ -142,7 +146,8 @@ def _upload_path(upload_id: str, suffix: str = "", offset: int | None = None) ->
 
 
 def _start_body(key: str, size: int, bucket: str | None, content_type: str,
-    sha256: str | None) -> bytes:
+    sha256: str | None, process: bool = False,
+    access: dict[str, Any] | None = None) -> bytes:
     if not isinstance(key, str) or not isinstance(size, int) or size < 0:
         raise TypeError("key must be a string and size a non-negative int")
     body: dict[str, Any] = {"key": key, "size": size, "content_type": content_type}
@@ -150,6 +155,10 @@ def _start_body(key: str, size: int, bucket: str | None, content_type: str,
         body["bucket"] = bucket
     if sha256 is not None:
         body["sha256"] = sha256
+    if process:
+        body["process"] = True
+    if access is not None:
+        body["access"] = access
     return json.dumps(body).encode()
 
 
@@ -292,10 +301,17 @@ class FilesClient:
 
     def start_upload(self, key: str, size: int, *, bucket: str | None = None,
         content_type: str = "application/octet-stream",
-        sha256: str | None = None) -> UploadSession:
-        """Open a resumable upload (``size`` required); nothing is visible until completed."""
+        sha256: str | None = None, process: bool = False,
+        access: dict[str, Any] | None = None) -> UploadSession:
+        """Open a resumable upload (``size`` required); nothing is visible until completed.
+
+        ``process=True`` queues an OpenETL media work item when the upload commits
+        (reported as ``media_work`` on the completed metadata); ``access`` is the
+        parent's access attributes children inherit (``{}`` declares an open file)
+        and requires ``process=True``.
+        """
         return _session(self._t.request_bytes("POST", "/v1/files/uploads",
-            content=_start_body(key, size, bucket, content_type, sha256),
+            content=_start_body(key, size, bucket, content_type, sha256, process, access),
             content_type="application/json", accept="application/json"), 201)
 
     def upload_chunk(self, upload_id: str, offset: int, data: bytes, *,
@@ -328,7 +344,8 @@ class FilesClient:
     def upload(self, key: str, source: bytes | BinaryIO, *, size: int | None = None,
         bucket: str | None = None, content_type: str = "application/octet-stream",
         chunk_size: int = _DEFAULT_CHUNK, max_attempts: int = 5,
-        upload_id: str | None = None, verify_digest: bool = True) -> FileMetadata:
+        upload_id: str | None = None, verify_digest: bool = True,
+        process: bool = False, access: dict[str, Any] | None = None) -> FileMetadata:
         """Upload ``source`` (bytes or a seekable binary file) in resumable chunks.
 
         Memory is one chunk. Each chunk is digest-checked and, after a retryable
@@ -336,11 +353,13 @@ class FilesClient:
         from there, up to ``max_attempts`` consecutive failures; the session is then
         left in place (pass its ``upload_id`` back to continue). ``verify_digest``
         sends the whole-file SHA-256 so the server rejects corrupt content.
+        ``process``/``access`` are passed to :meth:`start_upload`.
         """
         src = _Source(source, size)
         session = (self.upload_status(upload_id) if upload_id is not None else
             self.start_upload(key, src.size, bucket=bucket, content_type=content_type,
-                sha256=src.sha256() if verify_digest else None))
+                sha256=src.sha256() if verify_digest else None,
+                process=process, access=access))
         step = min(chunk_size, session.max_chunk_bytes or chunk_size)
         failures = 0
         while session.offset < src.size:
@@ -429,10 +448,17 @@ class AsyncFilesClient:
 
     async def start_upload(self, key: str, size: int, *, bucket: str | None = None,
         content_type: str = "application/octet-stream",
-        sha256: str | None = None) -> UploadSession:
-        """Open a resumable upload (``size`` required); nothing is visible until completed."""
+        sha256: str | None = None, process: bool = False,
+        access: dict[str, Any] | None = None) -> UploadSession:
+        """Open a resumable upload (``size`` required); nothing is visible until completed.
+
+        ``process=True`` queues an OpenETL media work item when the upload commits
+        (reported as ``media_work`` on the completed metadata); ``access`` is the
+        parent's access attributes children inherit (``{}`` declares an open file)
+        and requires ``process=True``.
+        """
         return _session(await self._t.request_bytes("POST", "/v1/files/uploads",
-            content=_start_body(key, size, bucket, content_type, sha256),
+            content=_start_body(key, size, bucket, content_type, sha256, process, access),
             content_type="application/json", accept="application/json"), 201)
 
     async def upload_chunk(self, upload_id: str, offset: int, data: bytes, *,
@@ -465,7 +491,8 @@ class AsyncFilesClient:
     async def upload(self, key: str, source: bytes | BinaryIO, *, size: int | None = None,
         bucket: str | None = None, content_type: str = "application/octet-stream",
         chunk_size: int = _DEFAULT_CHUNK, max_attempts: int = 5,
-        upload_id: str | None = None, verify_digest: bool = True) -> FileMetadata:
+        upload_id: str | None = None, verify_digest: bool = True,
+        process: bool = False, access: dict[str, Any] | None = None) -> FileMetadata:
         """Upload ``source`` (bytes or a seekable binary file) in resumable chunks.
 
         Memory is one chunk. Each chunk is digest-checked and, after a retryable
@@ -473,11 +500,13 @@ class AsyncFilesClient:
         from there, up to ``max_attempts`` consecutive failures; the session is then
         left in place (pass its ``upload_id`` back to continue). ``verify_digest``
         sends the whole-file SHA-256 so the server rejects corrupt content.
+        ``process``/``access`` are passed to :meth:`start_upload`.
         """
         src = _Source(source, size)
         session = (await self.upload_status(upload_id) if upload_id is not None else
             await self.start_upload(key, src.size, bucket=bucket, content_type=content_type,
-                sha256=src.sha256() if verify_digest else None))
+                sha256=src.sha256() if verify_digest else None,
+                process=process, access=access))
         step = min(chunk_size, session.max_chunk_bytes or chunk_size)
         failures = 0
         while session.offset < src.size:

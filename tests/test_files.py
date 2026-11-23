@@ -388,3 +388,27 @@ async def test_async_resumable_upload_round_trip() -> None:
         await client.upload(KEY, payload, chunk_size=4)
         await client.abort_upload('u1')
     assert server.completed == payload
+
+
+def test_upload_sends_process_and_access_only_when_set() -> None:
+    bodies: list[dict[str, Any]] = []
+    work = {'work_id': 'w1', 'state': 'queued', 'created': True,
+        'status_url': '/v1/media/work/w1'}
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == 'POST' and request.url.path == '/v1/files/uploads':
+            bodies.append(json.loads(request.content))
+            return httpx.Response(201, json=dict(upload_id='u1', bucket='tenant-a', key=KEY,
+                size=0, offset=0, complete=True, expires_ns=1))
+        meta = metadata()
+        if bodies[-1].get('process'):
+            meta['media_work'] = work
+        return httpx.Response(201, json=meta)
+    with FilesClient('http://test', transport=httpx.MockTransport(handler)) as client:
+        plain = client.upload(KEY, b'', content_type='image/png')
+        processed = client.upload(KEY, b'', content_type='image/png', process=True,
+            access={'classification': 'internal'})
+    assert 'process' not in bodies[0] and 'access' not in bodies[0]
+    assert plain.media_work is None
+    assert bodies[1]['process'] is True
+    assert bodies[1]['access'] == {'classification': 'internal'}
+    assert processed.media_work == work

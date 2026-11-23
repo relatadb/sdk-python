@@ -527,6 +527,23 @@ session (`start_upload`, `upload_chunk`, `upload_status`, `complete_upload`,
 `abort_upload`, and the resuming `upload` helper), plus `head`, `list` and
 `media_content`.
 
+**Uploading a media file for processing (#5938, #5989).** Pass `process=True`
+to `upload` (or `start_upload`) to queue an OpenETL media work item when the
+upload commits; `access` carries the parent's access attributes that derived
+children inherit (`{}` declares an open file) and is rejected with a 400
+without `process=True`. Both are omitted from the request by default. The
+completed metadata then carries `media_work`: `{work_id, state, created,
+status_url}` when an item was queued, or `{queued: False, reason, status?}`
+when it was not (for example, a non-image/audio/video content type).
+
+```python
+with open("scan.png", "rb") as fh:
+    meta = files.upload("scans/scan.png", fh, content_type="image/png",
+                        process=True, access={"classification": "internal"})
+if meta.media_work and "work_id" in meta.media_work:
+    item = MediaWorkClient.from_client(client).get(meta.media_work["work_id"])
+```
+
 **Admin-listener reachability (`admin_base_url`, #2321):** on a hardened
 deployment, `/admin/*` is mounted only
 on the loopbound admin control-plane listener (`RELATA_ADMIN_BIND`, default
