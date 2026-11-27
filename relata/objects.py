@@ -372,6 +372,8 @@ class ObjectClient:
 
         Raises:
             :class:`~relata.exceptions.ForbiddenError`: Not authorised.
+            :class:`~relata.exceptions.NotFoundError`: No live row with that id
+                (also when a queued write of it has not landed yet).
         """
         _validate_object_type(object_type)
         eff_purpose = purpose or self._purpose

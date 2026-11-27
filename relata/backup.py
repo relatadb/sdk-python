@@ -31,7 +31,7 @@ def _restore_payload(
         payload["point_in_time_ns"] = point_in_time_ns
     if force:
         payload["force"] = True
-    if confirmation_id is not None:
+    if confirmation_id:
         payload["confirmation_id"] = confirmation_id
     return payload
 
