@@ -46,6 +46,27 @@ _CONTENT_TYPE = "application/json"
 DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
 
+def _decode_body(content_type: str, raw: bytes) -> object:
+    """Decode a success body by its media type (#6778).
+
+    JSON (``application/json``, ``*+json``, or no type) is parsed, ``{}`` when
+    empty; ``text/*`` and ``application/x-ndjson`` return ``str``; any other
+    type returns the raw ``bytes``.
+    """
+    media, _, params = content_type.partition(";")
+    media = media.strip().lower()
+    if not media or media == "application/json" or media.endswith("+json"):
+        return json.loads(raw) if raw.strip() else {}
+    if media.startswith("text/") or media == "application/x-ndjson":
+        charset = "utf-8"
+        for param in params.split(";"):
+            key, _, value = param.partition("=")
+            if key.strip().lower() == "charset" and value.strip():
+                charset = value.strip().strip('"')
+        return raw.decode(charset, errors="replace")
+    return raw
+
+
 @dataclass(frozen=True)
 class _RawHttpResponse:
     """Capped buffered bytes and copied headers; the HTTP body is already closed."""
@@ -735,6 +756,12 @@ class HttpTransport:
         """Perform a GET request and return the decoded JSON body."""
         return self._send_with_retry("GET", path)
 
+    def get_content(self, path: str) -> object:
+        """GET a route that may answer in several media types, decoded by
+        :func:`_decode_body` from the response ``Content-Type``."""
+        resp = self.request_bytes("GET", path, accept="*/*")
+        return _decode_body(resp.headers.get("content-type", ""), resp.content)
+
     def post(
         self,
         path: str,
@@ -1071,6 +1098,11 @@ class AsyncHttpTransport:
     async def get(self, path: str) -> dict[str, Any]:
         """Perform an async GET request and return the decoded JSON body."""
         return await self._send_with_retry("GET", path)
+
+    async def get_content(self, path: str) -> object:
+        """Async :meth:`HttpTransport.get_content`."""
+        resp = await self.request_bytes("GET", path, accept="*/*")
+        return _decode_body(resp.headers.get("content-type", ""), resp.content)
 
     async def post(
         self,
