@@ -288,6 +288,17 @@ def _admin_listener_hint(path: str) -> str:
     )
 
 
+def _mcp_error_text(body: dict[str, Any]) -> str | None:
+    """``content[0].text`` of an MCP ``isError`` envelope (#6779)."""
+    content = body.get("content")
+    if body.get("isError") is True and isinstance(content, list) and content:
+        first = content[0]
+        text = first.get("text") if isinstance(first, dict) else None
+        if isinstance(text, str) and text:
+            return text
+    return None
+
+
 def _classify_error(
     *args: Any,
     **kwargs: Any,
@@ -337,7 +348,8 @@ def _classify_error_inner(
         body.get("request_id") if isinstance(body.get("request_id"), str) else None
     )
     detail = next((body[key] for key in ("detail", "error", "message")
-                   if isinstance(body.get(key), str) and body[key]), "unknown server error")
+                   if isinstance(body.get(key), str) and body[key]), None)
+    detail = detail or _mcp_error_text(body) or "unknown server error"
     # #2321 (ADR-0261): a bare 404 with no detail text against an
     # admin-only path almost always means this client is pointed at
     # the data-plane listener rather than the loopbound admin listener those
