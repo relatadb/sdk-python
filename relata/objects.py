@@ -353,38 +353,35 @@ class ObjectClient:
         *,
         purpose: str | None = None,
         expected_version: int | None = None,
-    ) -> None:
+    ) -> dict[str, Any]:
         """Bi-temporally delete an object by primary key.
 
-        Sends ``_deleted: true`` via the ingest path — the same WAL tombstone
-        mechanism the server uses internally. History is preserved; the row is
-        excluded from live scans and queries.
+        Wraps ``DELETE /v1/objects/{type}/{id}``, the same synchronous door the
+        Go and TypeScript ``delete`` use, so a refused delete (ACL, WORM) raises
+        instead of being dropped by the queued ingest path. History is
+        preserved; the row is excluded from live scans and queries.
 
         Args:
             object_type: Object type name.
             object_id:   Primary key of the object to delete.
-            purpose:     Ingest purpose; falls back to the client default.
+            purpose:     Purpose; falls back to the client default.
+            expected_version: When set, the delete is conditional (``If-Match``).
+
+        Returns:
+            The server's delete receipt.
 
         Raises:
             :class:`~relata.exceptions.ForbiddenError`: Not authorised.
         """
         _validate_object_type(object_type)
         eff_purpose = purpose or self._purpose
-        if expected_version is not None:
-            # #5766: conditional tombstone — DELETE with If-Match.
-            self._t.delete(
-                _object_path(object_type, object_id, eff_purpose),
-                extra_headers=_precondition_headers(expected_version, False),
-            )
-            return
-        params: dict[str, str] = {"object_type": object_type}
-        if eff_purpose:
-            params["purpose"] = eff_purpose
-        body = _row_to_ndjson([{"id": object_id, "_deleted": True}])
-        self._t.post_raw(
-            "/v1/ingest?" + urlencode(params),
-            body,
-            content_type="application/x-ndjson",
+        return self._t.delete(
+            _object_path(object_type, object_id, eff_purpose),
+            extra_headers=(
+                None
+                if expected_version is None
+                else _precondition_headers(expected_version, False)
+            ),
         )
 
     def delete_where(self, object_type: str, where: str) -> dict[str, Any]:
@@ -689,24 +686,17 @@ class AsyncObjectClient:
         *,
         purpose: str | None = None,
         expected_version: int | None = None,
-    ) -> None:
+    ) -> dict[str, Any]:
         """Async equivalent of :meth:`ObjectClient.delete`."""
         _validate_object_type(object_type)
         eff_purpose = purpose or self._purpose
-        if expected_version is not None:
-            await self._t.delete(
-                _object_path(object_type, object_id, eff_purpose),
-                extra_headers=_precondition_headers(expected_version, False),
-            )
-            return
-        params: dict[str, str] = {"object_type": object_type}
-        if eff_purpose:
-            params["purpose"] = eff_purpose
-        body = _row_to_ndjson([{"id": object_id, "_deleted": True}])
-        await self._t.post_raw(
-            "/v1/ingest?" + urlencode(params),
-            body,
-            content_type="application/x-ndjson",
+        return await self._t.delete(
+            _object_path(object_type, object_id, eff_purpose),
+            extra_headers=(
+                None
+                if expected_version is None
+                else _precondition_headers(expected_version, False)
+            ),
         )
 
     async def delete_where(self, object_type: str, where: str) -> dict[str, Any]:
