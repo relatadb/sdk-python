@@ -17,6 +17,25 @@ if TYPE_CHECKING:
     from relata.client import RelataClient
 
 
+def _restore_payload(
+    snapshot_id: str,
+    tenant: str | None,
+    point_in_time_ns: int | None,
+    force: bool,
+    confirmation_id: str | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"snapshot_id": snapshot_id}
+    if tenant is not None:
+        payload["tenant"] = tenant
+    if point_in_time_ns is not None:
+        payload["point_in_time_ns"] = point_in_time_ns
+    if force:
+        payload["force"] = True
+    if confirmation_id is not None:
+        payload["confirmation_id"] = confirmation_id
+    return payload
+
+
 class BackupRef:
     """A backup snapshot reference."""
 
@@ -138,14 +157,19 @@ class BackupClient:
         *,
         tenant: str | None = None,
         point_in_time_ns: int | None = None,
+        force: bool = False,
+        confirmation_id: str | None = None,
     ) -> str:
         """Trigger a restore from ``snapshot_id``. Returns the ``restore_id``
-        (job runs asynchronously; poll via :meth:`restore_status`)."""
-        payload: dict[str, Any] = {"snapshot_id": snapshot_id}
-        if tenant is not None:
-            payload["tenant"] = tenant
-        if point_in_time_ns is not None:
-            payload["point_in_time_ns"] = point_in_time_ns
+        (job runs asynchronously; poll via :meth:`restore_status`).
+
+        A restore is a two-person operation: the first call raises
+        :class:`~relata.exceptions.ForbiddenError` with ``code ==
+        "TWO_PERSON_REQUIRED"`` and a ``confirmation_id``. Repeat the call with
+        that ``confirmation_id`` from a client holding a different admin
+        credential (for example a token minted with scope ``admin:backup``).
+        ``force=True`` restores over writes made after the snapshot."""
+        payload = _restore_payload(snapshot_id, tenant, point_in_time_ns, force, confirmation_id)
         resp = self._t.post("/admin/restore", payload)
         return str(resp.get("restore_id", ""))
 
@@ -245,12 +269,10 @@ class AsyncBackupClient:
         *,
         tenant: str | None = None,
         point_in_time_ns: int | None = None,
+        force: bool = False,
+        confirmation_id: str | None = None,
     ) -> str:
-        payload: dict[str, Any] = {"snapshot_id": snapshot_id}
-        if tenant is not None:
-            payload["tenant"] = tenant
-        if point_in_time_ns is not None:
-            payload["point_in_time_ns"] = point_in_time_ns
+        payload = _restore_payload(snapshot_id, tenant, point_in_time_ns, force, confirmation_id)
         resp = await self._t.post("/admin/restore", payload)
         return str(resp.get("restore_id", ""))
 
