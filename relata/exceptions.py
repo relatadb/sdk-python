@@ -48,11 +48,18 @@ class RelataError(Exception):
             accepted before failing, else ``None`` (unknown).
         receipt_status: Server receipt state on the error body (for example
             ``"uncertain"``), else ``None``.
+        confirmation_id: On a ``TWO_PERSON_REQUIRED`` refusal, the id to send
+            back from a different admin credential to confirm the operation,
+            else ``None``.
+        confirmation_expires_at_ns: When that ``confirmation_id`` expires
+            (Unix nanoseconds), else ``None``.
     """
 
     task_id: str | None = None
     accepted: bool | None = None
     receipt_status: str | None = None
+    confirmation_id: str | None = None
+    confirmation_expires_at_ns: int | None = None
 
     def __init__(
         self,
