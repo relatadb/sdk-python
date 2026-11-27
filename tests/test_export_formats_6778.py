@@ -91,6 +91,7 @@ async def test_async_csv_with_rows_and_empty_type() -> None:
         ("application/json", b'{"a":1}', {"a": 1}),
         ("", b"", {}),
         ("text/csv; charset=latin-1", "é\n".encode("latin-1"), "é\n"),
+        ("text/csv; charset=x-unknown", b"a,b\n", "a,b\n"),
         ("application/octet-stream", b"\x00\x01", b"\x00\x01"),
     ],
 )

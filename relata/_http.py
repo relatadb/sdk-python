@@ -63,7 +63,10 @@ def _decode_body(content_type: str, raw: bytes) -> object:
             key, _, value = param.partition("=")
             if key.strip().lower() == "charset" and value.strip():
                 charset = value.strip().strip('"')
-        return raw.decode(charset, errors="replace")
+        try:
+            return raw.decode(charset, errors="replace")
+        except LookupError:
+            return raw.decode("utf-8", errors="replace")
     return raw
 
 
