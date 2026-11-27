@@ -204,6 +204,13 @@ def _with_object_type(resp: SearchResponse, object_type: str) -> SearchResponse:
     return resp
 
 
+def _export_result(object_type: str, fmt: str, body: object) -> dict[str, object]:
+    """Shape a ``/v1/export`` body: JSON objects as-is, text or bytes under ``content``."""
+    if isinstance(body, dict):
+        return body
+    return {"type": object_type, "format": fmt, "content": body}
+
+
 class RelataClient:
     """Synchronous and asynchronous client for the Relata HTTP API.
 
@@ -1165,9 +1172,23 @@ class RelataClient:
     # ------------------------------------------------------------------
 
     def export_data(self, object_type: str, *, format: str = "json") -> dict[str, object]:
-        """Bulk export all rows of a type (#967 Tier 5c)."""
+        """Bulk export all rows of a type (#967 Tier 5c).
+
+        JSON-shaped exports (``json``, ``stix``) return the decoded object. A
+        text export such as ``csv`` or ``jsonl`` returns
+        ``{"type", "format", "content"}`` with the body as a ``str`` in
+        ``content``; it is ``""`` when the type has no rows.
+        """
         qs = urlencode({"type": object_type, "format": format, "purpose": "export"})
-        return self._sync.get(f"/v1/export?{qs}")
+        return _export_result(object_type, format, self._sync.get_content(f"/v1/export?{qs}"))
+
+    async def aexport_data(
+        self, object_type: str, *, format: str = "json"
+    ) -> dict[str, object]:
+        """Async :meth:`export_data`."""
+        qs = urlencode({"type": object_type, "format": format, "purpose": "export"})
+        body = await self._async.get_content(f"/v1/export?{qs}")
+        return _export_result(object_type, format, body)
 
     def session_diff(self, session_id: str) -> dict[str, object]:
         """View uncommitted session changes."""

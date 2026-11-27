@@ -46,6 +46,30 @@ _CONTENT_TYPE = "application/json"
 DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
 
+def _decode_body(content_type: str, raw: bytes) -> object:
+    """Decode a success body by its media type (#6778).
+
+    JSON (``application/json``, ``*+json``, or no type) is parsed, ``{}`` when
+    empty; ``text/*`` and ``application/x-ndjson`` return ``str``; any other
+    type returns the raw ``bytes``.
+    """
+    media, _, params = content_type.partition(";")
+    media = media.strip().lower()
+    if not media or media == "application/json" or media.endswith("+json"):
+        return json.loads(raw) if raw.strip() else {}
+    if media.startswith("text/") or media == "application/x-ndjson":
+        charset = "utf-8"
+        for param in params.split(";"):
+            key, _, value = param.partition("=")
+            if key.strip().lower() == "charset" and value.strip():
+                charset = value.strip().strip('"')
+        try:
+            return raw.decode(charset, errors="replace")
+        except LookupError:
+            return raw.decode("utf-8", errors="replace")
+    return raw
+
+
 @dataclass(frozen=True)
 class _RawHttpResponse:
     """Capped buffered bytes and copied headers; the HTTP body is already closed."""
@@ -288,6 +312,17 @@ def _admin_listener_hint(path: str) -> str:
     )
 
 
+def _mcp_error_text(body: dict[str, Any]) -> str | None:
+    """``content[0].text`` of an MCP ``isError`` envelope (#6779)."""
+    content = body.get("content")
+    if body.get("isError") is True and isinstance(content, list) and content:
+        first = content[0]
+        text = first.get("text") if isinstance(first, dict) else None
+        if isinstance(text, str) and text:
+            return text
+    return None
+
+
 def _classify_error(
     *args: Any,
     **kwargs: Any,
@@ -344,7 +379,8 @@ def _classify_error_inner(
         body.get("request_id") if isinstance(body.get("request_id"), str) else None
     )
     detail = next((body[key] for key in ("detail", "error", "message")
-                   if isinstance(body.get(key), str) and body[key]), "unknown server error")
+                   if isinstance(body.get(key), str) and body[key]), None)
+    detail = detail or _mcp_error_text(body) or "unknown server error"
     # #2321 (ADR-0261): a bare 404 with no detail text against an
     # admin-only path almost always means this client is pointed at
     # the data-plane listener rather than the loopbound admin listener those
@@ -730,6 +766,12 @@ class HttpTransport:
         """Perform a GET request and return the decoded JSON body."""
         return self._send_with_retry("GET", path)
 
+    def get_content(self, path: str) -> object:
+        """GET a route that may answer in several media types, decoded by
+        :func:`_decode_body` from the response ``Content-Type``."""
+        resp = self.request_bytes("GET", path, accept="*/*")
+        return _decode_body(resp.headers.get("content-type", ""), resp.content)
+
     def post(
         self,
         path: str,
@@ -1066,6 +1108,11 @@ class AsyncHttpTransport:
     async def get(self, path: str) -> dict[str, Any]:
         """Perform an async GET request and return the decoded JSON body."""
         return await self._send_with_retry("GET", path)
+
+    async def get_content(self, path: str) -> object:
+        """Async :meth:`HttpTransport.get_content`."""
+        resp = await self.request_bytes("GET", path, accept="*/*")
+        return _decode_body(resp.headers.get("content-type", ""), resp.content)
 
     async def post(
         self,
