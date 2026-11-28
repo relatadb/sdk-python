@@ -366,11 +366,6 @@
       "contract": "relata.freshness/v1"
      }
     }
-   },
-   "expect_override": {
-    "python": {
-     "result": null
-    }
    }
   },
   {

@@ -88,18 +88,30 @@ def test_get_rejects_invalid_object_type() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_delete_sends_deleted_flag() -> None:
+def test_delete_uses_the_synchronous_objects_route() -> None:
     from relata.objects import ObjectClient
 
     def handler(req: httpx.Request) -> httpx.Response:
-        assert "object_type=HmSkill" in str(req.url)
-        rows = [json.loads(line) for line in req.content.decode().splitlines()]
-        assert rows[0]["id"] == "biosec.ioc"
-        assert rows[0]["_deleted"] is True
-        return httpx.Response(200, json={"accepted": 1})
+        assert req.method == "DELETE"
+        assert req.url.path == "/v1/objects/HmSkill/biosec.ioc"
+        assert req.url.params["purpose"] == "hm_ledger"
+        assert "if-match" not in req.headers
+        return httpx.Response(200, json={"deleted": True})
 
     c = ObjectClient(BASE, purpose="hm_ledger", transport=_mock(handler))
-    c.delete("HmSkill", "biosec.ioc")  # must not raise
+    assert c.delete("HmSkill", "biosec.ioc") == {"deleted": True}
+
+
+def test_delete_refused_by_the_server_raises() -> None:
+    from relata.exceptions import ServerError
+    from relata.objects import ObjectClient
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"status": 500, "detail": "failed to delete row"})
+
+    c = ObjectClient(BASE, purpose="p", transport=_mock(handler))
+    with pytest.raises(ServerError):
+        c.delete("HmSkill", "biosec.ioc")
 
 
 def test_delete_rejects_invalid_object_type() -> None:

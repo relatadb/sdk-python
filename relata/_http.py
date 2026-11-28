@@ -328,7 +328,9 @@ def _classify_error(
     **kwargs: Any,
 ) -> RelataError:
     """Classify an HTTP error and attach ingest receipt fields (``task_id``,
-    ``accepted``, ``receipt_status``) when the body carries them."""
+    ``accepted``, ``receipt_status``) and two-person confirmation fields
+    (``confirmation_id``, ``confirmation_expires_at_ns``) when the body carries
+    them."""
     error = _classify_error_inner(*args, **kwargs)
     body = args[1] if len(args) > 1 else kwargs.get("body")
     if isinstance(body, dict):
@@ -338,6 +340,11 @@ def _classify_error(
             error.accepted = body["accepted"]
         if isinstance(body.get("receipt_status"), str):
             error.receipt_status = body["receipt_status"]
+        if isinstance(body.get("confirmation_id"), str) and body["confirmation_id"]:
+            error.confirmation_id = body["confirmation_id"]
+        expires = body.get("expires_at_ns")
+        if isinstance(expires, int) and not isinstance(expires, bool):
+            error.confirmation_expires_at_ns = expires
     return error
 
 
