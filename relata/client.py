@@ -835,9 +835,10 @@ class RelataClient:
         - ``description`` (``str``) -- free-text note, not schema-enforced.
         - ``owner`` (``str``) -- tenant/agency owning this type.
         - ``properties`` (``list[dict]``) -- each ``{"name": str, "required":
-          bool, "state_machine": {"initial_state": str, "transitions":
-          [{"from": str, "to": str}, ...]}}``. ``state_machine`` constrains
-          that one property's value transitions.
+          bool, "type": str, "state_machine": {"initial_state": str,
+          "transitions": [{"from": str, "to": str}, ...]}}``. Every property
+          is registered with its ``type`` (``any`` when omitted);
+          ``state_machine`` constrains that one property's value transitions.
         - ``computed_columns`` (``list[dict]``) -- each ``{"name": str,
           "kind": "concat" | "static", "fields": list[str], "separator":
           str, "value": str}``.
